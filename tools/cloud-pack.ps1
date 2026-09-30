@@ -57,6 +57,14 @@ if (-not (Test-Path $dist)) {
   New-Item -ItemType Directory -Path $dist | Out-Null
 }
 $zip = Join-Path $dist ('svr-code-' + (Get-Date -Format 'yyyyMMdd-HHmm') + '.zip')
+# Never overwrite (let alone delete) an existing package: the same minute-stamp can already exist,
+# and that older zip may well be open in Explorer/being scanned -- Compress-Archive -Force would then
+# throw (and 'green smoke, exit 1' would look like the gate itself failed). Take the next free name.
+$n = 1
+while (Test-Path -LiteralPath $zip) {
+  $n++
+  $zip = Join-Path $dist ('svr-code-' + (Get-Date -Format 'yyyyMMdd-HHmm') + '-' + $n + '.zip')
+}
 Compress-Archive -Path $entry, $meta, $runsh -DestinationPath $zip -Force
 Write-Output ('      ' + $zip + '  (' + (Get-Item $zip).Length + ' bytes)')
 

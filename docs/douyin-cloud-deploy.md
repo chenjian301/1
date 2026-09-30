@@ -76,6 +76,7 @@ powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1
 # ① 用真进程 + 真 HTTP 请求跑 douyin-cloud\svr\smoke.mjs（41 项断言：3 个真实例 127.0.0.1:8099/8101/8102
 #    + 一个**假 code2session** 在 8100 —— 登录链路也在这里整条跑通，不连抖音云、不花一分钱）
 # ② 绿的才打包 → douyin-cloud\dist\svr-code-<时间戳>.zip（里面是 index.js + package.json + run.sh）
+#    同一分钟内重复跑会自动加 -2/-3 后缀、不覆盖旧包（旧包可能正被压缩软件或资源管理器占着）
 # ③ 打印控制台剩下要做的事
 ```
 
