@@ -61,8 +61,13 @@
 >    200 还顺带证明进程确实在 **8000** 上监听（平台的端口约定）。
 >    **注意上面这个域名与第 1 条那个历史域名只差一个 `j`** —— 这正是「域名必须现抄」的实证。
 >    客户端侧已经用 `tools\set-cloud-domain.ps1` 把它写进 `douyin-minigame\src\00-config.js` 并重拼 `game.js`。
->    剩下的唯一一项是环境变量（§3.5）：实测 `login.configured=false`、`sessionSecretIsRandom=true`
->    = `DOUYIN_APPID` / `DOUYIN_SECRET` / `SESSION_SECRET` **还都没配**。
+>    剩下的环境变量**也已配好并复验**（同日晚）：`DOUYIN_APPID` / `DOUYIN_SECRET` / `SESSION_SECRET` 在控制台加完
+>    并重新部署后，同一个域名上 `/api/health` 的 `login.configured` 由 `false` 翻成 **`true`**、
+>    `sessionSecretIsRandom` 由 `true` 翻成 **`false`**。再用一个**假 code** 打 `POST /api/profile` 得
+>    `{"ok":false,"error":"code2session_failed","errNo":40018,"errTips":"bad code"}` —— 上游只拒绝这个假 code
+>    （**不是** `40002 appid/secret 无效`），说明那串 `DOUYIN_SECRET` **真的被官方接受**（验法见 §3.5）。
+>    还没打开的唯一收紧项是 `REQUIRE_TOKEN=1`（`health.login.requireToken` 仍是 `false`），
+>    等客户端「登录 → 拿令牌 → 存档」跑通后再开。
 >
 > 下面是完整步骤。
 
@@ -359,6 +364,20 @@ curl.exe "https://你的默认域名/api/health"
   它绝不编造一个 openid 让你误以为登录已经通了
 - 上线前再加一条 `REQUIRE_TOKEN=1`：只收验签过的令牌，`openid:` 过渡通道彻底关掉
 
+**怎么确认那串 `DOUYIN_SECRET` 是真的对**（不用等真机 code，2026-09-30 实测过这条路）：拿一个**假 code** 打一次
+`POST /api/profile`，看上游回的 `errNo`：
+
+```powershell
+# payload 建议先落文件再 --data-binary @file：PowerShell 会把内联 JSON 的引号吃掉 → 服务端只会回 bad_json
+'{"code":"test"}' | Set-Content -Path "$env:TEMP\p.json" -Encoding ASCII -NoNewline
+curl.exe -sS -X POST "https://你的默认域名/api/profile" -H "content-type: application/json" --data-binary "@$env:TEMP\p.json"
+# errNo 40018 "bad code"        -> 凭据被上游接受（AppID + 密钥都对），只差一个真 code
+# errNo 40002 appid/secret 无效 -> AppID 或密钥配错了，或加到了另一个环境
+```
+
+**2026-09-30 实测**：这条探针回的就是 `{"ok":false,"error":"code2session_failed","errNo":40018,"errTips":"bad code"}`
+—— 即环境变量确实生效、且密钥被官方接受。
+
 ## 4. 抄下域名并验证服务
 
 在「服务详情 → 域名」里会看到默认域名。**2026-09-30 实测存活的是这个（现抄，别复用旧值）**：
@@ -433,16 +452,21 @@ curl.exe "https://你的默认域名/api/health"
 
 ```powershell
 # ① 用真 code 换 openid + 令牌（code 来自 tt.login，一次性、30 秒内有效，只能从真机/模拟器日志里拿）
-curl.exe -X POST "https://你的默认域名/api/profile" -H "content-type: application/json" -d "{\"code\":\"你的code\"}"
-#    失败看 errNo：code 用过/过期、或 AppID 与密钥不匹配（密钥要配在服务端环境变量里）
+#    payload 先落文件再用 @file —— 别把 JSON 内联进 -d：PowerShell 5.1 会破坏内联引号，
+#    服务端只会回 {"ok":false,"error":"bad_json"}（2026-09-30 实测踩到，见 §3.5）
+'{"code":"YOUR_CODE_HERE"}' | Set-Content -Path "$env:TEMP\p.json" -Encoding ASCII -NoNewline
+curl.exe -sS -X POST "https://你的默认域名/api/profile" -H "content-type: application/json" --data-binary "@$env:TEMP\p.json"
+#    失败看 errNo：40018 bad code = 凭据是对的、这个 code 用过/过期；40002 = AppID 与密钥不匹配
 
 # ② 拿令牌写/读存档（这一步不需要真机，随便验）
-curl.exe -X POST "https://你的默认域名/api/save" -H "content-type: application/json" -d "{\"token\":\"上一步的token\",\"save\":{\"v\":1,\"balanceVersion\":1,\"level\":7}}"
-curl.exe "https://你的默认域名/api/save?token=上一步的token"
+'{"token":"PASTE_TOKEN_HERE","save":{"v":1,"balanceVersion":1,"level":7}}' | Set-Content -Path "$env:TEMP\p.json" -Encoding ASCII -NoNewline
+curl.exe -sS -X POST "https://你的默认域名/api/save" -H "content-type: application/json" --data-binary "@$env:TEMP\p.json"
+curl.exe -sS "https://你的默认域名/api/save?token=PASTE_TOKEN_HERE"
 
 # ③ 过渡通道（客户端还没接登录时用）：会回 verified:false，且只写进 openid: 命名空间
-curl.exe -X POST "https://你的默认域名/api/save" -H "content-type: application/json" -d "{\"openid\":\"test-openid\",\"save\":{\"v\":1,\"level\":7}}"
-curl.exe "https://你的默认域名/api/save?openid=test-openid"
+'{"openid":"test-openid","save":{"v":1,"level":7}}' | Set-Content -Path "$env:TEMP\p.json" -Encoding ASCII -NoNewline
+curl.exe -sS -X POST "https://你的默认域名/api/save" -H "content-type: application/json" --data-binary "@$env:TEMP\p.json"
+curl.exe -sS "https://你的默认域名/api/save?openid=test-openid"
 ```
 
 > ⚠️ 现在的存档是**进程内存**（重启即失）。真的做云存档时换成 SQLite 或 Redis，

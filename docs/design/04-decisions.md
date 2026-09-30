@@ -45,8 +45,9 @@
   **2026-09-30 最终复核：我们的代码已经在线上跑起来了**（控制台版本 3，Git发布 `chenjian301/1` / `main`）——
   当前存活的默认域名是 `https://1mfjj3tamsd9m-env-XHvhMYJ9qm.service.douyincloud.run`（与上面那个旧值只差一个 `j`），
   实测 `/`、`/api/health`、`/api/version` 全部 `200`，`/api/health` 自报 `service:"phaser-game-svr" v0.2.0`
-  → 第 2 条里「能不能部署上去」这半截**整条已经有了确定答案（含运行期）**；剩下的只是环境变量
-  （实测 `login.configured=false`、`sessionSecretIsRandom=true`）。详见 `docs\douyin-cloud-deploy.md` 开头复核第 8 条；
+  → 第 2 条里「能不能部署上去」这半截**整条已经有了确定答案（含运行期）**。环境变量也在同日配好并复验：
+  `login.configured=true`、`sessionSecretIsRandom=false`，且用一个假 code 打 `/api/profile` 回
+  `errNo 40018 bad code`（**不是** `40002` 凭据错）→ 密钥被上游接受。详见 `docs\douyin-cloud-deploy.md` 开头复核第 8 条；
   ② 控制台里当前活着的是模板
   演示服务 `demo-svr`（**`auto_deploy_add` 是它的路径规则名、不是服务名**；路由只有 `/api/get_open_id`、`/api/text/antidirt`，**没有 `/api/health`**）；
   ③ **抖音云没有官方 CLI**（只有控制台里的 Git 代码 / Docker 镜像两种部署方式，官方模板 README 原文），
