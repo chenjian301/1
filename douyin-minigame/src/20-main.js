@@ -8,7 +8,14 @@
  *     逻辑层自己维护 `WORLD.now()`，所以逻辑可重放、能在 node 里断言。
  *
  * 触摸路由（只此一处，修上一版"点 UI 顺带攻击"的 bug）：
- *   面板开着 → 面板吃（含它的返回键）；否则 → 15-input 吃（摇杆 + 吸底圆形功能键）。
+ *   ① 界面在登录 / 创建角色 → G.LOGIN 吃；
+ *   ② 面板卡片开着且这一点落在**卡片里**（或关闭键上）→ 18-panels 吃；
+ *   ③ 其余一律给 15-input（摇杆 + 右下圆形功能键）。
+ *   第 ② 条的"卡片里"是 A4 的关键：卡片只占 1/3 屏，**卡片外面照旧能推摇杆**，
+ *   加上 step() 不再因为面板开着而 return，"打开背包 / 设置时游戏不停止"才真的成立。
+ *
+ * 界面状态机（A4）：'welcome'（登录）→ 'createRole'（创建角色 / 输入昵称）→ 'playing'。
+ *   只有 'playing' 才跑世界逻辑，登录界面上的世界是静止的（还没登录，不该被怪打）。
  *
  * 玩法结算（经验 / 金币 / 掉箱 / 开箱 / 装备 / 商城 / 公会）放在这里的原因：
  *   它是**改存档的唯一地方**。阶段 B 起把这些函数原样搬到服务端即可 ——
@@ -56,7 +63,12 @@ G.GAME = (function () {
     cloud: '',
     fingerprint: '',
     now: 0,
-    panelClosePressed: false
+    /** 当前界面：'welcome'（登录）/ 'createRole'（创建角色）/ 'playing'（游戏里）—— A4 */
+    screen: 'welcome',
+    /** 本机账号（G.ACCOUNT.load() 的结果；没登录时是 null）—— A4 */
+    account: null,
+    /** 这一次触摸落在面板卡片里（卡片外照旧给摇杆 / 功能键）—— A4 */
+    panelTouch: false
   };
 
   /** 屏幕中央的一条提示（小游戏没有原生 toast，自绘最省事） */
@@ -91,6 +103,21 @@ G.GAME = (function () {
     PLAT.onTouch({ start: onTouchStart, move: onTouchMove, end: onTouchEnd });
     PLAT.onShow(onLifecycle);
 
+    // 账号与界面（A4）：先读本机账号，再决定停在"登录 / 创建角色"还是直接进游戏
+    state.account = G.ACCOUNT.load();
+    if (!state.account && state.save.name) {
+      // 老存档（v1 迁移过来的）自带角色名：补一条本机账号记录，玩家不用重新注册
+      state.account = G.ACCOUNT.create({ name: state.save.name, mode: 'local', at: Math.round(state.now) });
+      G.ACCOUNT.persist(state.account);
+    }
+    G.LOGIN.setHasAccount(!!state.account);
+    if (state.account && state.save.name) {
+      state.screen = 'playing';
+    } else {
+      state.screen = state.account ? 'createRole' : 'welcome';
+      G.LOGIN.open(state.screen);
+    }
+
     state.running = true;
     state.now = WORLD.now();
     state.lastTickAt = Date.now();
@@ -118,12 +145,228 @@ G.GAME = (function () {
     state.saveOk = SAVE.write(state.save);
   }
 
+  /* ------------------------------------------------ 账号 / 登录 / 建角色（A4 新增） */
+
+  /**
+   * 创建角色并进入游戏：**唯一的"进游戏"入口**（登录流程与 node 冒烟测试都走它）。
+   * 只做本机能做的事：写存档里的角色名 + 登记账号 + 切界面。
+   * 昵称唯一性里"服务端那一半"在 createRoleAction 里已经先做完，到这里名字必定可用。
+   */
+  function beginPlaying(rawName) {
+    var name = G.ACCOUNT.sanitizeName(rawName) || G.ACCOUNT.suggest(Math.round(state.now));
+    state.save.name = name;
+    var account = state.account || G.ACCOUNT.create({ name: name, mode: 'local', at: Math.round(state.now) });
+    state.account = G.ACCOUNT.update(account, { name: name, at: Math.round(state.now) });
+    G.LOGIN.setHasAccount(true);
+    state.screen = 'playing';
+    state.panelTouch = false;
+    PANELS.close();
+    writeSave();
+    flash('欢迎，' + name + '！点右下「自动」可开启自动战斗', 3600);
+    return name;
+  }
+
+  /**
+   * 昵称在服务端也占一个坑（只有配了 cloudBase 才发包）。
+   * 约定：**服务端不可用不阻断建号** —— 返回 ok:true + source:'local' 并附一句说明，
+   * 阶段 A 的铁律是"单机永远能玩"（决策 #10）。
+   */
+  function claimNameOnline(name) {
+    return PLAT.cloud('/api/name', {
+      method: 'POST',
+      data: { name: name, account: state.account ? state.account.id : '' }
+    })
+      .then(function (res) {
+        var body = res && res.data ? res.data : {};
+        if (body.ok === true) return { ok: true, source: 'server' };
+        if (body.error === 'name_taken') return { ok: false, source: 'server', reason: 'taken' };
+        return { ok: true, source: 'local', note: '服务端未就绪（' + (body.error || 'unknown') + '）→ 仅本机去重' };
+      })
+      .catch(function () {
+        return { ok: true, source: 'local', note: '连不上服务端 → 仅本机去重' };
+      });
+  }
+
+  /** 登录：tt.login → /api/profile（真 code2session）→ 本机账号；任何一环失败都降级成本机离线账号 */
+  function loginAction() {
+    if (G.LOGIN.isBusy()) return;
+    G.LOGIN.setBusy(true, '正在登录…');
+    var settle = function (note) {
+      G.LOGIN.setBusy(false, note || '');
+      G.LOGIN.setHasAccount(!!state.account);
+      if (state.save.name) {
+        state.screen = 'playing';
+        flash('欢迎回来，' + state.save.name, 2600);
+      } else {
+        state.screen = 'createRole';
+        G.LOGIN.open('createRole');
+      }
+    };
+    var localAccount = function (note) {
+      state.account = G.ACCOUNT.create({ name: state.save.name || '', mode: 'local', at: Math.round(state.now) });
+      settle(note);
+    };
+
+    if (!PLAT.hasTt()) {
+      localAccount('测试环境没有平台登录接口 → 使用本机离线账号（正式包里会走抖音登录）');
+      return;
+    }
+    PLAT.login().then(function (credentials) {
+      if (!credentials) {
+        localAccount('拿不到平台登录 code → 使用本机离线账号');
+        return;
+      }
+      if (!CONFIG.cloudBase) {
+        localAccount('已连上抖音，但没配云后端地址 → 使用本机离线账号');
+        return;
+      }
+      return PLAT.cloud('/api/profile', {
+        method: 'POST',
+        data: { code: credentials.code, anonymousCode: credentials.anonymousCode }
+      })
+        .then(function (res) {
+          var body = res && res.data ? res.data : {};
+          if (body.ok !== true) {
+            localAccount('云登录被拒（' + (body.error || 'unknown') + '）→ 本机离线账号');
+            return;
+          }
+          state.account = G.ACCOUNT.create({
+            id: body.account || '',
+            name: state.save.name || '',
+            mode: 'douyin',
+            openid: body.openid || '',
+            token: body.token || '',
+            at: Math.round(state.now)
+          });
+          G.ACCOUNT.persist(state.account);
+          settle('抖音账号登录成功' + (body.anonymous ? '（匿名 openid）' : ''));
+        })
+        .catch(function (error) {
+          localAccount('连不上云后端：' + (error && error.message ? error.message : '未知错误') + ' → 本机离线账号');
+        });
+    });
+  }
+
+  /** 创建角色：先本地校验（格式 + 本机去重），再（可选）服务端占位，最后 beginPlaying */
+  function createRoleAction() {
+    if (G.LOGIN.isBusy()) return;
+    var check = G.ACCOUNT.validate(G.LOGIN.draftName());
+    if (!check.ok) {
+      G.LOGIN.setMessage(G.ACCOUNT.reasonText(check.reason));
+      return;
+    }
+    var finish = function (note) {
+      beginPlaying(check.name);
+      G.LOGIN.setBusy(false, note || '');
+    };
+    if (!PLAT.hasTt() || !CONFIG.cloudBase) {
+      finish('昵称已在本机登记（离线去重）');
+      return;
+    }
+    G.LOGIN.setBusy(true, '正在校验昵称…');
+    claimNameOnline(check.name).then(function (result) {
+      if (!result.ok) {
+        G.LOGIN.setBusy(false, '昵称「' + check.name + '」已被占用，换一个');
+        return;
+      }
+      finish(result.source === 'server' ? '昵称 ' + check.name + ' 已在服务端登记' : result.note);
+    });
+  }
+
+  /** 平台键盘输入昵称（没有 showKeyboard 时退回随机昵称，并告诉玩家为什么） */
+  function typeNameAction() {
+    PLAT.editText({ defaultValue: G.LOGIN.draftName(), maxLength: BAL.account.nameMax }).then(function (value) {
+      if (value === null || value === undefined) {
+        G.LOGIN.randomName(Math.round(state.now) + 31);
+        G.LOGIN.setMessage('平台键盘不可用 → 已换成随机昵称「' + G.LOGIN.draftName() + '」，可以一直点「换一个」');
+        return;
+      }
+      G.LOGIN.setDraftName(value);
+      var check = G.LOGIN.draftName() ? G.ACCOUNT.validate(G.LOGIN.draftName()) : { ok: false, reason: 'empty' };
+      G.LOGIN.setMessage(check.ok ? '昵称可用：' + G.LOGIN.draftName() : G.ACCOUNT.reasonText(check.reason));
+    });
+  }
+
+  /** 登录 / 创建角色界面上的按钮 → 动作（与 PANELS 的 action 同构，20-main 统一执行） */
+  function handleLoginAction(action) {
+    if (!action) return;
+    if (action.type === 'login') loginAction();
+    else if (action.type === 'createRole') createRoleAction();
+    else if (action.type === 'typeName') typeNameAction();
+    else if (action.type === 'randomName') {
+      G.LOGIN.randomName(Math.round(state.now) + 17);
+      G.LOGIN.setMessage('已换一个随机昵称：' + G.LOGIN.draftName());
+    } else if (action.type === 'newAccount') {
+      G.ACCOUNT.forget();
+      state.account = null;
+      G.LOGIN.setHasAccount(false);
+      G.LOGIN.setMessage('本机账号已清除（存档与昵称注册表保留）');
+    }
+  }
+
+  /**
+   * 自动战斗的**走位**那一半（用户要求："自动战斗时不仅会自动释放技能，还会自动走向最近的怪物"）。
+   * 出手由 14-world.playerAttack 负责（它本来就是自动的），这里只负责"走过去"：
+   *   1. 摇杆只要推着就手动优先 —— 自动模式随时可以被玩家接管；
+   *   2. 没有目标 / 目标死了就按"视野内最近"重选（与出手共用同一份 pickTarget / targetId）；
+   *   3. 走到 `怪半径 + 攻击距离 × auto.moveStopRatio` 就站住：贴脸打容易被围殴，
+   *      这个比例就是"贴上去"和"留半个身位"之间的取舍（在 balance 里，不在代码里）。
+   * 返回当前目标（自检要断言"确实朝着最近的怪走了"）。
+   */
+  function autoStep(player, stats, dtMs) {
+    var dtSec = dtMs / 1000;
+    if (player.dead) {
+      PLAYER.move(player, 0, 0, dtSec, stats);
+      return null;
+    }
+    var target = WORLD.monsterById(player.targetId);
+    if (!target && WORLD.now() >= player.targetAt) {
+      target = WORLD.pickTarget(player);
+      player.targetId = target ? target.id : 0;
+      player.targetAt = WORLD.now();
+    }
+    if (!target) {
+      PLAYER.move(player, 0, 0, dtSec, stats);
+      return null;
+    }
+    var dx = target.x - player.x;
+    var dy = target.y - player.y;
+    var dist = Math.sqrt(dx * dx + dy * dy);
+    var reach = target.radius + BAL.player.attackRange * BAL.auto.moveStopRatio;
+    if (dist <= reach || dist < 0.0001) {
+      PLAYER.move(player, 0, 0, dtSec, stats);
+      // 站住也要面向目标，否则会出现"背着脸砍"
+      if (dist > 0.0001) {
+        player.facing.x = dx / dist;
+        player.facing.y = dy / dist;
+      }
+      return target;
+    }
+    PLAYER.move(player, dx, dy, dtSec, stats);
+    return target;
+  }
+
+  /** 自动战斗开关（右下「自动」按钮）：写进存档，重开游戏还记得 */
+  function toggleAutoBattle() {
+    var settings = state.save.settings;
+    settings.autoBattle = settings.autoBattle !== true;
+    writeSave();
+    flash(settings.autoBattle ? '自动战斗已开启：自动走向视野内最近的怪' : '自动战斗已关闭：手动摇杆走位', 2200);
+    return settings.autoBattle;
+  }
+
   /* ---------------------------------------------------------------- 逻辑步 */
 
-  /** 一个逻辑帧（固定 1/60 秒） */
+  /**
+   * 一个逻辑帧（固定 1/60 秒）。
+   * A4 的两处关键改动：
+   *   1. 只有 `screen === 'playing'` 才跑世界 —— 登录 / 创建角色界面上的世界是静止的；
+   *   2. **面板开着不再暂停世界**（用户要求"打开背包、设置等界面时游戏不停止"）：
+   *      卡片只占 1/3 屏、卡片外还能推摇杆，于是玩家可以边开着背包边跑图。
+   *      代价写在 04-decisions #10：站着开箱会被怪打 —— 这是"不暂停"的必然结果。
+   */
   function step(dtMs) {
-    // 面板打开时暂停世界：阶段 A 的取舍（否则站着开箱会被怪打死）
-    if (PANELS.isOpen()) return;
+    if (state.screen !== 'playing') return;
 
     var player = state.player;
     var stats = state.stats;
@@ -133,10 +376,18 @@ G.GAME = (function () {
         PLAYER.respawn(player, stats);
         flash('已复活（原地、半血）', 1200);
       }
+      PLAYER.move(player, 0, 0, dtMs / 1000, stats);
     } else {
       var direction = INPUT.direction();
-      // 摇杆推得越满走得越快（magnitude 就是模拟量），这是"手感"的一半
-      PLAYER.move(player, direction.x * direction.magnitude, direction.y * direction.magnitude, dtMs / 1000, stats);
+      if (direction.magnitude > 0) {
+        // 摇杆推得越满走得越快（magnitude 就是模拟量），这是"手感"的一半；手动永远优先
+        PLAYER.move(player, direction.x * direction.magnitude, direction.y * direction.magnitude, dtMs / 1000, stats);
+      } else if (state.save.settings.autoBattle) {
+        // 自动战斗：自动走向视野内最近的怪（出手本来就有 14-world.playerAttack 负责）
+        autoStep(player, stats, dtMs);
+      } else {
+        PLAYER.move(player, 0, 0, dtMs / 1000, stats);
+      }
     }
     PLAYER.decayKnockback(player);
 
@@ -434,8 +685,11 @@ G.GAME = (function () {
       return;
     }
     state.resetArmed = false;
+    var keepName = state.save ? state.save.name : '';
     SAVE.clear();
     state.save = SAVE.create(BAL.season.worldSeed, 1);
+    // 角色名属于**账号**，不跟着存档一起清（否则玩家要重新起名，昵称也还占着）
+    state.save.name = keepName;
     state.player = PLAYER.create(state.save);
     state.stats = PLAYER.statsOf(state.save.level, state.save.loadout);
     state.player.hp = state.stats.hpMax;
@@ -448,19 +702,30 @@ G.GAME = (function () {
     flash('存档已重置', 1600);
   }
 
-  /** 吸底圆形功能键 → 打开对应面板 */
+  /** 右下功能键 → 打开 / 收起面板；「自动」是开关（用户要求"自动战斗设置为按钮，点击开启"） */
   function onHudButton(id) {
-    if (id === 'chest') PANELS.open('chest');
-    else if (id === 'bag') PANELS.open('bag');
-    else if (id === 'guild') PANELS.open('guild');
-    else if (id === 'menu') PANELS.open('menu');
+    if (id === 'auto') {
+      toggleAutoBattle();
+      return;
+    }
+    if (id === 'chest') togglePanel('chest');
+    else if (id === 'bag') togglePanel('bag');
+    else if (id === 'guild') togglePanel('guild');
+    else if (id === 'menu') togglePanel('menu');
+  }
+
+  /** 再点同一个功能键 = 收起面板（卡片只占 1/3 屏，功能键一直在，这是最顺手的关法） */
+  function togglePanel(panel) {
+    if (PANELS.isOpen() && PANELS.panelId() === panel) PANELS.close();
+    else PANELS.open(panel);
   }
 
   /** 面板 action → 具体操作（**唯一改存档的入口**，阶段 B 会被服务端接口替换） */
   function handleAction(action) {
     if (!action) return;
     var type = action.type;
-    if (type === 'open') PANELS.open(action.panel);
+    if (type === 'close') PANELS.close();
+    else if (type === 'open') PANELS.open(action.panel);
     else if (type === 'openChest') openChests(action.count || 1);
     else if (type === 'equip') equipFromBag(action.itemId);
     else if (type === 'salvageAll') salvageAll();
@@ -486,7 +751,11 @@ G.GAME = (function () {
       fps: state.fps,
       chunks: WORLD.loadedChunkCount(),
       activeMonsters: WORLD.activeMonsterCount(),
-      buttons: PANELS.isOpen() ? PANELS.buttons() : HUD.buttons({ save: state.save }),
+      /**
+       * 只有 HUD 的功能键在这里（面板的关闭键由 18-panels 自己命中）：
+       * 卡片只占 1/3 屏，功能键必须一直可点，所以它不随面板开合而变。
+       */
+      buttons: HUD.buttons({ save: state.save }),
       debug: state.debug,
       flash: state.flash,
       now: state.now,
@@ -494,7 +763,11 @@ G.GAME = (function () {
       selftest: state.selftest,
       cloud: state.cloud,
       fingerprint: state.fingerprint,
-      saveOk: state.saveOk
+      saveOk: state.saveOk,
+      /** A4：界面与账号（登录 / 创建角色屏要读；HUD 只读名字与等级） */
+      screen: state.screen,
+      account: state.account,
+      autoBattle: !!(state.save.settings && state.save.settings.autoBattle === true)
     };
   }
 
@@ -506,7 +779,7 @@ G.GAME = (function () {
     return null;
   }
 
-  /** 一帧画面：地表/营地 → 装饰 → 路网 → 地标 → 营地道具 → 弹道 → 怪 → 目标环 → 玩家 → 飘字 → 摇杆 → HUD → 面板 */
+  /** 一帧画面：登录界面 → 世界层 → 摇杆 → HUD → 面板卡片 → 功能键（压在最后的顺序见 renderTo） */
   function render() {
     var ctx = PLAT.ctx();
     var canvas = PLAT.canvas();
@@ -519,9 +792,20 @@ G.GAME = (function () {
    * 把整帧画到指定上下文上。
    * 单独拆出来是为了让 19-selftest 的**冒烟测试**能用一个"假 canvas 上下文"跑完整帧：
    * "一进游戏就白屏"这类 bug 只在真帧里暴露，而这个假上下文能把它变成一条断言。
+   *
+   * 绘制顺序（A4 起 HUD 被拆成两半，就是为了这条链）：
+   *   世界 → 摇杆 → HUD（吸顶 + 经验条 + 小地图）→ 面板卡片 → **功能键**
+   * 功能键放在最后：面板卡片只占 1/3 屏，右下那五个键要一直可用（点「包」能直接关掉背包）。
+   * 登录 / 创建角色界面则整屏交给 G.LOGIN（世界不画，玩家还没进游戏）。
    */
   function renderTo(ctx) {
     var view = uiView();
+
+    if (state.screen !== 'playing') {
+      G.LOGIN.draw(ctx, view);
+      return;
+    }
+
     ctx.fillStyle = '#0b1020';
     ctx.fillRect(0, 0, SCREEN.width(), SCREEN.height());
 
@@ -534,12 +818,25 @@ G.GAME = (function () {
     RENDER.drawMonsters(ctx, state.camera, WORLD.monstersInView(), state.player.targetId, view.now);
     RENDER.drawTargetRing(ctx, state.camera, view.target);
     RENDER.drawPlayer(ctx, state.camera, state.player, state.stats, view.now);
+    // 头顶名牌：角色名 + 血条（用户要求；玩家和精英怪共用同一份画法）
+    RENDER.drawNameplate(ctx, state.camera, {
+      x: state.player.x,
+      y: state.player.y,
+      radius: BAL.player.radius,
+      name: state.save.name || '无名者',
+      level: state.save.level,
+      hp: state.player.hp,
+      hpMax: state.stats.hpMax,
+      dead: state.player.dead === true,
+      color: '#ffeaa7'
+    });
     RENDER.drawDamageNumbers(ctx, state.camera, WORLD.damageNumbers(), WORLD.now());
 
     INPUT.setButtons(view.buttons);
-    if (!PANELS.isOpen()) INPUT.draw(ctx);
+    INPUT.draw(ctx);
     HUD.draw(ctx, view);
     PANELS.draw(ctx, view);
+    HUD.drawButtons(ctx, view);
   }
 
   /* ---------------------------------------------------------------- 触摸路由 */
@@ -556,43 +853,48 @@ G.GAME = (function () {
     return point;
   }
 
+  /**
+   * 按下：三层路由（见文件头）。
+   * A4 的关键差别：**"面板开着"不再等于"全部触摸都给面板"** ——
+   * 只有落在卡片矩形（或关闭键）里的那一下才归面板，其余照旧给摇杆 / 功能键。
+   * 于是"打开背包时游戏不停止"不只是世界在跑，玩家也**真的还能走位**。
+   */
   function onTouchStart(event) {
     var point = touchPoint(event);
     if (!point) return;
-    if (PANELS.isOpen()) {
-      // 面板开着：只吃面板（返回键 + 行），世界层完全不参与 —— 这就是"点 UI 不会顺带攻击"
-      var buttons = PANELS.buttons();
-      for (var i = 0; i < buttons.length; i += 1) {
-        var button = buttons[i];
-        var dx = point.x - button.x;
-        var dy = point.y - button.y;
-        var reach = button.r + 10;
-        if (dx * dx + dy * dy <= reach * reach) {
-          state.panelClosePressed = true;
-          return;
-        }
-      }
+    if (state.screen !== 'playing') {
+      G.LOGIN.press(point);
+      return;
+    }
+    if (PANELS.isOpen() && PANELS.contains(point)) {
+      state.panelTouch = true;
       PANELS.press(point, uiView());
       return;
     }
+    state.panelTouch = false;
     INPUT.begin(point, WORLD.now());
   }
 
   function onTouchMove(event) {
     var point = touchPoint(event);
-    if (!point || PANELS.isOpen()) return;
+    if (!point) return;
+    if (state.screen !== 'playing') return;
+    if (state.panelTouch) {
+      PANELS.move(point, uiView());
+      return;
+    }
     INPUT.move(point);
   }
 
   function onTouchEnd(event) {
     var point = touchPoint(event);
     if (!point) return;
-    if (PANELS.isOpen()) {
-      if (state.panelClosePressed) {
-        state.panelClosePressed = false;
-        PANELS.close();
-        return;
-      }
+    if (state.screen !== 'playing') {
+      handleLoginAction(G.LOGIN.release(point));
+      return;
+    }
+    if (state.panelTouch) {
+      state.panelTouch = false;
       handleAction(PANELS.release(point, uiView()));
       return;
     }
@@ -656,6 +958,12 @@ G.GAME = (function () {
     flash: flash,
     writeSave: writeSave,
     boot: boot,
+    beginPlaying: beginPlaying,
+    loginAction: loginAction,
+    createRoleAction: createRoleAction,
+    handleLoginAction: handleLoginAction,
+    autoStep: autoStep,
+    toggleAutoBattle: toggleAutoBattle,
     step: step,
     applyKill: applyKill,
     onLevelUp: onLevelUp,
@@ -671,6 +979,9 @@ G.GAME = (function () {
     onTouchStart: onTouchStart,
     onTouchMove: onTouchMove,
     onTouchEnd: onTouchEnd,
+    onHudButton: onHudButton,
+    handleAction: handleAction,
+    togglePanel: togglePanel,
     render: render,
     renderTo: renderTo,
     frame: frame,

@@ -535,12 +535,35 @@ G.WORLD = (function () {
     return events;
   }
 
+  /* ------------------------------------------------ 自动战斗走位（A4 新增） */
+
+  /**
+   * 视野内最近的可攻击怪。
+   * 与 `playerAttack` 共用 07-combat 的同一份 pickTarget —— 走位与出手**必须**选同一只怪，
+   * 否则会出现"走过去打另一只"的鬼畜现象。
+   */
+  function pickTarget(player) {
+    return COMBAT.pickTarget(player.x, player.y, allMonsters(), COMBAT.visionRange());
+  }
+
+  /** 按 id 取怪（走位每帧都要目标的实时坐标；死了 / 该 chunk 被卸掉就当没有） */
+  function monsterById(id) {
+    if (!id) return null;
+    var monsters = allMonsters();
+    for (var i = 0; i < monsters.length; i += 1) {
+      if (monsters[i].id === id && monsters[i].state !== 'dead') return monsters[i];
+    }
+    return null;
+  }
+
   return {
     reset: reset,
     setView: setView,
     ensureChunks: ensureChunks,
     allMonsters: allMonsters,
     monstersInView: monstersInView,
+    pickTarget: pickTarget,
+    monsterById: monsterById,
     decorInView: decorInView,
     landmarksInView: landmarksInView,
     loadedChunkCount: loadedChunkCount,

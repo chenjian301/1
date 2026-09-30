@@ -1269,6 +1269,92 @@ G.RENDER = (function () {
     ctx.stroke();
   }
 
+  /**
+   * 左上角头像（HUD 用）：程序自绘的圆脸 + 护额。
+   * `seed` 决定肤色/发色（纯整数取模，不占任何随机流，所以同一角色永远同一张脸）。
+   */
+  function drawAvatar(ctx, cx, cy, r, seed) {
+    var hash = typeof seed === 'number' && isFinite(seed) ? Math.abs(Math.floor(seed)) : 0;
+    var skins = ['#f0c9a0', '#e6b891', '#f7d9b6'];
+    var hairs = ['#3a2b22', '#5b3a2f', '#26323f'];
+    var skin = skins[hash % skins.length];
+    var hair = hairs[(hash >>> 3) % hairs.length];
+
+    ctx.fillStyle = '#1b2438';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = '#4d5f86';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, TAU);
+    ctx.stroke();
+
+    // 肩膀（上半圆，fill 会自动收口成弓形）
+    ctx.fillStyle = '#2f4a6b';
+    ctx.beginPath();
+    ctx.arc(cx, cy + r * 1.02, r * 0.74, Math.PI, TAU);
+    ctx.fill();
+
+    // 脸
+    ctx.fillStyle = skin;
+    ctx.beginPath();
+    ctx.arc(cx, cy + r * 0.02, r * 0.46, 0, TAU);
+    ctx.fill();
+
+    // 头发（上半圆压住额头）
+    ctx.fillStyle = hair;
+    ctx.beginPath();
+    ctx.arc(cx, cy - r * 0.1, r * 0.48, Math.PI, TAU);
+    ctx.fill();
+
+    // 护额（一条横带：和主角的红色围巾呼应）
+    ctx.fillStyle = '#c94f4f';
+    ctx.fillRect(cx - r * 0.48, cy - r * 0.26, r * 0.96, r * 0.18);
+
+    // 眼睛
+    ctx.fillStyle = '#20242c';
+    ctx.beginPath();
+    ctx.arc(cx - r * 0.17, cy + r * 0.1, r * 0.075, 0, TAU);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + r * 0.17, cy + r * 0.1, r * 0.075, 0, TAU);
+    ctx.fill();
+  }
+
+  /**
+   * 头顶名牌：角色名 + 血条（用户要求"玩家头顶添加角色名 + 血条"）。
+   * 精英怪也复用同一份画法，所以参数是一个 info 对象而不是玩家对象：
+   *   { x, y, radius, name, level, hp, hpMax, dead, color }
+   * 血条宽度/高度/抬升量都在 `balance.view.nameplate`（一处数字，客户端与服务端将来共用）。
+   */
+  function drawNameplate(ctx, camera, info) {
+    if (!info || !info.name) return;
+    var point = toScreen(camera, info.x, info.y);
+    var lift = (info.radius || 24) * 2.6 + BAL.view.nameplate.offsetY;
+    var barW = info.barWidth || BAL.view.nameplate.barWidth;
+    var barH = BAL.view.nameplate.barHeight;
+    var barY = point.y - lift;
+    var ratio = info.hpMax > 0 ? info.hp / info.hpMax : 0;
+    if (!(ratio >= 0)) ratio = 0;
+    if (ratio > 1) ratio = 1;
+
+    ctx.font = 'bold 20px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    // 先描一圈深色再填字：亮色名字压在草地/石砖上也看得清
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.strokeText(info.name, point.x, barY - 16);
+    ctx.fillStyle = info.dead ? '#c9c9c9' : info.color || '#ffffff';
+    ctx.fillText(info.name, point.x, barY - 16);
+
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(point.x - barW / 2 - 1, barY - 1, barW + 2, barH + 2);
+    ctx.fillStyle = info.dead ? '#6b6b6b' : '#4fd06a';
+    ctx.fillRect(point.x - barW / 2, barY, barW * ratio, barH);
+  }
+
   /** 远程弹道：一个小亮点沿直线飞 */
   function drawProjectiles(ctx, camera, shots) {
     ctx.fillStyle = '#9ad4ff';
@@ -1303,6 +1389,8 @@ G.RENDER = (function () {
     PLAYER_PALETTE: PLAYER_PALETTE,
     ACTOR_STYLE: ACTOR_STYLE,
     DECOR_STYLE: DECOR_STYLE,
+    roundRectPath: roundRectPath,
+    ellipsePath: ellipsePath,
     toScreen: toScreen,
     viewRect: viewRect,
     facingIndex: facingIndex,
@@ -1318,6 +1406,8 @@ G.RENDER = (function () {
     drawMonsters: drawMonsters,
     drawTargetRing: drawTargetRing,
     drawPlayer: drawPlayer,
+    drawAvatar: drawAvatar,
+    drawNameplate: drawNameplate,
     drawProjectiles: drawProjectiles,
     drawDamageNumbers: drawDamageNumbers
   };

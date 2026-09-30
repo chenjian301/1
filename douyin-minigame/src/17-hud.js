@@ -4,13 +4,19 @@
  * 布局纪律：所有 y 坐标都由 `SCREEN.safeTop()` / `SCREEN.safeBottom()` 推出来，
  * 不写死数字 —— 长屏、刘海屏、手势条都能自动躲开。
  *
- * 画的东西：
- *   吸顶：等级 + 经验条（Lv.12 ▓▓▓░░ 1.2k/2.4k）、金币、战力、当前难度带
- *   其下：玩家血条（战斗反馈的第一优先级）
- *   右上：**小地图**（chunk 网格 + 小径 + 营地 + 地标 + 怪 + 公会锚点 + 玩家朝向）
- *   吸底右侧：四个圆形功能键「箱 / 包 / 会 / 设」（带角标）
+ * 画的东西（A4 重排）：
+ *   吸顶左：**头像 + 角色名 + 等级**（用户要求"左上角添加玩家头像，角色名，等级"）
+ *   吸顶中：玩家血条 + 金币 / 战力 / 难度带 / 自动战斗状态
+ *   吸顶右：**小地图**（chunk 网格 + 小径 + 营地 + 地标 + 怪 + 公会锚点 + 玩家朝向）
+ *   吸底：**经验条**（用户要求"画面最下方添加经验条"）
+ *   吸底右侧：五个圆形功能键「自动 / 箱 / 包 / 会 / 设」（带角标；自动是开关）
  *   左下：摇杆由 15-input 自己画
  *   调试面板（可选）：FPS / chunk 数 / 活跃怪数 / 当前目标 / 世界种子 / 世界指纹
+ *
+ * 两个"必须记住"的点：
+ *   1. **功能键与面板卡片互不遮挡**：卡片右侧留了 `view.panel.rightReserve` 的位置，
+ *      按钮整体抬升 `view.hud.buttonLift` 给经验条让位（见 18-panels 的卡片几何）；
+ *   2. 按钮的坐标就是命中测试的坐标（15-input 只认这一份），所以画法与判定不会各算一套。
  */
 
 G.HUD = (function () {
@@ -40,21 +46,40 @@ G.HUD = (function () {
     ctx.fillRect(x, y, w * ratio, h);
   }
 
+  /** 吸顶区高度（头像那一块）：小地图与调试面板都从它往下排 */
+  function plateHeight() {
+    return SCREEN.safeTop() + 152;
+  }
+
+  /** 小地图左上角 y：吸顶条下面一点点，右侧留 margin */
+  function minimapTop() {
+    return SCREEN.safeTop() + 128;
+  }
+
+  /** 右侧留白（小地图 + 边距）：血条这类"横向要尽量宽"的元素别压到小地图上 */
+  function rightReserve() {
+    return BAL.view.minimap.size + BAL.view.minimap.margin * 2;
+  }
+
   /**
-   * 底部右侧的圆形功能键。交给 15-input 做命中测试（同一份坐标，避免两处各算一套）。
-   * `badge` 是右上角的小角标（宝箱数 / 背包装备数 / 有没有公会）。
+   * 右下功能键：**自动 / 箱 / 包 / 会 / 设**（从下往上排，最常用/最需要拇指的排最低）。
+   * `badge` 是右上角的小角标（宝箱数 / 背包装备数 / 有没有公会）；
+   * `state` 只服务画法（'on' 时按钮点亮），命中测试与它无关。
    */
   function buttons(view) {
     var radius = 46;
     var gap = 18;
+    var lift = BAL.view.hud.buttonLift;
     var x = SCREEN.width() - BAL.input.attackButtonMargin - radius;
-    var y = SCREEN.height() - SCREEN.safeBottom() - radius;
+    var y = SCREEN.height() - SCREEN.safeBottom() - lift - radius;
     var save = view && view.save ? view.save : null;
+    var auto = !!(save && save.settings && save.settings.autoBattle === true);
     var defs = [
       { id: 'chest', label: '箱', badge: save ? save.chests.length : 0 },
       { id: 'bag', label: '包', badge: save ? save.items.length : 0 },
       { id: 'guild', label: '会', badge: save && save.guild ? 1 : 0 },
-      { id: 'menu', label: '设', badge: 0 }
+      { id: 'menu', label: '设', badge: 0 },
+      { id: 'auto', label: auto ? '自动' : '手动', badge: 0, state: auto ? 'on' : 'off' }
     ];
     var list = [];
     for (var i = 0; i < defs.length; i += 1) {
@@ -62,6 +87,7 @@ G.HUD = (function () {
         id: defs[i].id,
         label: defs[i].label,
         badge: defs[i].badge || 0,
+        state: defs[i].state || '',
         x: x,
         y: y - i * (radius * 2 + gap),
         r: radius
@@ -70,24 +96,27 @@ G.HUD = (function () {
     return list;
   }
 
-  /** 画按钮（按下时稍微放大 + 变色，给"按到了"的反馈） */
-  function drawButtons(ctx, list, nowMs) {
+  /** 画按钮（按下时稍微放大 + 变色；自动战斗开着时按钮常亮，一眼看出当前模式） */
+  function drawButtons(ctx, view) {
+    var list = view && view.buttons ? view.buttons : [];
+    var nowMs = view && view.now ? view.now : 0;
     for (var i = 0; i < list.length; i += 1) {
       var button = list[i];
       var pressed = G.INPUT.isPressed(button.id, nowMs);
-      ctx.globalAlpha = pressed ? 0.95 : 0.72;
-      ctx.fillStyle = pressed ? '#ffd479' : '#1b2438';
+      var lit = button.state === 'on' || pressed;
+      ctx.globalAlpha = pressed ? 0.95 : lit ? 0.88 : 0.72;
+      ctx.fillStyle = pressed ? '#ffd479' : lit ? '#2f6b46' : '#1b2438';
       ctx.beginPath();
       ctx.arc(button.x, button.y, button.r, 0, Math.PI * 2);
       ctx.fill();
       ctx.globalAlpha = 1;
-      ctx.strokeStyle = pressed ? '#fff3d0' : '#4d5f86';
+      ctx.strokeStyle = pressed ? '#fff3d0' : lit ? '#8ce99a' : '#4d5f86';
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.arc(button.x, button.y, button.r, 0, Math.PI * 2);
       ctx.stroke();
 
-      text(ctx, button.label, button.x, button.y, 34, pressed ? '#241a05' : '#dce6ff', 'center');
+      text(ctx, button.label, button.x, button.y, 30, pressed ? '#241a05' : '#dce6ff', 'center');
 
       if (button.badge > 0) {
         ctx.fillStyle = '#ff6b6b';
@@ -110,7 +139,7 @@ G.HUD = (function () {
       '世界种子 ' + BAL.season.worldSeed + '  指纹 ' + (view.fingerprint || '—'),
       '触摸 ' + (G.PLAT.hasTt() ? 'tt' : '桩') + '  存档 ' + (view.saveOk ? '正常' : '未写入')
     ];
-    var top = SCREEN.safeTop() + 128 + BAL.view.minimap.size + 26;
+    var top = minimapTop() + BAL.view.minimap.size + 26;
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.fillRect(12, top - 12, SCREEN.width() - 24, lines.length * 30 + 24);
     for (var i = 0; i < lines.length; i += 1) {
@@ -127,7 +156,7 @@ G.HUD = (function () {
     var config = BAL.view.minimap;
     var size = config.size;
     var left = SCREEN.width() - size - config.margin;
-    var top = SCREEN.safeTop() + 128;
+    var top = minimapTop();
     var player = view.player;
     var halfWorld = config.chunkRadius * G.CHUNK.CHUNK_SIZE;
     var scale = size / (halfWorld * 2);
@@ -255,62 +284,107 @@ G.HUD = (function () {
     ctx.restore();
   }
 
-  /** 主绘制：view 由 20-main 组装（玩家、属性、存档、FPS、目标…） */
-  function draw(ctx, view) {
+  /**
+   * 吸顶块：头像 + 角色名 + 等级 + 血条 + 一行状态。
+   * 文字区宽度按 `rightReserve()` 扣掉右侧小地图，所以名字再长也撞不到地图。
+   */
+  function drawTop(ctx, view) {
     var width = SCREEN.width();
     var top = SCREEN.safeTop();
     var save = view.save;
     var stats = view.stats;
+    var radius = BAL.view.hud.avatarRadius;
+    var textLeft = 24 + radius * 2 + 18;
+    var reserve = rightReserve();
 
-    // 吸顶条底
-    ctx.fillStyle = 'rgba(8,12,24,0.6)';
-    ctx.fillRect(0, 0, width, top + 118);
+    ctx.fillStyle = 'rgba(8,12,24,0.62)';
+    ctx.fillRect(0, 0, width, plateHeight());
 
-    // 第一行：等级 / 金币 / 战力 / 难度带
-    text(ctx, 'Lv.' + save.level, 24, top + 26, 34, '#ffd479');
-    text(ctx, '金币 ' + PROG.shortNumber(save.gold), 168, top + 26, 26, '#f2e6c8');
-    text(ctx, '战力 ' + stats.power, 360, top + 26, 26, '#a9d5ff');
-    text(ctx, PROG.bandLabel(G.CHUNK.bandOf(view.player.x, view.player.y)), width - 24, top + 26, 22, '#9fb4d8', 'right');
-
-    // 经验条
-    var need = PROG.xpToNext(save.level);
-    bar(ctx, 24, top + 50, width - 48, 24, need > 0 ? save.exp / need : 0, '#4f8fd8');
-    text(
+    // 头像（程序自绘；种子只跟角色名与等级有关 → 同一角色永远同一张脸）
+    G.RENDER.drawAvatar(
       ctx,
-      '经验 ' + PROG.shortNumber(save.exp) + ' / ' + PROG.shortNumber(need),
-      36,
-      top + 62,
-      18,
-      '#e8f1ff',
-      'left'
+      24 + radius,
+      top + 46,
+      radius,
+      G.RNG.hash32(G.ACCOUNT.nameKey(save.name).length * 31, save.level | 0, 0x51a7c3)
     );
+
+    // 角色名 + 等级
+    text(ctx, save.name || '无名者', textLeft, top + 28, 32, '#ffffff');
+    text(ctx, 'Lv.' + save.level, textLeft, top + 64, 26, '#ffd479');
+    text(ctx, PROG.bandLabel(G.CHUNK.bandOf(view.player.x, view.player.y)), width - reserve, top + 64, 22, '#9fb4d8', 'right');
 
     // 血条（战斗反馈第一优先级）
     var hpRatio = stats.hpMax > 0 ? view.player.hp / stats.hpMax : 0;
-    bar(ctx, 24, top + 82, width - 48, 26, hpRatio, view.player.dead ? '#6b6b6b' : '#e05c5c');
+    var barW = width - 48 - reserve;
+    bar(ctx, 24, top + 92, barW, 24, hpRatio, view.player.dead ? '#6b6b6b' : '#e05c5c');
     text(
       ctx,
       (view.player.dead ? '复活中… ' : '生命 ') + Math.max(0, Math.round(view.player.hp)) + ' / ' + stats.hpMax,
-      36,
-      top + 95,
+      34,
+      top + 104,
       18,
       '#ffecec'
     );
 
-    // 升级/掉落等闪光提示
+    // 第三行：金币 / 战力 / 自动战斗状态（一眼看出现在是手动还是自动）
+    var auto = !!(save.settings && save.settings.autoBattle === true);
+    text(
+      ctx,
+      '金币 ' + PROG.shortNumber(save.gold) + ' · 战力 ' + stats.power + ' · 自动战斗 ' + (auto ? '开' : '关'),
+      24,
+      top + 134,
+      22,
+      auto ? '#8ce99a' : '#f2e6c8'
+    );
+  }
+
+  /** 吸底经验条：用户要求"画面最下方添加经验条"，所以它贴在最底（避开手势条） */
+  function drawExpBar(ctx, view) {
+    var save = view.save;
+    var width = SCREEN.width();
+    var height = BAL.view.hud.expBarHeight;
+    var y = SCREEN.height() - SCREEN.safeBottom() - height;
+    var need = PROG.xpToNext(save.level);
+    bar(ctx, 0, y, width, height, need > 0 ? save.exp / need : 0, '#4f8fd8', 'rgba(8,12,24,0.72)');
+    text(
+      ctx,
+      'Lv.' + save.level + ' 经验 ' + PROG.shortNumber(save.exp) + ' / ' + PROG.shortNumber(need),
+      28,
+      y + height / 2,
+      16,
+      '#e8f1ff',
+      'left'
+    );
+  }
+
+  /**
+   * 主绘制：view 由 20-main 组装（玩家、属性、存档、FPS、目标…）。
+   * **功能键不在这里画**（交给 `drawButtons`）：面板卡片只占 1/3 屏，
+   * 按钮要压在卡片之上继续可用，所以 20-main 的绘制顺序是 HUD → 面板 → 按钮。
+   */
+  function draw(ctx, view) {
+    drawTop(ctx, view);
+    drawExpBar(ctx, view);
+
+    // 升级/掉落等闪光提示（压在吸顶块下面，不挤血条）
     if (view.flash && view.flash.until > view.now) {
-      text(ctx, view.flash.text, width / 2, top + 176, 40, '#ffe08a', 'center');
+      text(ctx, view.flash.text, SCREEN.centerX(), plateHeight() + 46, 38, '#ffe08a', 'center');
     }
 
     drawMinimap(ctx, view);
-    drawButtons(ctx, view.buttons, view.now);
     if (view.debug) drawDebug(ctx, view);
   }
 
   return {
     buttons: buttons,
     draw: draw,
+    drawTop: drawTop,
+    drawExpBar: drawExpBar,
+    drawButtons: drawButtons,
     drawMinimap: drawMinimap,
+    plateHeight: plateHeight,
+    minimapTop: minimapTop,
     bar: bar,
     text: text
   };

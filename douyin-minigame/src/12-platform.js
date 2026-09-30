@@ -220,6 +220,109 @@ G.PLAT = (function () {
     });
   }
 
+  /**
+   * 平台登录：拿 `tt.login` 的 code —— 阶段 B 那条 `code → /api/profile → openid` 链路的第 0 步
+   * （A4 就用它来区分"抖音账号"与"本机账号"）。
+   *
+   * 语义约定：**失败就 resolve(null)**，绝不 reject、绝不卡住玩家 ——
+   * 拿不到 code 时界面会降级成"本机离线账号"，阶段 A 的单机玩法不受影响。
+   */
+  function login() {
+    return new Promise(function (resolve) {
+      if (!hasTt || typeof tt.login !== 'function') {
+        resolve(null);
+        return;
+      }
+      var done = false;
+      var finish = function (value) {
+        if (!done) {
+          done = true;
+          resolve(value);
+        }
+      };
+      try {
+        tt.login({
+          success: function (res) {
+            var code = res && typeof res.code === 'string' ? res.code : '';
+            var anonymousCode = res && typeof res.anonymousCode === 'string' ? res.anonymousCode : '';
+            finish(code || anonymousCode ? { code: code, anonymousCode: anonymousCode } : null);
+          },
+          fail: function () {
+            finish(null);
+          }
+        });
+      } catch (error) {
+        finish(null);
+      }
+      // 兜底：部分基础库上 login 既不回 success 也不回 fail（比如没配 appid），3 秒后按失败处理
+      setTimeout(function () {
+        finish(null);
+      }, 3000);
+    });
+  }
+
+  /**
+   * 文本输入：小游戏里没有 `<input>`，昵称只能靠平台键盘（`tt.showKeyboard`）。
+   * 返回值：输入的字符串，或 null（= 玩家取消 / 当前基础库没有这个 API）。
+   * 没有 API 时界面会自动退回"随机昵称 + 换一个"，所以这里不抛错。
+   */
+  function editText(options) {
+    var opt = options || {};
+    return new Promise(function (resolve) {
+      if (!hasTt || typeof tt.showKeyboard !== 'function') {
+        resolve(null);
+        return;
+      }
+      var done = false;
+      var value = typeof opt.defaultValue === 'string' ? opt.defaultValue : '';
+      var finish = function (result) {
+        if (done) return;
+        done = true;
+        if (hasTt && typeof tt.hideKeyboard === 'function') {
+          try {
+            tt.hideKeyboard({});
+          } catch (error) {
+            /* 键盘收不收得掉都不值得报错 */
+          }
+        }
+        resolve(typeof result === 'string' && result ? result : null);
+      };
+      // 键盘确认 / 收起的回调是全局事件（不是 showKeyboard 的参数），两只都接上
+      if (typeof tt.onKeyboardConfirm === 'function') {
+        tt.onKeyboardConfirm(function (res) {
+          if (res && typeof res.value === 'string') value = res.value;
+        });
+      }
+      if (typeof tt.onKeyboardComplete === 'function') {
+        tt.onKeyboardComplete(function (res) {
+          if (res && typeof res.value === 'string') value = res.value;
+          finish(value);
+        });
+      }
+      try {
+        tt.showKeyboard({
+          defaultValue: value,
+          maxLength: opt.maxLength || 12,
+          multiple: false,
+          confirmHold: false,
+          confirmType: 'done',
+          success: function (res) {
+            if (res && typeof res.value === 'string') value = res.value;
+          },
+          fail: function () {
+            finish(null);
+          }
+        });
+      } catch (error) {
+        finish(null);
+      }
+      // 兜底：有些基础库的 complete 事件不一定会回来，60 秒后按当前值收尾（不让 Promise 永远挂着）
+      setTimeout(function () {
+        finish(value);
+      }, 60000);
+    });
+  }
+
   return {
     hasTt: function () {
       return hasTt;
@@ -240,6 +343,8 @@ G.PLAT = (function () {
     vibrate: vibrate,
     onShow: onShow,
     frame: frame,
-    cloud: cloud
+    cloud: cloud,
+    login: login,
+    editText: editText
   };
 })();

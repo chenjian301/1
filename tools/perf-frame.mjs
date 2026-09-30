@@ -56,6 +56,8 @@ function frameCalls(label) {
 
 G.SAVE.clear();
 G.GAME.boot();
+// A4 起 boot() 会停在"登录 / 创建角色"界面（世界不跑），所以要显式进游戏再量帧
+G.GAME.beginPlaying('perf');
 
 const stick = G.INPUT.state.stick;
 stick.active = true;

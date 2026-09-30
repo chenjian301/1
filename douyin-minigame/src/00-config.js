@@ -38,6 +38,12 @@ G.CONFIG = {
   /** 本地存档的 storage key（换名字 = 换一份存档，调试用） */
   saveKey: 'phaser-game-save-v1',
 
+  /** 本机账号的 storage key（注册 / 登录后的账号记录，见 11-save.js 的 G.ACCOUNT） */
+  accountKey: 'phaser-game-account-v1',
+
+  /** 本机已占用昵称的注册表 key（同设备昵称不重复的第二道保险） */
+  namesKey: 'phaser-game-names-v1',
+
   /** 逻辑帧固定 60Hz（渲染尽量跟着屏幕刷新，逻辑不跟着变，手感才稳定） */
   logicHz: 60,
 

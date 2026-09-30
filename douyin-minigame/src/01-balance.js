@@ -7,8 +7,8 @@
  *   powershell -ExecutionPolicy Bypass -File tools\build-minigame.ps1
  * (or simply run tools\minigame-now.cmd, which does both plus the checks)
  *
- * balance.json sha256, raw file format                  = 33c18e4a7706f7efca30256e1b80a9f27ea22c33a2380b14f935d6bd10307c81
- * balance.json sha256, normalised (BOM stripped, CRLF -> LF) = 755304c471554207a9140da64914467cd7875bf0dfbae79002f851c894897844
+ * balance.json sha256, raw file format                  = 7b4c349c8c287334f4c6e777f5c75aa22ca43a088bbdebe79a9429995cfdbfd3
+ * balance.json sha256, normalised (BOM stripped, CRLF -> LF) = 25816f76b394aa01d360c448508bb9fc5b848532c96dc70789ea4f91636b6e98
  * tools\check-minigame.ps1 fails if the normalised hash no longer matches balance.json.
  *
  * NOTE: this header is ASCII on purpose -- see tools\gen-minigame-balance.ps1.
@@ -16,7 +16,7 @@
  * the _readme line) is exactly what shared\balance.json contains.
  */
 
-G.BAL_SOURCE_SHA256 = '755304c471554207a9140da64914467cd7875bf0dfbae79002f851c894897844';
+G.BAL_SOURCE_SHA256 = '25816f76b394aa01d360c448508bb9fc5b848532c96dc70789ea4f91636b6e98';
 G.BAL ={
   "_readme": "唯一真相：玩法数值与掉落表（决策 #4）。客户端与服务端共读这一份，谁都不许在代码里另写一套数字。改完必须重跑 tools/test-logic.mjs。",
   "version": 1,
@@ -247,6 +247,19 @@ G.BAL ={
     "shopUnlockLevel": 20
   },
 
+  "auto": {
+    "_readme": "自动战斗按钮（A4）：开启后自动走向视野内最近的怪，进攻击距离就站住（出手仍由 14-world 的自动攻击负责）",
+    "moveStopRatio": 0.82,
+    "retargetMs": 500
+  },
+
+  "account": {
+    "_readme": "账号与昵称（A4）：昵称长度按字符数算；唯一性先查本机注册表，配了云后端再查服务端",
+    "nameMin": 2,
+    "nameMax": 12,
+    "nameRegistryCap": 200
+  },
+
   "input": {
     "stickRadius": 72,
     "knobDiameter": 34,
@@ -255,13 +268,30 @@ G.BAL ={
     "zoneWidthRatio": 0.42,
     "zoneHeightRatio": 0.52,
     "attackButtonDiameter": 96,
-    "attackButtonMargin": 28
+    "attackButtonMargin": 28,
+    "autoButtonDiameter": 96
   },
 
   "view": {
     "designWidth": 720,
     "minimap": { "size": 190, "margin": 18, "chunkRadius": 3 },
+    "_panel": "面板卡片：宽 = 屏宽 - leftMargin - rightReserve（rightReserve 给右下功能键让位），高 = 屏高 x heightRatio。0.79 x 0.38 约等于 1/3 屏面积",
+    "panel": {
+      "leftMargin": 24,
+      "rightReserve": 124,
+      "heightRatio": 0.38,
+      "headerHeight": 78,
+      "rowHeight": 62,
+      "touchSlop": 12,
+      "dimAlpha": 0.32
+    },
+    "nameplate": { "barWidth": 104, "barHeight": 10, "offsetY": 30 },
+    "hud": { "avatarRadius": 40, "expBarHeight": 20, "buttonLift": 46 },
     "damageNumberMs": 700,
+    "_feel": "打击感（A4）：斩击特效时长 / 受击顿帧 / 暴击震屏 —— 都是表现层，不进任何随机流",
+    "slashMs": 220,
+    "hitStopMs": { "normal": 45, "crit": 110, "hurt": 30 },
+    "shake": { "critMs": 240, "critPower": 26, "hurtMs": 150, "hurtPower": 12 },
 "cameraLerpPerTick": 0.22,
     "autosaveMs": 5000,
     "safeBottom": 120,
