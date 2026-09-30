@@ -11,7 +11,7 @@
 > 1. 官方 Node+koa 模板那次部署记在 `docs\douyin-minigame-stage0.md` §9：服务 `demo-svr`、dev 环境、
 >    默认域名 `https://1mfj3tamsd9m-env-XHvhMYJ9qm.service.douyincloud.run`、外网路径 `/api/*` 已授权。
 >    **那个域名现在已失效**：`GET /` 回 `404 + X-Status-Code: 13005 not found server`（网关说该环境下
->    没有这个服务），`GET /api/health` 直接连接超时。→ **本文里出现的任何具体域名都只是历史痕迹，一律以控制台现值为准。**
+>    没有这个服务），`GET /api/health` 直接连接超时。→ **本文里出现的任何具体域名都只是历史痕迹，一律以控制台现值为准**（现值见第 8 条，已实测存活）。
 > 2. 控制台里现在活着的是**服务 `demo-svr`**（`auto_deploy_add` 是它访问控制里的**路径规则名**，**不是服务名**；已有一条 `/api/*`，域名访问=开启）。它是官方模板，
 >    路由只有 `GET /api/get_open_id` 与 `POST /api/text/antidirt` —— **没有 `/api/health`**。
 >    要验的是**我们自己的代码**（第 0.5 / 2 步），别把"模板部署成功"当成"后端已就绪"。
@@ -20,8 +20,9 @@
 >    不过页面提示里写了一句「可使用抖音云CLI自动生成dockerfile」——**这条没查证**（我们自己准备了两个
 >    Dockerfile 兜底，见 §2.6）。也就是说在控制台点「部署」这最后一步**无法脚本自动化**；
 >    但它前面每一步都能，见 §0.5。
-> 4. **仓库已推上 GitHub（2026-09-30）**：`chenjian301/1` 的 `main` 现在 HEAD = `b49a472`（用 https 克隆到本地 `d:\douy\1` 复核过：与本地 `HEAD` 一致）。
->    所以 git部署 这条路是通的 —— 接着按 §2.6 填表 → 部署 → §3 授权 `/api/*` →
+> 4. **仓库已推上 GitHub（2026-09-30）**：`chenjian301/1` 的 `main`（run.sh 修复那次是 `bb146c4`；之后每次 push
+>    都会前进，以 `git log -1` 为准）。当时用 https 克隆到本地 `d:\douy\1` 复核过 —— 那个克隆现在停在旧的
+>    `b49a472`，属历史快照，可以删。所以 git部署 这条路是通的 —— 接着按 §2.6 填表 → 部署 → §3 授权 `/api/*` →
 >    §3.5 配环境变量 → §4 抄域名验证。**卡在"推代码"上的那一步已经过去了。**
 >
 > 5. **2026-09-30 决定：不新建服务，把代码部署进现成的 `demo-svr`**（见下文 §2.7）。两条事实先记住：
@@ -45,6 +46,23 @@
 >    并且**顺手纠正了端口：平台认 8000，不是 8080**（官方模板硬编码 8000，平台日志也写 port 8000）。
 >    改完**必须重新 push** —— git部署 是从 GitHub 拉代码的。
 >    新增的本地关卡：`tools\cloud-deploy-check.ps1`（查容器约定）。
+> 8. **2026-09-30 运行期复核：修好之后的这次发布已在线上确认生效（本机 `curl` 实测，非推断）。**
+>    控制台里 **版本 3（Git发布 / 仓库 `chenjian301/1` / 分支 `main`）发布状态 = 成功、部署完成**；
+>    对**当前**默认域名 `https://1mfjj3tamsd9m-env-XHvhMYJ9qm.service.douyincloud.run` 实测：
+>    - `GET /` → `200`，正文一行 `phaser-game-svr 正常。健康检查：/api/health`
+>    - `GET /api/health` → `200`，正文 `{"ok":true,"service":"phaser-game-svr","version":"0.2.0","protocol":1,`
+>      `"balanceVersion":1,"season":{"name":"S1","worldSeed":20260930},"time":...,"saves":0,`
+>      `"login":{"configured":false,"endpoint":"developer.toutiao.com","method":"POST","requireToken":false,`
+>      `"sessionTtlMs":604800000,"sessionSecretIsRandom":true}}`
+>    - `GET /api/version` → `200`
+>
+>    这三条同时成立就证明了 §2.8 那个修复**在运行期真的成立**：平台若没找到 `/opt/application/run.sh`
+>    （就是原来那三条日志的失败），这三个路径只可能是 `404 + 13005` 或进程 127 起不来，**不可能回 200**；
+>    200 还顺带证明进程确实在 **8000** 上监听（平台的端口约定）。
+>    **注意上面这个域名与第 1 条那个历史域名只差一个 `j`** —— 这正是「域名必须现抄」的实证。
+>    客户端侧已经用 `tools\set-cloud-domain.ps1` 把它写进 `douyin-minigame\src\00-config.js` 并重拼 `game.js`。
+>    剩下的唯一一项是环境变量（§3.5）：实测 `login.configured=false`、`sessionSecretIsRandom=true`
+>    = `DOUYIN_APPID` / `DOUYIN_SECRET` / `SESSION_SECRET` **还都没配**。
 >
 > 下面是完整步骤。
 
@@ -238,7 +256,7 @@ Host github.com
 平台里的服务名 `demo-svr` 与 `/api/health` 返回的 `service: "phaser-game-svr"` 不同名，这是正常的
 （前者是平台里的名字，后者是进程自报的名字，见 §6 的端点表）。
 
-## 2.8 2026-09-30 发布失败复盘：`/opt/application/run.sh: not found`（**已修**）
+## 2.8 2026-09-30 发布失败复盘：`/opt/application/run.sh: not found`（**已修，且运行期实测确认生效**）
 
 控制台发布状态是**失败**，日志里同样的三行出现三次：
 
@@ -299,6 +317,11 @@ powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1           # 服务
 [phaser-game-svr] listening on :8000  v0.2.0
 ```
 
+> **2026-09-30 实测（控制台日志页之外的另一条证据）**：本机没有 docker，没法在本地构建镜像验一遍，
+> 但上面那两行日志想要的结论已经从**线上取到了** —— 版本 3 的默认域名上 `/`、`/api/health`、`/api/version`
+> 全部 `200`（见开头复核第 8 条）。平台没执行到 `run.sh` 时只可能回 `404 + 13005` 或 127 起不来，
+> 所以 `200` 本身就是「run.sh 被平台找到并执行、进程在 8000 应答」的等价证明。
+
 ## 3. 授权外网访问路径（关键，漏了会 404）
 
 抖音云默认**不给外部访问**。部署完成、服务状态显示 **服务正常** 之后：
@@ -338,7 +361,13 @@ curl.exe "https://你的默认域名/api/health"
 
 ## 4. 抄下域名并验证服务
 
-在「服务详情 → 域名」里会看到默认域名，形如：
+在「服务详情 → 域名」里会看到默认域名。**2026-09-30 实测存活的是这个（现抄，别复用旧值）**：
+
+```
+https://1mfjj3tamsd9m-env-XHvhMYJ9qm.service.douyincloud.run
+```
+
+下面这个只是**格式示例/历史值**，它现在回 `404 + 13005`；跟上面那个只差一个 `j`：
 
 ```
 https://1mfj3tamsd9m-env-XHvhMYJ9qm.service.douyincloud.run
@@ -358,9 +387,14 @@ curl.exe "https://你的默认域名/api/health"
 
 ## 5. 让游戏连上它
 
-1. 打开 `douyin-minigame\src\00-config.js`，把域名填进 `cloudBase`（**末尾不要带斜杠**）：
+1. 打开 `douyin-minigame\src\00-config.js`，把域名填进 `cloudBase`（**末尾不要带斜杠**）。
+   **别手抄，用脚本**（它会 normalize、写文件、并立刻验一次服务活着）：
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File tools\set-cloud-domain.ps1 <从控制台现抄的域名>
+   ```
+   脚本写进去的那一行当前长这样：
    ```js
-   cloudBase: 'https://1mfj3tamsd9m-env-XHvhMYJ9qm.service.douyincloud.run'
+   cloudBase: 'https://1mfjj3tamsd9m-env-XHvhMYJ9qm.service.douyincloud.run'
    ```
 2. 回到仓库根目录跑一次一键脚本（会重新拼装 `game.js` 并跑全部检查）：
    ```powershell

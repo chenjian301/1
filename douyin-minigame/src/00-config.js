@@ -27,7 +27,7 @@ G.CONFIG = {
    *   cloudBase: 'https://1mfj3tamsd9m-env-XHvhMYJ9qm.service.douyincloud.run'
    * 粘贴完在游戏里点「设置 → 云后端」就能自测连通性（见 docs/douyin-cloud-deploy.md）。
    */
-  cloudBase: '',
+  cloudBase: 'https://1mfjj3tamsd9m-env-XHvhMYJ9qm.service.douyincloud.run',
 
   /** 是否显示调试入口（自检 / 云后端 / 存档 / 世界指纹）。上线前置 false 即可，代码不用删 */
   debug: true,

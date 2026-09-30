@@ -6,9 +6,10 @@
 #     sh: /opt/application/run.sh: not found            -> exit status 127 -> publish failed
 #   The platform's runtime runs /opt/application/run.sh NO MATTER what the image CMD says, and
 #   our repo had no run.sh at all. The official template
-#   bytedance/douyincloud-nodejs-koa-demo ships exactly that file at the repo root ("run.sh
-#   容器运行时启动文件") and its Dockerfile does WORKDIR /opt/application/ + COPY run.sh ./
-#   + RUN chmod -R 777 /opt/application/run.sh + CMD /opt/application/run.sh + EXPOSE 8000.
+#   bytedance/douyincloud-nodejs-koa-demo ships exactly that file at the repo root (its README
+#   names it "the container runtime startup file") and its Dockerfile does WORKDIR
+#   /opt/application/ + COPY run.sh ./ + RUN chmod -R 777 /opt/application/run.sh
+#   + CMD /opt/application/run.sh + EXPOSE 8000.
 #   So the contract this script checks is: repo-root run.sh, copied to /opt/application/run.sh,
 #   executable, LF-only (a CRLF shebang gives the very same "not found"), and port 8000.
 #

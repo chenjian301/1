@@ -2,7 +2,7 @@
  *
  * Assembled from douyin-minigame\src\*.js by tools\build-minigame.ps1.
  * Parts (in order): 00-config.js, 01-balance.js, 02-rng.js, 03-chunk.js, 04-terrain.js, 05-spawn.js, 06-progression.js, 07-combat.js, 08-loot.js, 09-equipment.js, 10-player.js, 11-save.js, 12-platform.js, 13-screen.js, 14-world.js, 15-input.js, 16-render.js, 17-hud.js, 18-panels.js, 19-selftest.js, 20-main.js
- * parts sha256 = e01e62173b996ecb7a7724bbc8fd34ff1082b699e6c630eea56e6f31ceadd67e
+ * parts sha256 = 74bccd09537c4db0ba0d389d675aadbe72b564b61bf6dd52118f48e8a78446be
  *
  * Edit files under douyin-minigame\src\ and rebuild:
  *   powershell -ExecutionPolicy Bypass -File tools\build-minigame.ps1
@@ -40,7 +40,7 @@ G.CONFIG = {
    *   cloudBase: 'https://1mfj3tamsd9m-env-XHvhMYJ9qm.service.douyincloud.run'
    * 粘贴完在游戏里点「设置 → 云后端」就能自测连通性（见 docs/douyin-cloud-deploy.md）。
    */
-  cloudBase: '',
+  cloudBase: 'https://1mfjj3tamsd9m-env-XHvhMYJ9qm.service.douyincloud.run',
 
   /** 是否显示调试入口（自检 / 云后端 / 存档 / 世界指纹）。上线前置 false 即可，代码不用删 */
   debug: true,
