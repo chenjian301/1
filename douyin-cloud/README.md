@@ -4,7 +4,7 @@
 
 ```
 douyin-cloud\
-├─ svr\index.js      服务本体（5 个端点 + 登录/令牌，无第三方依赖，默认端口 8000）
+├─ svr\index.js      服务本体（6 个端点 + 登录/令牌，无第三方依赖，默认端口 8000）
 ├─ svr\package.json  只有元信息（没有 dependencies，所以部署时不需要 npm install）
 ├─ svr\smoke.mjs     本地冒烟：起 3 个真进程 + 一个**假 code2session**，打 41 项断言（**不属于部署包**）
 ├─ run.sh            容器运行时启动文件（平台固定执行 /opt/application/run.sh，不看镜像 CMD）——与仓库根那份逐字节相同
@@ -32,6 +32,7 @@ douyin-cloud\
 | POST | `/api/profile` | **真登录**：`tt.login` 的 code → `code2session` → openid → 回 `{account, openid, token, expiresAt, hasSave}`（`session_key` 换完就丢，**不出服务端**） |
 | POST | `/api/save` | 上传存档 `{ token 或 openid, save }`。**有令牌时 `openid` 只认令牌里那个**；没令牌写下来的标 `verified:false` 且落在 `openid:` 命名空间，盖不掉验签账号 |
 | GET | `/api/save?token=` | 拉取存档（过渡期也支持 `?openid=`） |
+| POST | `/api/name` | **昵称唯一性**：`{ name, account? }` → 首次登记 `200 {ok, claimed:true}`；重名 `409 name_taken`；非法 `400 invalid_name {reason}`。同设备重复登记是幂等的，键不区分大小写与空格。占用人优先取令牌里的账号（**body 里的 account 会被忽略**），没令牌时记 body 的 account 并标 `verified:false` —— 所以现在无令牌也能挡重名，等阶段 B 客户端带上令牌后要跟着 `/api/save` 一起收紧 |
 
 存档账号有三个命名空间（安全红线：客户端传来的一切都不可信）：
 

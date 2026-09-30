@@ -344,6 +344,63 @@ G.PANELS = (function () {
       }
     }
 
+    if (current === 'camp') {
+      var heal = BAL.world.camp.heal;
+      var missing = Math.max(0, view.stats.hpMax - view.player.hp);
+      var cost = Math.max(heal.minGold, Math.ceil(missing * heal.goldPerHp));
+      list.push({
+        id: 'camp:heal',
+        y: top,
+        h: rowH,
+        text: '治疗：回复满血（' + cost + ' 金币）',
+        sub: missing > 0 ? '缺 ' + Math.round(missing) + ' 点生命 · 持有 ' + view.save.gold + ' 金币' : '血量是满的，不用花钱',
+        color: missing > 0 && view.save.gold >= cost ? '#8ce99a' : '#8d8d8d',
+        action: { type: 'campHeal' }
+      });
+      list.push({
+        id: 'camp:shop',
+        y: top + rowH,
+        h: rowH,
+        text: '进商城（买公会号角）',
+        sub: '营地里的商人：号角 ' + BAL.shop.horn.priceGold + ' 金币，' + BAL.guild.shopUnlockLevel + ' 级解锁',
+        color: '#ffd479',
+        action: { type: 'open', panel: 'shop' }
+      });
+      list.push({
+        id: 'camp:teleport',
+        y: top + rowH * 2,
+        h: rowH,
+        text: '回到营地中心',
+        sub:
+          '冷却 ' +
+          Math.round(BAL.world.camp.teleportCooldownMs / 1000) +
+          ' 秒 · 战斗中 ' +
+          Math.round(BAL.guild.teleportCombatLockMs / 1000) +
+          ' 秒内不可用',
+        color: '#a9d5ff',
+        action: { type: 'campTeleport' }
+      });
+      list.push({
+        id: 'camp:guild',
+        y: top + rowH * 3,
+        h: rowH,
+        text: '回公会锚点',
+        sub: view.save.guild ? '公会「' + view.save.guild.name + '」的锚点' : '还没有公会：先在商城买号角',
+        color: view.save.guild ? '#a9d5ff' : '#8d8d8d',
+        action: { type: 'teleportGuild' }
+      });
+      list.push({
+        id: 'camp:note',
+        y: top + rowH * 4,
+        h: rowH,
+        text: '营地是"外观"安全区：怪照样刷新',
+        sub: '阶段 A 的取舍（04-decisions #9）；真正的不刷怪半径要和公会锚点 safeRadius 一起定',
+        color: '#c7c7c7',
+        action: null
+      });
+      return list;
+    }
+
     if (current === 'menu') {
       var settings = view.save.settings || { autoBattle: false, sfx: true, bgm: true, vibrate: true };
       var audio = view.audio || null;
@@ -629,6 +686,7 @@ G.PANELS = (function () {
     if (panel === 'bag') return '背包 / 装备';
     if (panel === 'shop') return '商城';
     if (panel === 'guild') return '公会';
+    if (panel === 'camp') return '营地';
     if (panel === 'menu') return '设置 / 调试';
     if (panel === 'selftest') return '自检结果';
     return String(panel);

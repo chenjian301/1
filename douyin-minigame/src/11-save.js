@@ -62,6 +62,8 @@ G.SAVE = (function () {
       horns: 0,
       /** 公会（本地版：只有自己的会，成员列表是占位；阶段 D 才上服务端） */
       guild: null,
+      /** 营地传送冷却（A4）：`used` 而不是"时间 > 0"—— 世界时间 0 也是合法时刻，别让第一帧传送漏掉冷却 */
+      camp: { teleportAt: 0, used: false },
       /** 设置项（自动战斗 / 音效 / 震动）—— A4 起随存档走，换设备也记得 */
       settings: defaultSettings(),
       /** 统计（调试面板与将来的埋点用） */
@@ -100,6 +102,10 @@ G.SAVE = (function () {
     save.nextItemId = numberOr(raw.nextItemId, 1, 1, Infinity);
     save.horns = numberOr(raw.horns, 0, 0, 9999);
     save.guild = raw.guild && raw.guild.name ? raw.guild : null;
+    save.camp = {
+      teleportAt: numberOr(raw.camp && raw.camp.teleportAt, 0, 0, Infinity),
+      used: !!(raw.camp && raw.camp.used === true)
+    };
 
     // 坐标：存档里明显坏掉的（NaN / 离谱）就当新号重新出生，避免玩家卡在虚空里
     if (SPAWN.isUsableSpawn(raw.x, raw.y)) {

@@ -81,6 +81,8 @@ G.HUD = (function () {
       { id: 'menu', label: '设', badge: 0 },
       { id: 'auto', label: auto ? '自动' : '手动', badge: 0, state: auto ? 'on' : 'off' }
     ];
+    // 站在营地里才出现的「营」：营地的交互入口（治疗 / 商店 / 传送，A4）
+    if (view && view.inCamp) defs.push({ id: 'camp', label: '营', badge: 0, state: 'on' });
     var list = [];
     for (var i = 0; i < defs.length; i += 1) {
       list.push({

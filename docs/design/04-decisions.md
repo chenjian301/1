@@ -213,3 +213,64 @@
 **新加的 balance 参数**：`world.camp{radius,plazaPlate,fenceRadius,gateWidth}`、`world.road{spanChunks,width,jitterChunks}`、
 `view.minimap{size,margin,chunkRadius}` —— 依旧只有一处数字（`shared/balance.json`）。
 
+
+## #10 阶段 A4 落地记录（2026-09-30 深夜：账号 / 界面 / 自动战斗 / 打击感 / 音效 / 营地交互）
+
+**需求来源**：用户一次提了九件事 ——（1）战斗表现（斩击 / 顿帧 / 暴击震屏）；（2）音效与 BGM；
+（3）营地交互入口（回血 / 商店 / 传送）；（4）打开背包设置时游戏不停止、要有关闭按钮、UI 只占 1/3 屏；
+（5）注册 / 登录 / 创建角色 / 输入昵称，昵称不能重复；（6）左上角头像 + 角色名 + 等级；
+（7）玩家头顶角色名 + 血条；（8）画面最下方经验条；（9）自动战斗做成按钮，开启后自动走位 + 自动出手。
+
+**九个需求分别落在哪**
+
+| # | 需求 | 落地位置 |
+|---|---|---|
+| 1 | 斩击特效 / 受击顿帧 / 暴击震屏 | 14-world 生成特效与 `events.hits`；16-render `drawEffects`；20-main `applyHitFeedback`（顿帧 + 震屏 + 音效 + 震动）；数值在 `view.slashMs / hitStopMs / shake` |
+| 2 | 音效与 BGM | `tools\gen-minigame-sfx.mjs` 合成 9 个 WAV（304KB）→ `douyin-minigame\audio\`；12-platform 的 `PLAT.sfx / bgm / setAudio / unlockAudio`；20-main 把事件映射成声音，设置面板三个开关随存档 |
+| 3 | 营地交互入口 | `18-panels` 的 `camp` 面板（治疗 / 商城 / 传送 / 回公会）；20-main `campHeal / teleportCamp`；HUD 只在营地内多一个「营」键；数值 `world.camp.heal / teleportCooldownMs` |
+| 4 | 面板 1/3 屏 + 关闭键 + 不暂停 | `18-panels` 改成卡片（`view.panel`：宽 = 屏宽 − 左边距 − 右下让位，高 = 屏高 × 0.38 ≈ 1/3 面积）+ 右上 ✕ + 卡片内拖动滚动；`step()` 不再因为面板开着而 return；触摸按"在不在卡片里"分流 |
+| 5 | 注册 / 登录 / 创建角色 / 昵称唯一 | `11-save` 的 `G.ACCOUNT`（清洗 / 校验 / 本机注册表 / 账号记录）+ `18-panels` 的 `G.LOGIN`（标题 / 登录 / 创建角色三屏）+ 20-main 的登录链路；服务端新增 `POST /api/name` |
+| 6 | 左上角头像 + 角色名 + 等级 | 17-hud `drawTop`（`RENDER.drawAvatar` 程序自绘头像，种子由角色名与等级推出） |
+| 7 | 头顶角色名 + 血条 | `RENDER.drawNameplate`（玩家与精英怪共用一份画法） |
+| 8 | 最下方经验条 | 17-hud `drawExpBar`（吸底，功能键整体抬升 46px 让位） |
+| 9 | 自动战斗按钮 | HUD 第五个圆键（开着常亮）+ `settings.autoBattle` 随存档 + 20-main `autoStep`（自动走向视野内最近的怪） |
+
+**四条关键取舍**
+
+| # | 取舍 | 理由与代价 |
+|---|---|---|
+| a | 面板打开**不再暂停世界**（取代 #8d 的"阶段 A 先暂停"） | 用户明确要求"游戏不停止"。代价：站着开箱会被怪打 —— 这是玩家自己的选择，而且现在还能边开背包边推摇杆走位（卡片外的触摸照旧给摇杆/功能键） |
+| b | 卡片只占约 1/3 屏，右下功能键**压在卡片之上**并保持可用 | 点同一个功能键就能收起面板；代价是卡片右侧要留出 `view.panel.rightReserve` 的宽度，内容区变窄（靠拖动滚动补齐） |
+| c | "自动释放技能"这一条**没有实现** | 阶段 A 的"不做"清单里明确没有技能系统（01-game-design §12）。自动战斗 = 现有的自动出手 + 新增的自动走位；真要做技能（技能栏 / 冷却 / 手动与自动释放 / 数值）得单开一个工作包 |
+| d | 昵称唯一性做成**两层**：本机注册表 + 服务端注册表 | 只做客户端挡不住换设备；只做服务端则在没网/没部署时建不了号。所以本机那层保证"离线也能立刻给提示"，服务端那层保证"跨设备不重复"，服务端不可达时降级为仅本机去重并在界面上写明 |
+
+**数据与格式的变动**
+
+- 存档 `v1 → v2`：新增 `name`（角色名）、`settings`（自动战斗 / 音效 / BGM / 震动）、`camp`（营地冷却）。
+  迁移是**就地补齐**：v1 存档的等级/金币/宝箱/装备一件不丢（自检里有一条专门的回归断言）。
+- `shared/balance.json` 新增：`auto{moveStopRatio,retargetMs}`、`account{nameMin,nameMax,nameRegistryCap}`、
+  `audio{enabled,sfxVolume,bgmVolume}`、`view.panel{...}`、`view.nameplate{...}`、`view.hud{...}`、
+  `view.slashMs/slashCap/hitStopMs/shake`、`world.camp.heal/teleportCooldownMs`。
+  **`version` 仍是 1**（只增键不改语义，服务端的数值表漂移闸门不必跟着动）。
+- 音频是**生成物**不是素材：`tools\gen-minigame-sfx.mjs` 是纯 node 合成（确定性），产物 9 个 WAV 共 304KB。
+  这样既不引入来源说不清的文件，也能随时改参数重生成。
+
+**验证**
+
+- 断言 226 → **385**：新增 `checkAccount`（昵称规则 / 注册表 / 账号落盘 / v1→v2 迁移）、`checkUi`（卡片≈1/3 屏、
+  关闭键、滚动夹取、登录与创建角色界面的 action）、`checkAuto`（开关持久化、走位到攻击距离、手动优先）、
+  `checkFeel`（顿帧分档、震屏纯函数、顿帧真的冻住世界、特效生成与过期）、`checkAudio`（清单 / 开关 / 没 tt 不炸）、
+  `checkCamp`（治疗定价、满血不收费、钱不够拒、传送落点与冷却）。
+- **世界指纹仍是 `e9802f11`**：A4 只加了表现层数据与运行时状态，没有碰任何生成流。
+- `tools\perf-frame.mjs`：最坏 **775 次落笔/帧**（营地 + 调试面板）对预算 900；逐层：地表 + 石砖 247 · 装饰 284 ·
+  怪 120 · 营地道具 52 · HUD + 小地图 25 · 玩家 14 · 路网 2。
+- 服务端：`svr\smoke.mjs` 49/49（新增 /api/name 的 9 条）；`tools\cloud-deploy-check.ps1` PASS 0 warning。
+- `tools\check-minigame.ps1` 新增"音频清单与磁盘对齐"一关：路径写错 = 永久静音，而逻辑断言看不见这种错。
+
+**已知未验证 / 风险（必须记着）**
+
+1. `tt.showKeyboard`（昵称输入）与音频**在真机上的实际表现没验过**：模拟器里没有键盘/音频时，代码会走
+   "随机昵称 + 换一个"的兜底路径，所以玩法不受影响，但真机首次测试时要专门看一眼这两件事。
+2. `/api/name` 目前**不**受 `REQUIRE_TOKEN` 约束（阶段 B 客户端还没带令牌），且昵称表是**内存版**：
+   服务重启会清空。上线前要和 `SESSION_SECRET` / `REQUIRE_TOKEN=1` 一起收尾。
+3. 营地依然**不影响刷怪**（A3 的取舍没变）：现在是"交互入口"，不是安全区。

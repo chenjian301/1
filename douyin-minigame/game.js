@@ -2,7 +2,7 @@
  *
  * Assembled from douyin-minigame\src\*.js by tools\build-minigame.ps1.
  * Parts (in order): 00-config.js, 01-balance.js, 02-rng.js, 03-chunk.js, 04-terrain.js, 05-spawn.js, 06-progression.js, 07-combat.js, 08-loot.js, 09-equipment.js, 10-player.js, 11-save.js, 12-platform.js, 13-screen.js, 14-world.js, 15-input.js, 16-render.js, 17-hud.js, 18-panels.js, 19-selftest.js, 20-main.js
- * parts sha256 = b3c45440d8c0eeb45a073392254e620b37d972eac0b6b9e04f92ef0cda65d903
+ * parts sha256 = 3019817851658dbbfa3706b644558d74f56504d6581815203d23d2bf2f028ade
  *
  * Edit files under douyin-minigame\src\ and rebuild:
  *   powershell -ExecutionPolicy Bypass -File tools\build-minigame.ps1
@@ -73,8 +73,8 @@ G.CONFIG = {
  *   powershell -ExecutionPolicy Bypass -File tools\build-minigame.ps1
  * (or simply run tools\minigame-now.cmd, which does both plus the checks)
  *
- * balance.json sha256, raw file format                  = b1382118064c6d2999aeb67a25bc00eb9ee263e37d2be33c4a9ffa2dba544661
- * balance.json sha256, normalised (BOM stripped, CRLF -> LF) = 34ae06dc4f051092afe6eab0f09cf714fb3ff3ed327ff933af6ab7a09c032afa
+ * balance.json sha256, raw file format                  = 9d4eaefe79dee70b5e883218d29a08f5351abe648f4f386c3842eae808ba2ef8
+ * balance.json sha256, normalised (BOM stripped, CRLF -> LF) = 1845265e41eed6d9835e289c838cf2059dddfffcb72340f3fe734f92ebe75591
  * tools\check-minigame.ps1 fails if the normalised hash no longer matches balance.json.
  *
  * NOTE: this header is ASCII on purpose -- see tools\gen-minigame-balance.ps1.
@@ -82,7 +82,7 @@ G.CONFIG = {
  * the _readme line) is exactly what shared\balance.json contains.
  */
 
-G.BAL_SOURCE_SHA256 = '34ae06dc4f051092afe6eab0f09cf714fb3ff3ed327ff933af6ab7a09c032afa';
+G.BAL_SOURCE_SHA256 = '1845265e41eed6d9835e289c838cf2059dddfffcb72340f3fe734f92ebe75591';
 G.BAL ={
   "_readme": "唯一真相：玩法数值与掉落表（决策 #4）。客户端与服务端共读这一份，谁都不许在代码里另写一套数字。改完必须重跑 tools/test-logic.mjs。",
   "version": 1,
@@ -102,7 +102,15 @@ G.BAL ={
     "decorPerChunk": { "min": 8, "max": 24 },
     "landmarkChunkSpan": 5,
     "_camp": "原点新手营地：玩家出生地 + 视觉安全区（阶段 A 只做外观，怪照样刷新）",
-    "camp": { "radius": 900, "plazaPlate": 96, "fenceRadius": 824, "gateWidth": 220 },
+    "camp": {
+      "radius": 900,
+      "plazaPlate": 96,
+      "fenceRadius": 824,
+      "gateWidth": 220,
+      "_interact": "营地交互入口（A4）：治疗按缺失血量收金币；回营地中心有短冷却 + 战斗中禁用",
+      "heal": { "goldPerHp": 0.05, "minGold": 1 },
+      "teleportCooldownMs": 10000
+    },
     "_road": "路网：每 spanChunks 个 chunk 一个节点，节点连成 L 形小径（确定性，纯哈希）",
     "road": { "spanChunks": 6, "width": 46, "jitterChunks": 0.35 },
     "respawnMs": { "min": 15000, "max": 30000 },
@@ -2092,6 +2100,8 @@ G.SAVE = (function () {
       horns: 0,
       /** 公会（本地版：只有自己的会，成员列表是占位；阶段 D 才上服务端） */
       guild: null,
+      /** 营地传送冷却（A4）：`used` 而不是"时间 > 0"—— 世界时间 0 也是合法时刻，别让第一帧传送漏掉冷却 */
+      camp: { teleportAt: 0, used: false },
       /** 设置项（自动战斗 / 音效 / 震动）—— A4 起随存档走，换设备也记得 */
       settings: defaultSettings(),
       /** 统计（调试面板与将来的埋点用） */
@@ -2130,6 +2140,10 @@ G.SAVE = (function () {
     save.nextItemId = numberOr(raw.nextItemId, 1, 1, Infinity);
     save.horns = numberOr(raw.horns, 0, 0, 9999);
     save.guild = raw.guild && raw.guild.name ? raw.guild : null;
+    save.camp = {
+      teleportAt: numberOr(raw.camp && raw.camp.teleportAt, 0, 0, Infinity),
+      used: !!(raw.camp && raw.camp.used === true)
+    };
 
     // 坐标：存档里明显坏掉的（NaN / 离谱）就当新号重新出生，避免玩家卡在虚空里
     if (SPAWN.isUsableSpawn(raw.x, raw.y)) {
@@ -5509,6 +5523,8 @@ G.HUD = (function () {
       { id: 'menu', label: '设', badge: 0 },
       { id: 'auto', label: auto ? '自动' : '手动', badge: 0, state: auto ? 'on' : 'off' }
     ];
+    // 站在营地里才出现的「营」：营地的交互入口（治疗 / 商店 / 传送，A4）
+    if (view && view.inCamp) defs.push({ id: 'camp', label: '营', badge: 0, state: 'on' });
     var list = [];
     for (var i = 0; i < defs.length; i += 1) {
       list.push({
@@ -6164,6 +6180,63 @@ G.PANELS = (function () {
       }
     }
 
+    if (current === 'camp') {
+      var heal = BAL.world.camp.heal;
+      var missing = Math.max(0, view.stats.hpMax - view.player.hp);
+      var cost = Math.max(heal.minGold, Math.ceil(missing * heal.goldPerHp));
+      list.push({
+        id: 'camp:heal',
+        y: top,
+        h: rowH,
+        text: '治疗：回复满血（' + cost + ' 金币）',
+        sub: missing > 0 ? '缺 ' + Math.round(missing) + ' 点生命 · 持有 ' + view.save.gold + ' 金币' : '血量是满的，不用花钱',
+        color: missing > 0 && view.save.gold >= cost ? '#8ce99a' : '#8d8d8d',
+        action: { type: 'campHeal' }
+      });
+      list.push({
+        id: 'camp:shop',
+        y: top + rowH,
+        h: rowH,
+        text: '进商城（买公会号角）',
+        sub: '营地里的商人：号角 ' + BAL.shop.horn.priceGold + ' 金币，' + BAL.guild.shopUnlockLevel + ' 级解锁',
+        color: '#ffd479',
+        action: { type: 'open', panel: 'shop' }
+      });
+      list.push({
+        id: 'camp:teleport',
+        y: top + rowH * 2,
+        h: rowH,
+        text: '回到营地中心',
+        sub:
+          '冷却 ' +
+          Math.round(BAL.world.camp.teleportCooldownMs / 1000) +
+          ' 秒 · 战斗中 ' +
+          Math.round(BAL.guild.teleportCombatLockMs / 1000) +
+          ' 秒内不可用',
+        color: '#a9d5ff',
+        action: { type: 'campTeleport' }
+      });
+      list.push({
+        id: 'camp:guild',
+        y: top + rowH * 3,
+        h: rowH,
+        text: '回公会锚点',
+        sub: view.save.guild ? '公会「' + view.save.guild.name + '」的锚点' : '还没有公会：先在商城买号角',
+        color: view.save.guild ? '#a9d5ff' : '#8d8d8d',
+        action: { type: 'teleportGuild' }
+      });
+      list.push({
+        id: 'camp:note',
+        y: top + rowH * 4,
+        h: rowH,
+        text: '营地是"外观"安全区：怪照样刷新',
+        sub: '阶段 A 的取舍（04-decisions #9）；真正的不刷怪半径要和公会锚点 safeRadius 一起定',
+        color: '#c7c7c7',
+        action: null
+      });
+      return list;
+    }
+
     if (current === 'menu') {
       var settings = view.save.settings || { autoBattle: false, sfx: true, bgm: true, vibrate: true };
       var audio = view.audio || null;
@@ -6449,6 +6522,7 @@ G.PANELS = (function () {
     if (panel === 'bag') return '背包 / 装备';
     if (panel === 'shop') return '商城';
     if (panel === 'guild') return '公会';
+    if (panel === 'camp') return '营地';
     if (panel === 'menu') return '设置 / 调试';
     if (panel === 'selftest') return '自检结果';
     return String(panel);
@@ -7867,6 +7941,82 @@ G.SELFTEST = (function () {
     ok('uiView 带音频状态（设置面板要显示当前开关）', !!view.audio && view.audio.files.length === 9);
   }
 
+  /**
+   * 营地交互入口（用户要求"营地的交互入口（回血 / 商店 / 传送）"）。
+   * 三件事都能断言：治疗按缺失血量收钱、满血不收、钱不够不给治；
+   * 传送会把人放到原点、短冷却内第二次被拒；「营」按钮只在营地里出现。
+   */
+  function checkCamp() {
+    section('营地交互入口：治疗 / 商店 / 传送（A4）');
+    var GAME = G.GAME;
+    var T = G.TERRAIN;
+    between('治疗单价在 0..1 金币/点血', BAL.world.camp.heal.goldPerHp, 0, 1);
+    between('营地传送冷却 3~60 秒（短到好用、长到不能刷）', BAL.world.camp.teleportCooldownMs, 3000, 60000);
+
+    G.SAVE.clear();
+    GAME.boot();
+    GAME.beginPlaying('营地测试者');
+
+    // 出生点不一定在营地里：先传送到营地中心（同时验传送本身）
+    GAME.state.player.x = 6000;
+    GAME.state.player.y = -6000;
+    GAME.state.player.hurtUntil = 0;
+    GAME.state.save.camp = { teleportAt: 0, used: false };
+    ok('离营地很远时不在营地内', GAME.inCamp() === false);
+    ok('传送回营地成功', GAME.teleportCamp() === true);
+    eq('传送把人放到营地中心 x', Math.round(GAME.state.player.x), T.campCenter().x);
+    eq('传送把人放到营地中心 y', Math.round(GAME.state.player.y), T.campCenter().y);
+    ok('回到原点后判定在营地内', GAME.inCamp() === true);
+    ok('传送写下了冷却标记', GAME.state.save.camp.used === true && GAME.state.save.camp.teleportAt >= 0);
+    ok('冷却内第二次传送被拒', GAME.teleportCamp() === false);
+
+    // 治疗：满血不收钱；掉血后按缺失量收；钱不够不给治
+    var player = GAME.state.player;
+    var stats = GAME.state.stats;
+    player.hp = stats.hpMax;
+    var goldBefore = GAME.state.save.gold;
+    eq('满血治疗返回 false（不白花钱）', GAME.campHeal(), false);
+    eq('满血治疗不扣钱', GAME.state.save.gold, goldBefore);
+
+    player.hp = Math.round(stats.hpMax * 0.25);
+    GAME.state.save.gold = 100000;
+    var missing = stats.hpMax - player.hp;
+    var expectCost = Math.max(BAL.world.camp.heal.minGold, Math.ceil(missing * BAL.world.camp.heal.goldPerHp));
+    ok('掉血后能治疗', GAME.campHeal() === true);
+    eq('治疗后满血', Math.round(player.hp), stats.hpMax);
+    eq('治疗扣了该扣的金币', GAME.state.save.gold, 100000 - expectCost);
+
+    player.hp = 1;
+    GAME.state.save.gold = 0;
+    eq('金币不够时治疗被拒', GAME.campHeal(), false);
+    eq('被拒时血量没变', player.hp, 1);
+
+    // HUD 的「营」按钮只在营地里出现（否则右下一列会一直多一个键）
+    var inside = G.HUD.buttons({ save: GAME.state.save, inCamp: true });
+    var outside = G.HUD.buttons({ save: GAME.state.save, inCamp: false });
+    eq('营地内多一个功能键', inside.length, 6);
+    eq('营地外的功能键还是 5 个', outside.length, 5);
+    ok('多出来的那个是「营」', inside[5].id === 'camp' && inside[5].label === '营');
+    ok('uiView 会带上 inCamp（供 HUD 判断）', GAME.uiView().inCamp === true);
+
+    // 营地面板：治疗 / 商店 / 传送三行都在，而且能画出来
+    G.PANELS.open('camp');
+    var view = GAME.uiView();
+    view.save = GAME.state.save;
+    var ids = G.PANELS.rows(view).map(function (row) { return row.id; }).join(',');
+    ok('营地面板有治疗行', ids.indexOf('camp:heal') >= 0, ids);
+    ok('营地面板有商店行（跳到商城）', ids.indexOf('camp:shop') >= 0, ids);
+    ok('营地面板有传送行', ids.indexOf('camp:teleport') >= 0, ids);
+    var ctx = fakeContext();
+    G.PANELS.draw(ctx, view);
+    ok('营地面板能画出来', ctx.calls.count > 20, 'calls=' + ctx.calls.count);
+    G.PANELS.close();
+
+    // 传送与治疗都会存档（重开游戏冷却不会被刷掉）
+    var reloaded = G.SAVE.load(BAL.season.worldSeed, 1);
+    ok('营地冷却标记写进了存档', reloaded.camp.used === true, JSON.stringify(reloaded.camp));
+  }
+
   /* ---------------------------------------- 13. 冒烟：假 canvas 跑真帧 */
 
   /**
@@ -8033,7 +8183,8 @@ G.SELFTEST = (function () {
       checkLook,
       checkAuto,
       checkFeel,
-      checkAudio
+      checkAudio,
+      checkCamp
     ];
     for (var i = 0; i < groups.length; i += 1) {
       try {
@@ -8087,6 +8238,7 @@ G.SELFTEST = (function () {
     checkAuto: checkAuto,
     checkFeel: checkFeel,
     checkAudio: checkAudio,
+    checkCamp: checkCamp,
     checkMap: checkMap,
     checkLook: checkLook,
     runSmoke: runSmoke,
@@ -8170,7 +8322,9 @@ G.GAME = (function () {
     /** 震屏状态：{ until, power, ms }（power=0 表示没在震）—— A4 */
     shake: { until: 0, power: 0, ms: 1 },
     /** 音频是否可用（平台层回报；调试面板与设置面板都看它）—— A4 */
-    audioReady: false
+    audioReady: false,
+    /** 上一帧在不在营地里（进出营地时提示一次）—— A4 */
+    wasInCamp: false
   };
 
   /** 屏幕中央的一条提示（小游戏没有原生 toast，自绘最省事） */
@@ -8602,6 +8756,13 @@ G.GAME = (function () {
     state.camera.x += (player.x - state.camera.x) * BAL.view.cameraLerpPerTick;
     state.camera.y += (player.y - state.camera.y) * BAL.view.cameraLerpPerTick;
 
+    // 进出营地时提示一次：营地是回血 / 商店 / 传送的入口（用户要的"营地交互入口"）
+    var camp = inCamp();
+    if (camp !== state.wasInCamp) {
+      state.wasInCamp = camp;
+      if (camp) flash('进入营地：点右下「营」可以治疗 / 逛商城 / 回营地中心', 2800);
+    }
+
     state.save.stats.playMs += dtMs;
     state.now = WORLD.now();
   }
@@ -8849,6 +9010,65 @@ G.GAME = (function () {
     flash('回到公会锚点', 1400);
   }
 
+  /** 玩家是不是站在营地里（营地 = 治疗 / 商城 / 传送的入口；判定用的是 04-terrain 的同一份几何） */
+  function inCamp() {
+    if (!state.player) return false;
+    return G.TERRAIN.isInCamp(state.player.x, state.player.y);
+  }
+
+  /** 营地治疗：按**缺失血量**收金币（balance.world.camp.heal）；满血就别让玩家白花钱 */
+  function campHeal() {
+    var player = state.player;
+    var stats = state.stats;
+    var heal = BAL.world.camp.heal;
+    var missing = Math.max(0, stats.hpMax - player.hp);
+    if (missing <= 0) {
+      flash('血量是满的，不用治', 1400);
+      return false;
+    }
+    var cost = Math.max(heal.minGold, Math.ceil(missing * heal.goldPerHp));
+    if (state.save.gold < cost) {
+      flash('金币不够：治疗要 ' + cost + ' 金币（还差 ' + (cost - state.save.gold) + '）', 1800);
+      return false;
+    }
+    state.save.gold -= cost;
+    player.hp = stats.hpMax;
+    playSfx('camp');
+    writeSave();
+    flash('治疗完成：+' + Math.round(missing) + ' 生命 · -' + cost + ' 金币', 1800);
+    return true;
+  }
+
+  /**
+   * 回营地中心（原点）：短冷却 + 战斗中禁用（与公会回城同一套规矩，数字另配）。
+   * 冷却时间存在**存档**里（`save.camp.teleportAt`），所以重开游戏也刷不掉冷却。
+   */
+  function teleportCamp() {
+    if (PLAYER.inCombat(state.player, WORLD.now())) {
+      flash('战斗中不可传送（' + Math.round(BAL.guild.teleportCombatLockMs / 1000) + ' 秒内受过伤）', 1800);
+      return false;
+    }
+    var record = state.save.camp || { teleportAt: 0, used: false };
+    var wait = BAL.world.camp.teleportCooldownMs - (WORLD.now() - (record.teleportAt || 0));
+    if (record.used && wait > 0) {
+      flash('冷却中：还要 ' + Math.ceil(wait / 1000) + ' 秒', 1600);
+      return false;
+    }
+    var center = G.TERRAIN.campCenter();
+    state.player.x = center.x;
+    state.player.y = center.y;
+    state.camera.x = state.player.x;
+    state.camera.y = state.player.y;
+    state.player.targetId = 0;
+    state.save.camp = { teleportAt: WORLD.now(), used: true };
+    state.wasInCamp = true;
+    WORLD.ensureChunks(state.player.x, state.player.y);
+    playSfx('camp');
+    writeSave();
+    flash('回到营地中心：可以治疗 / 逛商城', 1800);
+    return true;
+  }
+
   /** 自检：跑 19-selftest 的全部断言，结果直接摆到面板上（人眼也能验收"逻辑没坏"） */
   function runSelftest() {
     var result = G.SELFTEST.runAll();
@@ -8918,6 +9138,7 @@ G.GAME = (function () {
     if (id === 'chest') togglePanel('chest');
     else if (id === 'bag') togglePanel('bag');
     else if (id === 'guild') togglePanel('guild');
+    else if (id === 'camp') togglePanel('camp');
     else if (id === 'menu') togglePanel('menu');
   }
 
@@ -8973,6 +9194,8 @@ G.GAME = (function () {
     else if (type === 'createGuild') createGuild();
     else if (type === 'renameGuild') PANELS.setDraftGuildName(PANELS.nextGuildName((WORLD.now() | 0) + 7));
     else if (type === 'teleportGuild') teleportGuild();
+    else if (type === 'campHeal') campHeal();
+    else if (type === 'campTeleport') teleportCamp();
     else if (type === 'selftest') runSelftest();
     else if (type === 'cloudPing') cloudPing();
     else if (type === 'toggleDebug') state.debug = !state.debug;
@@ -8995,7 +9218,7 @@ G.GAME = (function () {
        * 只有 HUD 的功能键在这里（面板的关闭键由 18-panels 自己命中）：
        * 卡片只占 1/3 屏，功能键必须一直可点，所以它不随面板开合而变。
        */
-      buttons: HUD.buttons({ save: state.save }),
+      buttons: HUD.buttons({ save: state.save, inCamp: inCamp() }),
       debug: state.debug,
       flash: state.flash,
       now: state.now,
@@ -9007,6 +9230,7 @@ G.GAME = (function () {
       /** A4：界面与账号（登录 / 创建角色屏要读；HUD 只读名字与等级） */
       screen: state.screen,
       account: state.account,
+      inCamp: inCamp(),
       autoBattle: !!(state.save.settings && state.save.settings.autoBattle === true),
       /** A4：音频状态（设置面板要显示开关的当前值与平台是否支持） */
       audio: PLAT.audioState()
@@ -9227,6 +9451,9 @@ G.GAME = (function () {
     buyHorn: buyHorn,
     createGuild: createGuild,
     teleportGuild: teleportGuild,
+    inCamp: inCamp,
+    campHeal: campHeal,
+    teleportCamp: teleportCamp,
     runSelftest: runSelftest,
     cloudPing: cloudPing,
     resetSave: resetSave,

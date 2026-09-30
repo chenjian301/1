@@ -1112,6 +1112,82 @@ G.SELFTEST = (function () {
     ok('uiView 带音频状态（设置面板要显示当前开关）', !!view.audio && view.audio.files.length === 9);
   }
 
+  /**
+   * 营地交互入口（用户要求"营地的交互入口（回血 / 商店 / 传送）"）。
+   * 三件事都能断言：治疗按缺失血量收钱、满血不收、钱不够不给治；
+   * 传送会把人放到原点、短冷却内第二次被拒；「营」按钮只在营地里出现。
+   */
+  function checkCamp() {
+    section('营地交互入口：治疗 / 商店 / 传送（A4）');
+    var GAME = G.GAME;
+    var T = G.TERRAIN;
+    between('治疗单价在 0..1 金币/点血', BAL.world.camp.heal.goldPerHp, 0, 1);
+    between('营地传送冷却 3~60 秒（短到好用、长到不能刷）', BAL.world.camp.teleportCooldownMs, 3000, 60000);
+
+    G.SAVE.clear();
+    GAME.boot();
+    GAME.beginPlaying('营地测试者');
+
+    // 出生点不一定在营地里：先传送到营地中心（同时验传送本身）
+    GAME.state.player.x = 6000;
+    GAME.state.player.y = -6000;
+    GAME.state.player.hurtUntil = 0;
+    GAME.state.save.camp = { teleportAt: 0, used: false };
+    ok('离营地很远时不在营地内', GAME.inCamp() === false);
+    ok('传送回营地成功', GAME.teleportCamp() === true);
+    eq('传送把人放到营地中心 x', Math.round(GAME.state.player.x), T.campCenter().x);
+    eq('传送把人放到营地中心 y', Math.round(GAME.state.player.y), T.campCenter().y);
+    ok('回到原点后判定在营地内', GAME.inCamp() === true);
+    ok('传送写下了冷却标记', GAME.state.save.camp.used === true && GAME.state.save.camp.teleportAt >= 0);
+    ok('冷却内第二次传送被拒', GAME.teleportCamp() === false);
+
+    // 治疗：满血不收钱；掉血后按缺失量收；钱不够不给治
+    var player = GAME.state.player;
+    var stats = GAME.state.stats;
+    player.hp = stats.hpMax;
+    var goldBefore = GAME.state.save.gold;
+    eq('满血治疗返回 false（不白花钱）', GAME.campHeal(), false);
+    eq('满血治疗不扣钱', GAME.state.save.gold, goldBefore);
+
+    player.hp = Math.round(stats.hpMax * 0.25);
+    GAME.state.save.gold = 100000;
+    var missing = stats.hpMax - player.hp;
+    var expectCost = Math.max(BAL.world.camp.heal.minGold, Math.ceil(missing * BAL.world.camp.heal.goldPerHp));
+    ok('掉血后能治疗', GAME.campHeal() === true);
+    eq('治疗后满血', Math.round(player.hp), stats.hpMax);
+    eq('治疗扣了该扣的金币', GAME.state.save.gold, 100000 - expectCost);
+
+    player.hp = 1;
+    GAME.state.save.gold = 0;
+    eq('金币不够时治疗被拒', GAME.campHeal(), false);
+    eq('被拒时血量没变', player.hp, 1);
+
+    // HUD 的「营」按钮只在营地里出现（否则右下一列会一直多一个键）
+    var inside = G.HUD.buttons({ save: GAME.state.save, inCamp: true });
+    var outside = G.HUD.buttons({ save: GAME.state.save, inCamp: false });
+    eq('营地内多一个功能键', inside.length, 6);
+    eq('营地外的功能键还是 5 个', outside.length, 5);
+    ok('多出来的那个是「营」', inside[5].id === 'camp' && inside[5].label === '营');
+    ok('uiView 会带上 inCamp（供 HUD 判断）', GAME.uiView().inCamp === true);
+
+    // 营地面板：治疗 / 商店 / 传送三行都在，而且能画出来
+    G.PANELS.open('camp');
+    var view = GAME.uiView();
+    view.save = GAME.state.save;
+    var ids = G.PANELS.rows(view).map(function (row) { return row.id; }).join(',');
+    ok('营地面板有治疗行', ids.indexOf('camp:heal') >= 0, ids);
+    ok('营地面板有商店行（跳到商城）', ids.indexOf('camp:shop') >= 0, ids);
+    ok('营地面板有传送行', ids.indexOf('camp:teleport') >= 0, ids);
+    var ctx = fakeContext();
+    G.PANELS.draw(ctx, view);
+    ok('营地面板能画出来', ctx.calls.count > 20, 'calls=' + ctx.calls.count);
+    G.PANELS.close();
+
+    // 传送与治疗都会存档（重开游戏冷却不会被刷掉）
+    var reloaded = G.SAVE.load(BAL.season.worldSeed, 1);
+    ok('营地冷却标记写进了存档', reloaded.camp.used === true, JSON.stringify(reloaded.camp));
+  }
+
   /* ---------------------------------------- 13. 冒烟：假 canvas 跑真帧 */
 
   /**
@@ -1278,7 +1354,8 @@ G.SELFTEST = (function () {
       checkLook,
       checkAuto,
       checkFeel,
-      checkAudio
+      checkAudio,
+      checkCamp
     ];
     for (var i = 0; i < groups.length; i += 1) {
       try {
@@ -1332,6 +1409,7 @@ G.SELFTEST = (function () {
     checkAuto: checkAuto,
     checkFeel: checkFeel,
     checkAudio: checkAudio,
+    checkCamp: checkCamp,
     checkMap: checkMap,
     checkLook: checkLook,
     runSmoke: runSmoke,

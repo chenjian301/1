@@ -7,8 +7,8 @@
  *   powershell -ExecutionPolicy Bypass -File tools\build-minigame.ps1
  * (or simply run tools\minigame-now.cmd, which does both plus the checks)
  *
- * balance.json sha256, raw file format                  = b1382118064c6d2999aeb67a25bc00eb9ee263e37d2be33c4a9ffa2dba544661
- * balance.json sha256, normalised (BOM stripped, CRLF -> LF) = 34ae06dc4f051092afe6eab0f09cf714fb3ff3ed327ff933af6ab7a09c032afa
+ * balance.json sha256, raw file format                  = 9d4eaefe79dee70b5e883218d29a08f5351abe648f4f386c3842eae808ba2ef8
+ * balance.json sha256, normalised (BOM stripped, CRLF -> LF) = 1845265e41eed6d9835e289c838cf2059dddfffcb72340f3fe734f92ebe75591
  * tools\check-minigame.ps1 fails if the normalised hash no longer matches balance.json.
  *
  * NOTE: this header is ASCII on purpose -- see tools\gen-minigame-balance.ps1.
@@ -16,7 +16,7 @@
  * the _readme line) is exactly what shared\balance.json contains.
  */
 
-G.BAL_SOURCE_SHA256 = '34ae06dc4f051092afe6eab0f09cf714fb3ff3ed327ff933af6ab7a09c032afa';
+G.BAL_SOURCE_SHA256 = '1845265e41eed6d9835e289c838cf2059dddfffcb72340f3fe734f92ebe75591';
 G.BAL ={
   "_readme": "唯一真相：玩法数值与掉落表（决策 #4）。客户端与服务端共读这一份，谁都不许在代码里另写一套数字。改完必须重跑 tools/test-logic.mjs。",
   "version": 1,
@@ -36,7 +36,15 @@ G.BAL ={
     "decorPerChunk": { "min": 8, "max": 24 },
     "landmarkChunkSpan": 5,
     "_camp": "原点新手营地：玩家出生地 + 视觉安全区（阶段 A 只做外观，怪照样刷新）",
-    "camp": { "radius": 900, "plazaPlate": 96, "fenceRadius": 824, "gateWidth": 220 },
+    "camp": {
+      "radius": 900,
+      "plazaPlate": 96,
+      "fenceRadius": 824,
+      "gateWidth": 220,
+      "_interact": "营地交互入口（A4）：治疗按缺失血量收金币；回营地中心有短冷却 + 战斗中禁用",
+      "heal": { "goldPerHp": 0.05, "minGold": 1 },
+      "teleportCooldownMs": 10000
+    },
     "_road": "路网：每 spanChunks 个 chunk 一个节点，节点连成 L 形小径（确定性，纯哈希）",
     "road": { "spanChunks": 6, "width": 46, "jitterChunks": 0.35 },
     "respawnMs": { "min": 15000, "max": 30000 },
