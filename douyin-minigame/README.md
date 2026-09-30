@@ -126,8 +126,10 @@ powershell -ExecutionPolicy Bypass -File tools\minigame-node.ps1 tools\minigame-
 「设 → 云后端连通性自测」点一下，会调一次 `/api/health` 并把结果显示在屏幕上。
 
 服务端代码与完整步骤见：`douyin-cloud\` 与 **`docs\douyin-cloud-deploy.md`**。
-上传前先在本地过一关：`powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1`
-（真起进程打 41 项断言，过了才产出可上传的 zip；抖音云没有 CLI，"推上去"那一下只能在控制台点）。
+把代码送上去之前先在本地过一关：`powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1`
+（真起进程打 41 项断言，过了才产出可上传的 zip）。把代码送上去那一步：抖音云没有官方 CLI，
+现在的「服务设置 → 部署方式」里只有 **模板部署 / git部署 / 镜像部署**，首选 **git部署**
+（从 GitHub 拉代码构建；先按 `docs\douyin-cloud-deploy.md` §2.5 把仓库推上去，再按 §2.6 填表）。
 
 **登录这件事服务端已经接好了（2026-09-30）**：`POST /api/profile` 用真 `code2session` 把 `tt.login` 的
 `code` 换成 openid，并签发自己的 HMAC 令牌（无状态：重新部署 / 多实例都不掉线）；`/api/save` 有令牌时

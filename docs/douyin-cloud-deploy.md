@@ -16,7 +16,9 @@
 >    路由只有 `GET /api/get_open_id` 与 `POST /api/text/antidirt` —— **没有 `/api/health`**。
 >    要验的是**我们自己的代码**（第 0.5 / 2 步），别把"模板部署成功"当成"后端已就绪"。
 > 3. **抖音云只有控制台里的「Git 代码 / Docker 镜像」两种部署方式，没有官方 CLI**
->    （官方模板仓库 README 原文）。也就是说"把代码推上去"这最后一步**无法脚本自动化**；
+>    （官方模板仓库 README 原文；npm registry 里搜 `douyincloud` 也只命中一个第三方 demo 包，不是官方 CLI）。
+>    不过页面提示里写了一句「可使用抖音云CLI自动生成dockerfile」——**这条没查证**（我们自己准备了两个
+>    Dockerfile 兜底，见 §2.6）。也就是说"把代码推上去"这最后一步**无法脚本自动化**；
 >    但它前面每一步都能，见 §0.5。
 >
 > 下面是完整步骤。
@@ -28,7 +30,7 @@
 | 步骤 | 在哪做 | 耗时 |
 |---|---|---|
 | 1. 新建服务（Node 运行环境，dev 环境） | 抖音开放平台 → 控制台 → 抖音云 | 2 分钟 |
-| 2. 上传 `douyin-cloud\svr` 的代码并部署 | 同一页面（代码包 / 在线编辑 / Docker 镜像三选一） | 3 分钟 |
+| 2. 把仓库推上 GitHub（§2.5）→ 用 **git部署** 拉起来（§2.6） | 本机 + 控制台 → 服务设置 → 部署方式 | 5 分钟 |
 | 3. 授权外网访问路径 `/api/*` | 服务详情 → 访问控制 | 1 分钟 |
 | 4. 抄下默认域名 | 服务详情 → 域名 | — |
 | 5. 把域名填进 `douyin-minigame\src\00-config.js` 的 `cloudBase` | 本地 | 1 分钟 |
@@ -75,15 +77,98 @@ powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1
    - 环境：**dev**（`env`；上线前再建 `prod`，两个环境各自有域名）
    - 运行环境：**Node.js**（本代码要求 Node ≥ 18）
    - 实例规格：默认（**服务正常** 即可，首版 QPS 很低）
-3. 部署方式三选一：
-   - **在线编辑**：把 `douyin-cloud\svr\index.js` 内容整段贴进去（最快，适合先跑通）
-   - **上传代码包**（推荐）：用 `tools\cloud-pack.ps1` 生成 `douyin-cloud\dist\svr-code-*.zip` 直接上传
-     （zip 里只有 `index.js` + `package.json` 两个文件；冒烟不过它会拒绝打包）
-   - **Docker 镜像**：用仓库里的 `douyin-cloud\Dockerfile`（构建上下文选 `douyin-cloud\`）
-     —— 这个 Dockerfile 只 `COPY svr\`，没有 `npm install` 步骤，构建不会因为依赖失败
+3. 部署方式（**服务设置 → 部署方式**）。2026-09-30 在这个页面上只看到三个页签：
+   - **git部署**（首选）：从 GitHub 拉 → 构建 → 上线，**以后改完代码 push 一次就是新版本**，
+     不用再手工传文件。前置条件见 **§2.5**（先把仓库推上去），表单每一栏怎么填见 **§2.6**。
+   - **镜像部署**：要先在本机 `docker build` 再推镜像 —— **这台开发机没有 docker**
+     （`where docker` 输出为空，`C:\Program Files\Docker\...` 也不存在），首版不用它。
+     仓库里的两个 Dockerfile 仍然留着，将来换机器或上 CI 时能用。
+   - **模板部署**：给官方模板用的（"开启模板部署后无需提供 Dockerfile"），我们的代码不是抖音云模板，
+     不适用。
+   - （历史记录：上一版文档写的「在线编辑 / 上传代码包」在现在的服务设置里**没有对应入口**。
+     `tools\cloud-pack.ps1` 产出 zip 的那条路仍然保留：它是本地冒烟关卡的副产物，也留作离线备份。）
 
-> 三种方式都行，因为代码**零依赖**：启动命令统一是 `node index.js`，监听 `PORT`（默认 8080）。
-> 如果控制台要求填端口，就填 8080。
+> 三种方式都要求同一件事：代码**零依赖**，启动命令 `node index.js`、端口 `8080`，构建里没有 `npm install`。
+
+## 2.5 把仓库推上 GitHub（git部署 的前置，2026-09-30 状态）
+
+git部署 是**从 GitHub 拉代码**，不从你本机拉 —— 所以 GitHub 上必须真有代码。
+
+本地已经就绪：仓库 `d:\douy`，分支 `main`，根提交 `629fe73`，48 个文件，
+`core.autocrlf=false`（构建产物哈希才可复现），`origin = git@github.com:chenjian301/1.git`。
+**只差"推上去"这一步。**
+
+**2026-09-30 实测的坑（已在本机修好）**：本机那把密钥叫 `id_ed25519_git`，**不是 ssh 会自动尝试的默认名**，
+而 `~\.ssh\config` 里又有 `Host *` 段开着 `IdentitiesOnly yes` —— 于是 `ssh -v -T git@github.com` 的日志里
+**从头到尾只有** `id_rsa` / `id_ecdsa` / `id_ed25519` 这些默认名，**这把钥匙根本没被递出去**，
+现象就是 `Permission denied (publickey)`；它和"公钥有没有加到 GitHub"是**两件独立的事**。
+已经往 `~\.ssh\config` 末尾补了一段（换机器时照抄，路径按实际用户名改）：
+
+```
+# ---- github.com : 仓库 chenjian301/1 专用的部署密钥（2026-09-30 新增）----
+Host github.com
+    HostName github.com
+    User git
+    IdentityFile C:\Users\Administrator\.ssh\id_ed25519_git
+    IdentitiesOnly yes
+```
+
+剩下三步是手上要点的：
+
+1. **把公钥加到 GitHub**：https://github.com/settings/keys → `New SSH key` → 粘贴下面这一行（**只贴公钥**）：
+
+   ```
+   ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDuf31uc5ixzzqy0MoMtO9eiJyA/tqHGGjk/4kkveJqQ douy-deploy-git
+   ```
+
+   （本机打印它：`type $env:USERPROFILE\.ssh\id_ed25519_git.pub`。私钥 `id_ed25519_git` 永远不要外发、
+   不要贴进文档、不要进仓库。）
+2. **验证身份**：`ssh -T git@github.com` → 期望看到 `Hi chenjian301! You've successfully authenticated...`
+   （后面那句 "does not provide shell access" 是正常的，有 `Hi chenjian301!` 就算通了。）
+3. **推送**（本机没有独立 git，用 GitHub Desktop 自带的那个；`--no-pager` 是因为没有 `less`）：
+
+   ```powershell
+   $git = 'C:\Users\Administrator\AppData\Local\GitHubDesktop\app-3.6.6\resources\app\git\cmd\git.exe'
+   cd d:\douy
+   & $git push -u origin main
+   & $git ls-remote origin HEAD     # 回 629fe73... 就说明 GitHub 上真有代码了
+   ```
+
+> ⚠️ 这里是**两套凭据**，别混：①「你 → GitHub」的推送权 = 上面这步（SSH 公钥）；
+> ②「抖音云 → GitHub」的读仓库权 = 下一步在控制台里授权（会跳 GitHub 授权页；私有仓库必须把
+> `chenjian301/1` 勾进授权范围）。只有 ① 做完，git部署 才拉得到东西。
+
+## 2.6 git部署 页签怎么填（2026-09-30 截图复核）
+
+「服务设置 → 部署方式 → git部署」只有四个字段：
+
+| 字段 | 填什么 | 为什么 |
+|---|---|---|
+| 代码源 | **GitHub**（第一次会跳授权） | 平台要读你的仓库 = §2.5 结尾那第 ② 套凭据 |
+| 代码仓库 | `chenjian301/1` | 就是我们的 `origin` |
+| 分支 | `main` | 本地 `main` 的根提交是 `629fe73` |
+| Dockerfile | 按下面「两个 Dockerfile」二选一 | **别照默认值猜**，这是这条路上唯一的坑 |
+
+**为什么 Dockerfile 位置要挑**：页面提示是「Dockerfile 文件需与代码目标目录同级」；官方模板仓库
+`bytedance/douyincloud-nodejs-koa-demo` 的 README 原文是「抖音云平台支持基于 Git 代码和 Docker 镜像部署
+两种方式。其中，Dockerfile 文件可以参考本项目中的 Dockerfile 文件」—— 而**那个模板的 Dockerfile 就在
+仓库根**，与源码目录 `src/` 同级，内容从 `COPY . .` 开始，也就是说**构建上下文 = 仓库根**。
+对照我们的仓库：
+
+| 填的 Dockerfile | 里面的 COPY 路径 | 什么上下文下成立 |
+|---|---|---|
+| `Dockerfile`（**仓库根**，表单默认值就是它） | `douyin-cloud/svr/index.js` | 上下文 = 仓库根（官方模板同款位置） |
+| `douyin-cloud/Dockerfile` | `svr/index.js` | 上下文 = `douyin-cloud\`（该文件所在目录） |
+
+两个文件内容只差 COPY 那两行的前缀，**所以两种理解都能构建**：表单里有「代码根目录 / 代码目标目录」
+这类字段就填 `douyin-cloud`、Dockerfile 填 `douyin-cloud/Dockerfile`；只有 Dockerfile 一栏且默认值是
+`Dockerfile`，就用仓库根那个。构建日志里出现 `COPY failed: file not found` 就是上下文与 Dockerfile 配错了
+→ 换成另一个组合，一次就能对。（本机没有 docker，这两个文件**没法先在本地构建一遍**验证，所以才用
+"两种组合都备好"这个办法。）
+
+> 接上之后**每次 `git push` 就是一次新版本来源**：页面上若有"推送后自动部署"，push 就够了；没有的话
+> 每次去控制台点一次「部署」。这也是为什么现在非要推 GitHub：现在的服务设置里**没有代码包上传入口**，
+> 镜像部署要本机 docker（这台机器没有），**git部署 是唯一能走通的那条路**。
 
 ## 3. 授权外网访问路径（关键，漏了会 404）
 
@@ -219,19 +304,25 @@ curl.exe "https://你的默认域名/api/save?openid=test-openid"
 | 日志在哪 | 服务详情 → 日志（平台侧记录里也有日志主题 ID，见 stage0 §9.1） |
 | 控制台"冷启动超时 / 502"，日志里**没有** `listening on` | 进程起来后没监听：入口文件里有作用域错误把 `createServer/listen` 包进了别的函数（2026-09-30 真实踩过）。**上传前先跑 `tools\cloud-pack.ps1`** |
 | 域名 `curl` 回 `404 + X-Status-Code: 13005 not found server` | 这个域名对应的服务/环境已经不存在（服务被删、改名、或换了环境）→ 去控制台重新抄当前域名，别用文档里抄的旧域名 |
-| `curl "<域名>/api/health"` 在模板服务上回 404 | 那是官方模板（`/api/get_open_id`、`/api/text/antidirt`），不是我们的代码 —— 先把 §0.5 的 zip 传上去 |
+| `curl "<域名>/api/health"` 在模板服务上回 404 | 那是官方模板（`/api/get_open_id`、`/api/text/antidirt`），不是我们的代码 —— 先把我们自己的代码部署上去（§2.5 → §2.6） |
 | `/api/profile` 回 `503 not_configured` | 服务端没读到 `DOUYIN_APPID` / `DOUYIN_SECRET`（环境变量加错环境、或加完没重新部署）。**这是故意的**：不编造 openid |
 | `/api/profile` 回 `401 code2session_failed` | 上游拒绝了。看响应里的 `errNo` / `errTips`：**code 是一次性的**（重复用必失败），或 AppID 与密钥不匹配 |
 | 存档接口回 `401 token_required` | 服务端开了 `REQUIRE_TOKEN=1`（只收验签令牌）→ 客户端必须先 `POST /api/profile` 拿令牌 |
 | 玩家隔一次部署就要重新登录 | `SESSION_SECRET` 没配 → 每次启动随机生成，旧令牌全部失效。配成固定值即可（`/api/health` 的 `login.sessionSecretIsRandom` 能一眼看出来） |
 | 存档回 `409 balance_mismatch` | 客户端存档里的 `balanceVersion` 与服务端不一致（两套数值不许混进同一份存档）→ 先把 `shared\balance.json` 对齐再传 |
+| `git push` 回 `Permission denied (publickey)` | ssh 没把那把钥匙递出去：密钥是非默认名 `id_ed25519_git`，而 `~\.ssh\config` 的 `Host *` 段开着 `IdentitiesOnly yes`（`ssh -v` 里只有默认名）→ 补 `Host github.com` + `IdentityFile`（§2.5）。补完仍是这个错，那才是公钥没加到 GitHub |
+| git部署 构建报 `COPY failed: file not found` | Dockerfile 与构建上下文配错：仓库根 Dockerfile 配"上下文 = 仓库根"，`douyin-cloud\Dockerfile` 配"上下文 = `douyin-cloud\`"（§2.6） |
+| git部署 里选不到仓库 / 拉不到代码 | 抖音云还没被授权读这个仓库（§2.5 第 ② 套凭据），或代码还没 push 上去（`git ls-remote origin HEAD` 为空） |
 
 ## 9. 阶段 B 的下一步（按顺序）
 
-0. **先把我们自己的代码部署上去**（§0.5 → §2 → §3.5）：`tools\cloud-pack.ps1` 出 zip → 控制台上传
-   → 授权 `/api/*` → 配 `DOUYIN_APPID` / `DOUYIN_SECRET` / `SESSION_SECRET` → 抄**当前**域名
+0. **先把我们自己的代码部署上去**（§2.5 → §2.6 → §3 → §3.5）：先把仓库推上 GitHub（§2.5）
+   → 控制台用 **git部署**（§2.6）把服务拉起来 → 授权 `/api/*` → 配
+   `DOUYIN_APPID` / `DOUYIN_SECRET` / `SESSION_SECRET` → 抄**当前**域名
    → `curl.exe "<域名>/api/health"` 应回 `{"ok":true,"service":"phaser-game-svr","version":"0.2.0",...}`，
    且 `login.configured` 为 `true`。这一步不通，后面全是空转。
+   （离线备份：`tools\cloud-pack.ps1` 出 zip —— 它现在是"本地冒烟关卡"的产物，控制台里已经没有
+   代码包上传入口。）
 1. ~~接 `tt.login`~~ → **服务端已完成（2026-09-30）**：`POST /api/profile` 用真 code2session 换 openid 并
    签发无状态令牌；`/api/save` 有令牌时只认令牌里的账号；越权写 / 伪造签名 / 过期令牌 / 严格模式
    全在 `douyin-cloud\svr\smoke.mjs` 的 41 项断言里验过（假抖音端，不花钱）。

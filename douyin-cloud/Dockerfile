@@ -2,8 +2,9 @@
 #
 # 控制台里选「Docker 镜像」时，构建上下文选 douyin-cloud\（这个文件所在目录），
 # 镜像内会跑 `node index.js`，监听 $PORT（默认 8080）。
-# 也可以不用 Docker：控制台支持「上传代码包 / 在线编辑」，那种情况下把 svr\ 里的
-# index.js 直接传上去即可（它零依赖，不需要 npm install）。
+# 也可以不用 Docker：服务端零依赖，把 svr\ 里那两个文件直接交上去也能跑（线上与本地都不需要 npm install）。
+# 2026-09-30 复核：抖音云的 git部署 会来仓库找 Dockerfile —— 表单默认值 `Dockerfile` 按仓库根解析（对应仓库
+# 根那个 Dockerfile），本文件的 COPY 针对"上下文 = 本目录"。该挑哪个见 docs\douyin-cloud-deploy.md §2.6。
 #
 # 注意：抖音云默认域名只支持测试（10 QPS）、外网响应 ≤ 1MB，上线要绑自定义域名。
 

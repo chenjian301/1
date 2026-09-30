@@ -6,6 +6,13 @@
 # and it refuses to build that zip unless the local smoke test is green, because "the service never
 # listened" is the most expensive bug to discover after uploading (see the smoke.mjs header).
 #
+# 2026-09-30 note on where the code actually goes: the console's deploy page now offers
+# template / git / image deploy. Git deploy pulls the repo from GitHub and needs no local docker
+# (this dev box has none), so it is the primary path; the zip produced below is the offline fallback.
+# Dockerfile-wise there are now two files in the repo -- a repo-root one for a repo-root build
+# context and douyin-cloud\Dockerfile for a douyin-cloud build context (see
+# docs\douyin-cloud-deploy.md 2.6). Nothing changed about the smoke gate.
+#
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1
 #   powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1 -SkipSmoke
@@ -51,7 +58,9 @@ Compress-Archive -Path $entry, $meta -DestinationPath $zip -Force
 Write-Output ('      ' + $zip + '  (' + (Get-Item $zip).Length + ' bytes)')
 
 Write-Output '[3/3] what is left is console-side and cannot be scripted (no deploy CLI exists)'
-Write-Output '      1) Douyin Cloud console -> your service -> deploy -> upload the zip above'
+Write-Output '      1) console -> service settings -> deploy: prefer git deploy (repo-root Dockerfile + a'
+Write-Output '         repo-root build context, or douyin-cloud/Dockerfile + a douyin-cloud context -- see'
+Write-Output '         docs\douyin-cloud-deploy.md 2.6). The zip above is the offline fallback only.'
 Write-Output '      2) start command: node index.js        port: 8080'
 Write-Output '      3) Access control: authorize path /api/*  (GET + POST), then redeploy'
 Write-Output '      4) copy the default domain into douyin-minigame\src\00-config.js (cloudBase, no trailing slash)'

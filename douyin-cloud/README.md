@@ -12,6 +12,11 @@ douyin-cloud\
 └─ README.md         本文件
 ```
 
+> 仓库根还有一个 `Dockerfile`（内容是 `COPY douyin-cloud/svr/...`）：抖音云 git部署 表单里 Dockerfile
+> 一栏的默认值就是 `Dockerfile`、按「与代码目标目录同级」取文件，**构建上下文可能是仓库根**（官方模板
+> 就是 Dockerfile 在仓库根 + `COPY . .`）。两个文件只差 COPY 的前缀，所以两种上下文都能构建；
+> 映射与为什么要两个见 `docs\douyin-cloud-deploy.md` §2.6。
+
 ## 端点
 
 | 方法 | 路径 | 说明 |
@@ -80,7 +85,10 @@ tools\minigame-node.ps1 douyin-cloud\svr\index.js
 **`docs\douyin-cloud-deploy.md`**，包括上线前必须处理的四条平台限制（默认域名 10 QPS、响应 ≤ 1MB、
 单服务 QPS、长连接未验证）。
 
-⚠️ **上传这一步只能在控制台点**：抖音云只支持控制台里的「Git 代码 / Docker 镜像」两种部署方式，
-**没有官方 CLI**（官方模板仓库 README 原文）。所以自动化止步于"产出那个 zip"，推上去要人工。
+⚠️ **把代码送上去这一步只能在控制台点**：抖音云只支持控制台里的「Git 代码 / Docker 镜像」两种部署方式，
+**没有官方 CLI**（官方模板仓库 README 原文）。2026-09-30 在「服务设置 → 部署方式」上只看到三个页签：
+**模板部署 / git部署 / 镜像部署** —— 代码包上传没有入口了，所以**首选 git部署**（从 GitHub 拉代码构建；
+仓库已就绪，卡在"SSH 公钥还没加到 GitHub"，见 `docs\douyin-cloud-deploy.md` §2.5 / §2.6），
+本地产出的 zip 留作离线备份。
 另外：文档里出现的具体域名都是历史痕迹 —— 2026-09-30 复核时旧域名已返回
 `404 + X-Status-Code: 13005 not found server`，一律以控制台现值（并重新填入 `cloudBase`）为准。

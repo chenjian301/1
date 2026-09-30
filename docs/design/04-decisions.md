@@ -46,6 +46,12 @@
   ③ **抖音云没有官方 CLI**（只有控制台里的 Git 代码 / Docker 镜像两种部署方式，官方模板 README 原文），
   所以"上传代码"这最后一步必须人工点，其余都能脚本化：`tools\cloud-pack.ps1`（先跑真进程冒烟 41 项断言，
   过了才产出 `douyin-cloud\dist\svr-code-*.zip`）。
+   **2026-09-30 晚再复核**：服务设置里现在只有 **模板部署 / git部署 / 镜像部署** 三个页签，
+   **代码包上传没有入口**了 → 首选 **git部署**（从 GitHub 拉代码构建；仓库 `d:\douy` 已就绪，
+   卡在"SSH 公钥还没加到 GitHub"。实测还有一个更隐蔽的原因：那把密钥叫非默认名 `id_ed25519_git`，
+   而 `~\.ssh\config` 的 `Host *` 段开着 `IdentitiesOnly yes`，`ssh -v` 证明它**根本没被递出去**，
+   已在 config 末尾补 `Host github.com` + `IdentityFile`）。
+   步骤与两个 Dockerfile 的构建上下文映射见 `docs\douyin-cloud-deploy.md` §2.5 / §2.6。
 - 🟡 **REST 调用方式已明确**：小游戏侧走抖音云 SDK **`callContainer`**（官方文案："无需服务器及域名配置即可上线"）。
   阶段 B 第一件事就是用真机调一次 `/api/profile` 验证它是否真的免白名单。
   **2026-09-30 晚进展**：`/api/profile` 的**服务端那一半已经写完并自测过**（真 `code2session` 换 openid +

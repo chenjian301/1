@@ -2,10 +2,10 @@
  * 抖音云后端服务（零依赖版）—— 阶段 B
  *
  * 为什么零依赖：
- *   抖音云控制台支持「上传代码包 / 在线编辑 / Docker 镜像」三种部署方式，零依赖的
- *   `node index.js` 三种都能跑、**不需要 npm install**，失败面最小。
- *   上一版工程验证过的组合是 Node + koa；这里为了"能直接贴进在线编辑器"只用 Node 自带的
- *   http / https / crypto，将来要换 koa/express 也只是换个路由写法。
+ *   抖音云的部署方式（2026-09-30 在「服务设置 → 部署方式」看到的是 模板部署 / git部署 / 镜像部署）
+ *   最后都是跑一个 `node index.js`；零依赖就**不需要 npm install**，构建步骤最少、失败面最小。
+ *   上一版工程验证过的组合是 Node + koa；这里只用 Node 自带的 http / https / crypto，
+ *   将来要换 koa/express 也只是换个路由写法。
  *
  * 端点（全部挂在 /api/ 下 —— 抖音云控制台的「访问控制」要授权 /api/* 才能外网访问）：
  *   GET  /api/health     健康检查（小游戏里「设置 → 云后端」调它；也回报登录是否已配置）
@@ -17,7 +17,7 @@
  * 登录链路（2026-09-30 接入，阶段 B 第一件事）：
  *   客户端 tt.login → code → POST /api/profile { code } → 服务端调抖音 code2session
  *   → 得到 openid（+ session_key，**session_key 永久留在服务端**）→ 签发我们自己的会话令牌。
- *   凭据只从环境变量读，**不写进代码**（这个包会被传到控制台、还可能贴进在线编辑器）：
+ *   凭据只从环境变量读，**不写进代码**（这份代码会被 git部署 从仓库构建进镜像、也可能被人手工贴进控制台）：
  *     DOUYIN_APPID / DOUYIN_SECRET   小游戏 AppID 与密钥（也认 TT_APPID / TT_SECRET）
  *     SESSION_SECRET                 令牌签名密钥；不设则每次启动随机生成（旧令牌全部失效）
  *     REQUIRE_TOKEN=1                只收验签过的令牌（关掉过渡通道，越权彻底不可能）
