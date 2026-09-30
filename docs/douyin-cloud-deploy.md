@@ -18,8 +18,11 @@
 > 3. **抖音云只有控制台里的「Git 代码 / Docker 镜像」两种部署方式，没有官方 CLI**
 >    （官方模板仓库 README 原文；npm registry 里搜 `douyincloud` 也只命中一个第三方 demo 包，不是官方 CLI）。
 >    不过页面提示里写了一句「可使用抖音云CLI自动生成dockerfile」——**这条没查证**（我们自己准备了两个
->    Dockerfile 兜底，见 §2.6）。也就是说"把代码推上去"这最后一步**无法脚本自动化**；
+>    Dockerfile 兜底，见 §2.6）。也就是说在控制台点「部署」这最后一步**无法脚本自动化**；
 >    但它前面每一步都能，见 §0.5。
+> 4. **仓库已推上 GitHub（2026-09-30）**：`chenjian301/1` 的 `main` 现在 HEAD = `3462ffe`。
+>    所以 git部署 这条路是通的 —— 接着按 §2.6 填表 → 部署 → §3 授权 `/api/*` →
+>    §3.5 配环境变量 → §4 抄域名验证。**卡在"推代码"上的那一步已经过去了。**
 >
 > 下面是完整步骤。
 
@@ -94,9 +97,14 @@ powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1
 
 git部署 是**从 GitHub 拉代码**，不从你本机拉 —— 所以 GitHub 上必须真有代码。
 
-本地已经就绪：仓库 `d:\douy`，分支 `main`，根提交 `629fe73`，48 个文件，
-`core.autocrlf=false`（构建产物哈希才可复现），`origin = git@github.com:chenjian301/1.git`。
-**只差"推上去"这一步。**
+本地已经就绪：仓库 `d:\douy`，分支 `main`，根提交 `629fe73`，`core.autocrlf=false`
+（构建产物哈希才可复现），`origin = git@github.com:chenjian301/1.git`。
+
+**状态（2026-09-30 收尾）：下面 ①②③ 三步都已做完** —— 公钥已加到 GitHub、`ssh -T git@github.com`
+回 `Hi chenjian301! You've successfully authenticated`、推送成功（`* [new branch] main -> main`），
+远端 `main` 的 HEAD = `3462ffe`（`deploy: repo-root Dockerfile (git deploy) + deploy doc 2.5/2.6 + ssh identity`），
+本地 `main` 已跟踪 `origin/main`。也就是说 §2.6 里的「代码源 = GitHub / 代码仓库 = `chenjian301/1` /
+分支 = `main`」现在**真的拉得到东西**了；别再重复这三步。
 
 **2026-09-30 实测的坑（已在本机修好）**：本机那把密钥叫 `id_ed25519_git`，**不是 ssh 会自动尝试的默认名**，
 而 `~\.ssh\config` 里又有 `Host *` 段开着 `IdentitiesOnly yes` —— 于是 `ssh -v -T git@github.com` 的日志里
@@ -113,7 +121,7 @@ Host github.com
     IdentitiesOnly yes
 ```
 
-剩下三步是手上要点的：
+**三步原始清单**（2026-09-30 已全部执行完；换机器/换仓库时照做）：
 
 1. **把公钥加到 GitHub**：https://github.com/settings/keys → `New SSH key` → 粘贴下面这一行（**只贴公钥**）：
 
@@ -131,7 +139,7 @@ Host github.com
    $git = 'C:\Users\Administrator\AppData\Local\GitHubDesktop\app-3.6.6\resources\app\git\cmd\git.exe'
    cd d:\douy
    & $git push -u origin main
-   & $git ls-remote origin HEAD     # 回 629fe73... 就说明 GitHub 上真有代码了
+   & $git ls-remote origin HEAD     # 回 3462ffe...（含根提交 629fe73）就说明 GitHub 上真有代码了
    ```
 
 > ⚠️ 这里是**两套凭据**，别混：①「你 → GitHub」的推送权 = 上面这步（SSH 公钥）；
