@@ -100,7 +100,7 @@
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1
-# ① 用真进程 + 真 HTTP 请求跑 douyin-cloud\svr\smoke.mjs（82 项断言：3 个真实例 127.0.0.1:8099/8101/8102
+# ① 用真进程 + 真 HTTP 请求跑 douyin-cloud\svr\smoke.mjs（83 项断言：3 个真实例 127.0.0.1:8099/8101/8102
 #    + 一个**假 code2session** 在 8100 —— 登录链路也在这里整条跑通，不连抖音云、不花一分钱）
 # ② 绿的才打包 → douyin-cloud\dist\svr-code-<时间戳>.zip（里面是 index.js + package.json + run.sh）
 #    同一分钟内重复跑会自动加 -2/-3 后缀、不覆盖旧包（旧包可能正被压缩软件或资源管理器占着）
@@ -316,7 +316,7 @@ sh: /opt/application/run.sh: not found
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\cloud-deploy-check.ps1   # 容器约定：run.sh / Dockerfile / 端口
-powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1           # 服务本身：82 项冒烟，顺带打离线 zip
+powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1           # 服务本身：83 项冒烟，顺带打离线 zip
 ```
 
 **发布成功后，日志里应该能看到这两行**（第一行就是 run.sh 打的 —— 它出现即证明平台真的执行到了它）：
@@ -546,7 +546,7 @@ curl.exe -sS "https://你的默认域名/api/save?openid=test-openid"
    代码包上传入口。）
 1. ~~接 `tt.login`~~ → **服务端已完成（2026-09-30）**：`POST /api/profile` 用真 code2session 换 openid 并
    签发无状态令牌；`/api/save` 有令牌时只认令牌里的账号；越权写 / 伪造签名 / 过期令牌 / 严格模式
-   全在 `douyin-cloud\svr\smoke.mjs` 的 82 项断言里验过（假抖音端，不花钱）。
+   全在 `douyin-cloud\svr\smoke.mjs` 的 83 项断言里验过（假抖音端，不花钱）。
    **剩下的客户端那一半**：`12-platform.js` 加 `PLAT.login()`（包 `tt.login`；`tt.` 只准出现在这个文件）、
    把 token 存本地、`/api/save` 带上 `Authorization: Bearer`。这一半**没法在 node 里自测**（`tt.login`
    只在真机/开发者工具里存在），只能在抖音开发者工具里点着验。
@@ -558,13 +558,13 @@ curl.exe -sS "https://你的默认域名/api/save?openid=test-openid"
 
 ## 10. 公会接口（2026-10-01 新增）上线的三步
 
-后端已经写完、本地冒烟 82 项全绿（`tools\cloud-pack.ps1` 会自己跑那一关）。
+后端已经写完、本地冒烟 83 项全绿（`tools\cloud-pack.ps1` 会自己跑那一关）。
 剩下的是**把代码送上去 + 在真机上点一遍**，两步都不需要改代码：
 
 ```powershell
-# ① 本地过关（会跑 82 项冒烟断言，绿的才打包出离线 zip）
+# ① 本地过关（会跑 83 项冒烟断言，绿的才打包出离线 zip）
 powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1
-#    期望最后一行：RESULT PASS 82/82  (后端可上传到抖音云)
+#    期望最后一行：RESULT PASS 83/83  (后端可上传到抖音云)
 
 # ② 把这一版推到 GitHub（git部署 拉的就是它）
 git push origin main

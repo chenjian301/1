@@ -2,7 +2,7 @@
  *
  * Assembled from douyin-minigame\src\*.js by tools\build-minigame.ps1.
  * Parts (in order): 00-config.js, 01-balance.js, 02-rng.js, 03-chunk.js, 04-terrain.js, 05-spawn.js, 06-progression.js, 07-combat.js, 07-skills.js, 08-loot.js, 09-equipment.js, 10-player.js, 11-save.js, 12-platform.js, 13-screen.js, 14-world.js, 15-input.js, 16-icons.js, 16-render.js, 17-hud.js, 18-panels.js, 19-selftest.js, 20-main.js
- * parts sha256 = 62b43902adc114b86ee45ddf1e940b29a17d0b65840556b7ceaffb0420222ff8
+ * parts sha256 = b5e66229447ceebcaa8a915c58dbf86434bb3922008d849b9eb21b0e53d648bc
  *
  * Edit files under douyin-minigame\src\ and rebuild:
  *   powershell -ExecutionPolicy Bypass -File tools\build-minigame.ps1
@@ -18613,13 +18613,20 @@ G.GAME = (function () {
     return { name: state.save.name, level: state.save.level };
   }
 
-  /** 公会接口的公共头部：带上令牌（服务端有令牌时**只认令牌里的账号**，body 里的 openid 会被忽略） */
+  /**
+   * 公会接口的公共头部：带上令牌（服务端有令牌时**只认令牌里的账号**，body 里的 openid 会被忽略），
+   * 顺带带上**我的名字与等级**（`playerName` / `playerLevel`）：
+   * 服务端优先读它自己 `saves` 表里那份存档，读不到（云存档还没接上）才用这两个值 ——
+   * 于是"公会人员"那一列从第一天起就是真名字与真等级，而不是"无名者 Lv.1"。
+   */
   function guildRequest(path, data) {
     var account = state.account || {};
     var payload = {
       account: account.id || '',
       openid: account.openid || '',
-      token: account.token || ''
+      token: account.token || '',
+      playerName: state.save.name || '',
+      playerLevel: state.save.level
     };
     if (data) {
       for (var key in data) {

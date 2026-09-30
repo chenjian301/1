@@ -345,7 +345,7 @@ tools\apply-hud-layout.cmd                                                # 把�
 
 服务端代码与完整步骤见：`douyin-cloud\` 与 **`docs\douyin-cloud-deploy.md`**。
 把代码送上去之前先在本地过一关：`powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1`
-（真起进程打 82 项断言，过了才产出可上传的 zip）。把代码送上去那一步：抖音云没有官方 CLI，
+（真起进程打 83 项断言，过了才产出可上传的 zip）。把代码送上去那一步：抖音云没有官方 CLI，
 现在的「服务设置 → 部署方式」里只有 **模板部署 / git部署 / 镜像部署**，首选 **git部署**
 （从 GitHub 拉代码构建；先按 `docs\douyin-cloud-deploy.md` §2.5 把仓库推上去，再按 §2.6 填表，
 最后 §10 是这一版**公会接口**的上线三步）。

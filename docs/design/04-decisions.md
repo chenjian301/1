@@ -1338,7 +1338,7 @@ tools\minigame-now.cmd                    →  重新生成 01-balance.js + 重�
 **验证**：`tools\minigame-now.cmd` → `ALL CHECKS PASSED` + `RESULT PASS 1117/1117` + `ALL GREEN`；
 `tools\hud-preview.mjs` → `HUD-PREVIEW check ok`（**16** 个场景 × 5 个屏，新增「公会成员」场景，
 新增第 8 条硬拦"侧边栏不许被面板卡片盖住"，`worstButtonOverDesign = 0` / `worstPanelGap = 63.8`）；
-`tools\cloud-pack.ps1` → **`RESULT PASS 82/82`**（公会接口 33 项新断言：建会 / 重名 / 人满 / 会长不能退 /
+`tools\cloud-pack.ps1` → **`RESULT PASS 83/83`**（公会接口 34 项新断言：建会 / 重名 / 人满 / 会长不能退 /
 锚点间距与冷却 / 等级公式与封顶 / 三处身份闸门 / 裸实例也能建会）。
 
 **部署**：服务端这一版是 **v0.3.0**；上线三步（本地过关 → `git push` → 控制台 git部署 重新部署 →

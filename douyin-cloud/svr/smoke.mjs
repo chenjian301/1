@@ -725,6 +725,19 @@ async function main() {
     JSON.stringify(listed.json && listed.json.guilds && listed.json.guilds[0])
   );
 
+  // 客户端每次调公会接口都带上自己的名字与等级 → 服务端顺手刷新"我"那条记录：
+  // 于是"练了一级 → 公会等级跟着涨"现在就能成立（云存档还没接上，这是兜底那一份）
+  const refreshed = await request(base, 'POST', '/api/guild/mine', {
+    token: memberToken,
+    playerName: '烟测乙',
+    playerLevel: 120
+  });
+  check(
+    '成员的自报等级会刷新成员表：30 + 120 = 150 → 公会等级涨到 2 级',
+    refreshed.status === 200 && !!refreshed.json && refreshed.json.guild.level === 2 && refreshed.json.guild.exp === 150,
+    JSON.stringify(refreshed.json && { level: refreshed.json.guild.level, exp: refreshed.json.guild.exp })
+  );
+
   const anchorByMember = await request(base, 'POST', '/api/guild/anchor', { token: memberToken, x: 1, y: 1 });
   check(
     '只有会长能挪锚点：成员调它回 403 not_leader',

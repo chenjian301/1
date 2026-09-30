@@ -1453,13 +1453,20 @@ G.GAME = (function () {
     return { name: state.save.name, level: state.save.level };
   }
 
-  /** 公会接口的公共头部：带上令牌（服务端有令牌时**只认令牌里的账号**，body 里的 openid 会被忽略） */
+  /**
+   * 公会接口的公共头部：带上令牌（服务端有令牌时**只认令牌里的账号**，body 里的 openid 会被忽略），
+   * 顺带带上**我的名字与等级**（`playerName` / `playerLevel`）：
+   * 服务端优先读它自己 `saves` 表里那份存档，读不到（云存档还没接上）才用这两个值 ——
+   * 于是"公会人员"那一列从第一天起就是真名字与真等级，而不是"无名者 Lv.1"。
+   */
   function guildRequest(path, data) {
     var account = state.account || {};
     var payload = {
       account: account.id || '',
       openid: account.openid || '',
-      token: account.token || ''
+      token: account.token || '',
+      playerName: state.save.name || '',
+      playerLevel: state.save.level
     };
     if (data) {
       for (var key in data) {

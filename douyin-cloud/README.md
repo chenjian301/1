@@ -6,7 +6,7 @@
 douyin-cloud\
 ├─ svr\index.js      服务本体（12 个端点 + 登录/令牌 + 公会，无第三方依赖，默认端口 8000，v0.3.0）
 ├─ svr\package.json  只有元信息（没有 dependencies，所以部署时不需要 npm install）
-├─ svr\smoke.mjs     本地冒烟：起 3 个真进程 + 一个**假 code2session**，打 82 项断言（**不属于部署包**）
+├─ svr\smoke.mjs     本地冒烟：起 3 个真进程 + 一个**假 code2session**，打 83 项断言（**不属于部署包**）
 ├─ run.sh            容器运行时启动文件（平台固定执行 /opt/application/run.sh，不看镜像 CMD）——与仓库根那份逐字节相同
 ├─ Dockerfile        选「Docker 镜像」方式部署时用（构建上下文 = 本目录）
 ├─ dist\             tools\cloud-pack.ps1 产出的上传包（svr-code-<时间戳>.zip，生成物，已被 .gitignore 忽略）
@@ -83,7 +83,7 @@ douyin-cloud\
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1
-# ① 真进程 + 真 HTTP 请求跑 svr\smoke.mjs（82 项断言，127.0.0.1:8099/8101/8102 + 假抖音端 8100）：
+# ① 真进程 + 真 HTTP 请求跑 svr\smoke.mjs（83 项断言，127.0.0.1:8099/8101/8102 + 假抖音端 8100）：
 #    端口真的在听吗 / 健康检查 / 数值表是否漂移 / code→openid / 签令牌 / 越权写 / 伪造与过期令牌 /
 #    严格模式(REQUIRE_TOKEN=1) / 没配凭据时是否明确 503 / 坏 JSON / 404 / OPTIONS 预检
 # ② 绿的才打包 → douyin-cloud\dist\svr-code-<时间戳>.zip（index.js + package.json + run.sh）

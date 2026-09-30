@@ -831,6 +831,23 @@ const server = http.createServer(async (req, res) => {
       }
       touchPresence(identity.account);
 
+      /*
+       * 顺手用客户端带来的名字 / 等级刷新"我"这条成员记录。
+       * 为什么需要：云存档还没接上（阶段 B 第 2 项），成员表里的名字 / 等级本来会停在他入会那一刻；
+       * 客户端每次调公会接口都会带 `playerName` / `playerLevel`，于是"升了一级 → 公会等级跟着涨"
+       * 这件事现在就能成立。**服务端有存档时以存档为准**（见 guildMembers），这里只是兜底那一份。
+       */
+      const mineNow = guildOf(identity.account);
+      if (mineNow) {
+        for (const member of mineNow.members) {
+          if (member.account !== identity.account) continue;
+          if (typeof body.playerName === 'string' && body.playerName) member.name = body.playerName.slice(0, 12);
+          if (typeof body.playerLevel === 'number' && isFinite(body.playerLevel)) {
+            member.level = clampInt(body.playerLevel, member.level, 1, 9999);
+          }
+        }
+      }
+
       if (path === '/api/guild/create' || path === '/api/guild/join') {
         const checked = validateGuildName(body.name);
         if (!checked.ok) {
