@@ -68,6 +68,10 @@
 >    （**不是** `40002 appid/secret 无效`），说明那串 `DOUYIN_SECRET` **真的被官方接受**（验法见 §3.5）。
 >    还没打开的唯一收紧项是 `REQUIRE_TOKEN=1`（`health.login.requireToken` 仍是 `false`），
 >    等客户端「登录 → 拿令牌 → 存档」跑通后再开。
+>    顺带用 §7 的 `openid:` 过渡通道把**存档读写通路**也在线上跑通了：`POST /api/save` 回
+>    `{"ok":true,"account":"openid:cline-verify","verified":false,"revision":1}`，`GET /api/save?openid=cline-verify`
+>    原样读回同一份存档，假令牌 `GET /api/save?token=bogus` 得到 `401 {"ok":false,"error":"bad_token"}`，
+>    且 `/api/health` 的 `saves` 由 `0` 变 `1` —— 读写通路与令牌拦截都正常（这条测试存档只在内存里，重新部署即清空）。
 >
 > 下面是完整步骤。
 
