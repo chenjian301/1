@@ -1,8 +1,11 @@
 /**
- * perf-frame.mjs —— 数一帧到底有多少次绘制调用（02-architecture §9 的"每帧绘制调用 ≤ 400"预算）
+ * perf-frame.mjs —— 数一帧到底有多少次绘制调用（02-architecture §9 的"每帧绘制调用 ≤ 900"预算）
  *
  * 为什么需要它：十九秒的冒烟只断言"画出来了、没 NaN"，不能回答"会不会画太多"。
  * 换外观（阶段 A3 的自绘角色 / 营地 / 路网 / 小地图）以后，这一层最容易悄悄翻倍，所以留一把尺子。
+ * A6（Q版角色 + 装备外观 + 视角拉远 20% + 更细的地表）之后再量一次：最坏 **660**（A5 是 795）——
+ * 视角拉远本来会让实体数上升，是靠"同色图元攒成一条路径再 fill"（地表一个 chunk 最多 3 次、
+ * 营地石砖 3 次）把最坏值压下来的。
  *
  * 用法（本机没有独立 node，用抖音开发者工具自带的 Electron 当 node）：
  *   powershell -ExecutionPolicy Bypass -File tools\minigame-node.ps1 tools\perf-frame.mjs
