@@ -129,7 +129,15 @@ G.SELFTEST = (function () {
     eq('保底：50 箱无史诗', BAL.chests.pity.epic, 50);
     eq('保底：500 箱无神话', BAL.chests.pity.mythic, 500);
     eq('宝箱背包上限 200', BAL.chests.bagCap, 200);
-    eq('装备六部位', BAL.equipment.slots.length, 6);
+    eq('装备四部位（武器 / 衣服 / 鞋子 / 饰品）', BAL.equipment.slots.length, 4);
+    eq(
+      '部位顺序 = 武器 / 衣服 / 鞋子 / 饰品',
+      BAL.equipment.slots.map(function (s) { return s.id; }).join(','),
+      'weapon,armor,boots,trinket'
+    );
+    eq('装备目录 60 件（六阶 × 10 件）', BAL.equipment.catalog.length, 60);
+    eq('营地不刷怪的半径 = 石砖地半径', BAL.world.camp.monsterFreeRadius, BAL.world.camp.radius);
+    between('视角倍率在 0.5~1（拉远看得更多，又不会小到看不清）', BAL.view.cameraZoom, 0.5, 1);
     eq('装备词条数 1/2/3/4/5/5', BAL.equipment.tiers.map(function (t) { return t.affixes; }).join(','), '1,2,3,4,5,5');
     eq('装备末阶倍率 5.3', BAL.equipment.tiers[5].multiplier, 5.3);
     eq('公会人数上限 20', BAL.guild.memberCap, 20);
@@ -430,26 +438,94 @@ G.SELFTEST = (function () {
 
   /* ---------------------------------------- 8. 装备生成 / 词条 / 战力 */
 
+  /**
+   * 装备（A6 起是**目录驱动**：六阶 × 10 件 = 60 件，每件有名字 / 部位 / 外观 / 等级门槛）。
+   * 这一组盯三件事：① 目录本身合法（部位对得上、门槛单调、同阶越靠后越强）；
+   * ② 生成出来的东西与目录一致（名字 / 外观 / 门槛都跟着那一件走）；
+   * ③ 穿上之后的属性汇总与战力口径没变。
+   */
   function checkEquipment() {
-    section('装备生成 / 词条 / 战力（09-equipment.js）');
+    section('装备目录 / 生成 / 词条 / 战力 / 外观（09-equipment.js）');
     var EQUIP_ = G.EQUIP;
     var rng = new G.RNG.Rng(1234);
+    var c;
+
+    // ① 目录：60 件、id 唯一、部位合法、每阶 10 件、四个部位都有货
+    var catalog = EQUIP_.catalog();
+    var seen = {};
+    var dup = 0;
+    var badSlot = 0;
+    var noName = 0;
+    var noStyle = 0;
+    var noColor = 0;
+    var tierCount = [];
+    for (c = 0; c < catalog.length; c += 1) {
+      var entry = catalog[c];
+      if (seen['#' + entry.id]) dup += 1;
+      seen['#' + entry.id] = true;
+      if (!EQUIP_.hasSlot(entry.slot)) badSlot += 1;
+      if (!entry.name || entry.name.length === 0) noName += 1;
+      var entryLook = EQUIP_.lookOfDef(entry);
+      if (!entryLook || !entryLook.style) noStyle += 1;
+      if (!entryLook || !entryLook.a || !entryLook.b) noColor += 1;
+      tierCount[entry.tier] = (tierCount[entry.tier] || 0) + 1;
+    }
+    eq('目录 id 不重复', dup, 0);
+    eq('目录里每个部位都合法', badSlot, 0);
+    eq('每阶 10 件', tierCount.slice(1).join(','), '10,10,10,10,10,10');
+    eq('每件都有名字', noName, 0);
+    eq('每件都有造型 id（渲染与图标都读它）', noStyle, 0);
+    eq('每件都有配色（缺色的装备画不出来）', noColor, 0);
+    var tier1 = EQUIP_.catalogForTier(1);
+    var covered = 0;
+    for (c = 0; c < EQUIP_.SLOT_IDS.length; c += 1) {
+      var slotId = EQUIP_.SLOT_IDS[c];
+      for (var d = 0; d < tier1.length; d += 1) {
+        if (tier1[d].slot === slotId) covered += 1;
+      }
+    }
+    ok('1 阶 10 件把四个部位都覆盖到了', covered === tier1.length, String(covered));
+
+    // ② 等级门槛：等阶越高越高，同阶内越靠后越高（这就是"装备的等级划分"）
+    eq('1 阶门槛从 1 起', EQUIP_.requirementFor(1), 1);
+    eq('6 阶门槛 16', EQUIP_.requirementFor(6), 16);
+    ok(
+      '同阶内门槛单调不降',
+      EQUIP_.requirementForItem(tier1[9]) >= EQUIP_.requirementForItem(tier1[0]),
+      EQUIP_.requirementForItem(tier1[0]) + ' -> ' + EQUIP_.requirementForItem(tier1[9])
+    );
+    ok(
+      '同阶内越靠后越强（阶内系数）',
+      EQUIP_.statMulOf(tier1[9]) > EQUIP_.statMulOf(tier1[0]),
+      EQUIP_.statMulOf(tier1[0]) + ' -> ' + EQUIP_.statMulOf(tier1[9])
+    );
+    ok(
+      '最高门槛不超过目标等级 20（不然开出来穿不上）',
+      EQUIP_.requirementForItem(EQUIP_.defById('t6_destinyblade')) <= BAL.progression.targetLevel,
+      String(EQUIP_.requirementForItem(EQUIP_.defById('t6_destinyblade')))
+    );
 
     var t1 = EQUIP_.generate(1, 1, rng, 1);
     eq('1 阶 1 条词条', t1.affixes.length, 1);
-    eq('1 阶等级门槛 1', t1.reqLevel, 1);
+    ok('生成的东西来自目录', EQUIP_.defById(t1.defId) !== null, t1.defId);
+    eq('门槛取自目录那一件', t1.reqLevel, EQUIP_.requirementForItem(EQUIP_.defById(t1.defId)));
+    ok('带名字', !!t1.name && t1.name.length > 0, t1.name);
+    ok('带外观（部位 + 造型 + 配色）', !!(t1.look && t1.look.style && t1.look.a), JSON.stringify(t1.look));
     ok('主属性数值 > 0', t1.main.value > 0, t1.main.stat + ' ' + t1.main.value);
     ok('战力 > 0', t1.power > 0, String(t1.power));
+    eq('等级够就能穿', EQUIP_.canWear(t1, 99), true);
+    eq('等级不够穿不上', EQUIP_.canWear(t1, t1.reqLevel - 1), false);
+    eq('部位不存在（老存档的头盔）穿不上', EQUIP_.canWear({ slotId: 'helmet', reqLevel: 1 }, 99), false);
 
     var t3 = EQUIP_.generate(3, 8, new G.RNG.Rng(7), 2);
     eq('3 阶 3 条词条', t3.affixes.length, 3);
-    eq('3 阶等级门槛 7', t3.reqLevel, 7);
+    ok('3 阶门槛 ≥ 7', t3.reqLevel >= 7, String(t3.reqLevel));
     eq('词条不重复', new Set(t3.affixes.map(function (a) { return a.name; })).size, t3.affixes.length);
 
     var t6 = EQUIP_.generate(6, 20, new G.RNG.Rng(9), 3);
     eq('6 阶 = 5 条词条 + 1 条天赐专属', t6.affixes.length, 6);
     ok('第 6 条带"天赐"前缀', t6.affixes[5].name.indexOf('天赐') === 0, t6.affixes[5].name);
-    eq('6 阶等级门槛 16', t6.reqLevel, 16);
+    ok('6 阶门槛 ≥ 16', t6.reqLevel >= 16, String(t6.reqLevel));
 
     var again = EQUIP_.generate(3, 8, new G.RNG.Rng(7), 2);
     same('同种子同参数 → 同一件装备（可复现）', again, t3);
@@ -463,6 +539,16 @@ G.SELFTEST = (function () {
     }
     ok('6 阶战力远超 1 阶（同等级同平均）', powerSum6 > powerSum1 * 3, powerSum6 / 50 + ' vs ' + powerSum1 / 50);
 
+    // 掉 200 次必须四个部位都出得来（"装备类型分为四类"不能只是写在文档里）
+    var slotHits = { weapon: 0, armor: 0, boots: 0, trinket: 0 };
+    var cover = new G.RNG.Rng(777);
+    for (i = 0; i < 200; i += 1) slotHits[EQUIP_.generate(2, 5, cover, 0).slotId] += 1;
+    ok(
+      '200 次掉落覆盖四个部位',
+      slotHits.weapon > 0 && slotHits.armor > 0 && slotHits.boots > 0 && slotHits.trinket > 0,
+      JSON.stringify(slotHits)
+    );
+
     var loadout = EQUIP_.emptyLoadout();
     eq('空装备栏战力 0', EQUIP_.armoryPower(loadout), 0);
     loadout[t1.slotId] = t1;
@@ -470,6 +556,22 @@ G.SELFTEST = (function () {
     var totals = EQUIP_.totalsOf(loadout);
     ok('属性汇总里有主属性', totals[t1.main.stat] >= t1.main.value, String(totals[t1.main.stat]));
     eq('格式化百分比词条', EQUIP_.formatValue('critChance', 0.043), '+4.3% 暴击率');
+    eq('界面文案 = 阶名 + 装备名', EQUIP_.labelOf(t1), EQUIP_.tierById(1).name + ' ' + t1.name);
+
+    // ③ 外观汇总：渲染层每帧读的就是这一份
+    var look = EQUIP_.lookOf(loadout);
+    eq('外观只跟着穿上的那一件走', look[t1.slotId] === t1.look, true);
+    var rest = 0;
+    for (c = 0; c < EQUIP_.SLOT_IDS.length; c += 1) {
+      if (EQUIP_.SLOT_IDS[c] !== t1.slotId && look[EQUIP_.SLOT_IDS[c]] === null) rest += 1;
+    }
+    eq('没穿的部位在外观里是 null', rest, 3);
+    var nothing = EQUIP_.lookOf(null);
+    ok(
+      '没穿装备时外观是四个 null（渲染层不用到处判空）',
+      nothing.weapon === null && nothing.armor === null && nothing.boots === null && nothing.trinket === null
+    );
+    eq('饰品主属性是暴击率（A6：四部位各有各的定位）', EQUIP_.slotById('trinket').mainStat, 'critChance');
   }
 
   /* ---------------------------------------- 9. 玩家属性 / 移动 / 死亡 */
@@ -517,6 +619,29 @@ G.SELFTEST = (function () {
     PLAYER_.respawn(player, naked1);
     eq('复活半血（600 × 0.5）', player.hp, 300);
     eq('复活后不再处于倒地状态', player.dead, false);
+
+    // A6：属性面板的行数据（每行把"等级基础"与"装备加成"分开写）
+    var rows = PLAYER_.breakdown(20, loadout);
+    ok('属性行数 ≥ 10', rows.length >= 10, String(rows.length));
+    var labels = rows.map(function (row) { return row.label; }).join(',');
+    ok(
+      '含攻击 / 生命上限 / 防御 / 攻速 / 暴击率',
+      labels.indexOf('攻击') >= 0 &&
+        labels.indexOf('生命上限') >= 0 &&
+        labels.indexOf('防御') >= 0 &&
+        labels.indexOf('攻速') >= 0 &&
+        labels.indexOf('暴击率') >= 0,
+      labels
+    );
+    var powerRow = null;
+    var r;
+    var broken = '';
+    for (r = 0; r < rows.length; r += 1) {
+      if (rows[r].label === '战力') powerRow = rows[r];
+      if (!rows[r].sub || rows[r].sub.indexOf('NaN') >= 0 || String(rows[r].value).indexOf('NaN') >= 0) broken += rows[r].label + ';';
+    }
+    ok('战力一行与属性快照一致', !!powerRow && powerRow.value === String(PLAYER_.statsOf(20, loadout).power), powerRow ? powerRow.value : 'null');
+    eq('每行都有说明而且没有 NaN', broken, '');
   }
 
   /* ---------------------------------------- 10. 本地存档 */
@@ -530,7 +655,7 @@ G.SELFTEST = (function () {
     eq('新号 1 级', fresh.level, 1);
     eq('新号无宝箱', fresh.chests.length, 0);
     eq('新号保底计数为 0', fresh.pity.epic + fresh.pity.mythic, 0);
-    eq('新号有 6 个装备栏', Object.keys(fresh.loadout).length, 6);
+    eq('新号有 4 个装备栏（武器 / 衣服 / 鞋子 / 饰品）', Object.keys(fresh.loadout).length, 4);
     ok('出生点可用（决策 #5：首次随机出生）', G.SPAWN.isUsableSpawn(fresh.x, fresh.y), fresh.x + ',' + fresh.y);
 
     var broken = SAVE_.normalize({ v: 1, level: 99, x: NaN, y: 0, chests: [{ tier: 9 }, { tier: 3, level: 8 }] }, seed, 1);
@@ -672,6 +797,84 @@ G.SELFTEST = (function () {
     var hud = fakeContext();
     G.HUD.drawMinimap(hud, { player: { x: 0, y: 0, facing: { x: 1, y: 0 } }, save: { guild: null } });
     ok('小地图能画出来', hud.calls.count > 0, 'calls=' + hud.calls.count);
+
+    /* ---------------------------------------------- A6：视角倍率 / Q版外观 / 图标 */
+
+    // 视角倍率：viewRect 必须跟着放大，否则边缘会缺一块（最容易漏的一条）
+    var camRect = R.viewRect({ x: 0, y: 0 });
+    var k = R.zoom();
+    eq('视角倍率取自 balance', k, BAL.view.cameraZoom);
+    near('视野宽 = 屏宽 / 倍率', camRect.width, G.SCREEN.width() / k, 1e-9);
+    near('视野高 = 屏高 / 倍率', camRect.height, G.SCREEN.height() / k, 1e-9);
+    ok(
+      '拉远之后视野比屏幕大（"扩大视角"真的生效了）',
+      camRect.maxX - camRect.minX > G.SCREEN.width(),
+      Math.round(camRect.maxX - camRect.minX) + ' vs ' + Math.round(G.SCREEN.width())
+    );
+    ok('世界层缩放包夹成对出现（beginWorld / endWorld）', typeof R.beginWorld === 'function' && typeof R.endWorld === 'function');
+    var zoomCtx = fakeContext();
+    R.beginWorld(zoomCtx);
+    R.endWorld(zoomCtx);
+    ok('缩放包夹在假 canvas 上也能用（save + 3 次变换 + restore）', zoomCtx.calls.count >= 2, 'calls=' + zoomCtx.calls.count);
+
+    // 装备外观：穿满四件要画得出来，而且比裸装多画东西（含武器造型 / 衣服款式 / 鞋 / 饰品）
+    var full = {
+      weapon: { slot: 'weapon', style: 'greatsword', a: '#ffd479', b: '#6b2f2f', c: '#fff3d0', tier: 6 },
+      armor: { slot: 'armor', style: 'plate', a: '#ffd479', b: '#ffffff', c: '#ffffff', tier: 6 },
+      boots: { slot: 'boots', style: 'plateboot', a: '#ffd479', b: '#6b5a36', c: '#ffd479', tier: 6 },
+      trinket: { slot: 'trinket', style: 'orb', a: '#ffffff', b: '#ffd479', c: '#ffffff', tier: 6 }
+    };
+    var dressed = fakeContext();
+    R.drawPlayer(dressed, { x: 0, y: 0 }, { x: 0, y: 0, facing: { x: 1, y: 0 } }, { attackSpeed: 1.6 }, 0, full);
+    ok('穿满四件装备的玩家画得出来', dressed.calls.count > 0, 'calls=' + dressed.calls.count);
+    var naked = fakeContext();
+    R.drawPlayer(naked, { x: 0, y: 0 }, { x: 0, y: 0, facing: { x: 1, y: 0 } }, { attackSpeed: 1.6 }, 0);
+    ok('不传外观也能画（默认裸装）', naked.calls.count > 0, 'calls=' + naked.calls.count);
+    ok(
+      '穿装备比裸装多画东西（外观真的接上了）',
+      dressed.calls.count > naked.calls.count,
+      dressed.calls.count + ' vs ' + naked.calls.count
+    );
+    // 八种武器造型与四种饰品造型都要画得出来（不然"每件装备都有外观"是空话）
+    var weaponStyles = ['sword', 'greatsword', 'dagger', 'spear', 'axe', 'hammer', 'staff', 'scythe'];
+    var weaponMiss = [];
+    for (var ws = 0; ws < weaponStyles.length; ws += 1) {
+      var wctx = fakeContext();
+      G.ICONS.weapon(wctx, { slot: 'weapon', style: weaponStyles[ws], a: '#fff', b: '#000', c: '#888', tier: 1 }, 0, 0, 44);
+      if (wctx.calls.count < 2) weaponMiss.push(weaponStyles[ws]);
+    }
+    ok('八种武器造型图标都画得出来', weaponMiss.length === 0, weaponMiss.join(','));
+    var trinketStyles = ['amulet', 'ring', 'orb', 'crown'];
+    var trinketMiss = [];
+    for (var ts = 0; ts < trinketStyles.length; ts += 1) {
+      var tctx = fakeContext();
+      G.ICONS.trinket(tctx, { slot: 'trinket', style: trinketStyles[ts], a: '#fff', b: '#000', c: '#888', tier: 1 }, 0, 0, 44);
+      if (tctx.calls.count < 2) trinketMiss.push(trinketStyles[ts]);
+    }
+    ok('四种饰品造型图标都画得出来', trinketMiss.length === 0, trinketMiss.join(','));
+
+    // 每个按键都真的有一张图标（"每个 UI 按钮都做出对应的图标"）
+    var iconKeys = ['chest', 'bag', 'guild', 'camp', 'menu', 'auto', 'attack', 'login', 'user', 'keyboard', 'dice', 'trash', 'stat', 'skill0', 'skill1', 'skill2', 'skill3'];
+    var iconMiss = [];
+    for (var ik = 0; ik < iconKeys.length; ik += 1) {
+      var ictx = fakeContext();
+      G.ICONS.button(ictx, iconKeys[ik], 0, 0, 40, '#ffffff');
+      if (ictx.calls.count < 2) iconMiss.push(iconKeys[ik]);
+    }
+    ok('每个按钮 id 都有图标（而且不是空转）', iconMiss.length === 0, iconMiss.join(','));
+    var itemMiss = [];
+    for (var si = 0; si < G.EQUIP.SLOT_IDS.length; si += 1) {
+      var sctx = fakeContext();
+      G.ICONS.item(sctx, { slot: G.EQUIP.SLOT_IDS[si], style: 'x', a: '#fff', b: '#000', c: '#888', tier: 2 }, 0, 0, 44);
+      var gctx = fakeContext();
+      G.ICONS.slotPlaceholder(gctx, G.EQUIP.SLOT_IDS[si], 0, 0, 44);
+      if (sctx.calls.count < 2 || gctx.calls.count < 2) itemMiss.push(G.EQUIP.SLOT_IDS[si]);
+    }
+    ok('四个部位的内观与空位剪影都画得出来', itemMiss.length === 0, itemMiss.join(','));
+    var frameCtx = fakeContext();
+    G.ICONS.frame(frameCtx, 0, 0, 44, 6);
+    ok('阶色边框画得出来', frameCtx.calls.count >= 2, 'calls=' + frameCtx.calls.count);
+    eq('阶色只有一份（面板转发 icons 那份）', G.PANELS.tierColor(6), G.ICONS.TIER_COLORS[5]);
   }
 
   /* ---------------------------------------- 13. 账号 / 昵称 / 界面 / 自动战斗（A4） */
@@ -894,6 +1097,114 @@ G.SELFTEST = (function () {
     var welcomeCtx = fakeContext();
     login.draw(welcomeCtx, { save: save, account: { name: '自检者', mode: 'local' }, stats: view.stats });
     ok('欢迎界面能画出来（防白屏）', welcomeCtx.calls.count > 20, 'calls=' + welcomeCtx.calls.count);
+
+    /* ------------------------------ A6：登录按钮上的字 / 背包内观 / 属性面板 */
+
+    // A6 修的 bug：登录 / 注册页面的按钮上**要真的有字**（以前只画了框，文案漏画）
+    function textsOfLogin(stageId) {
+      var texts = [];
+      var ctx2 = fakeContext();
+      var original = ctx2.fillText;
+      ctx2.fillText = function (value) {
+        texts.push(String(value));
+        return original.apply(this, arguments);
+      };
+      login.open(stageId);
+      login.draw(ctx2, { save: save, account: null, stats: view.stats });
+      return texts;
+    }
+    var welcomeTexts = textsOfLogin('welcome');
+    var welcomeButtons = login.buttons();
+    var missingText = [];
+    for (var b = 0; b < welcomeButtons.length; b += 1) {
+      if (welcomeTexts.indexOf(welcomeButtons[b].label) < 0) missingText.push(welcomeButtons[b].id);
+    }
+    ok('登录页每个按钮都把文案画出来了', missingText.length === 0, missingText.join(','));
+    ok('登录页能看到「登录 / 开始游戏」这几个字', welcomeTexts.join('|').indexOf('登录 / 开始游戏') >= 0, welcomeTexts.join('|'));
+    var iconless = welcomeButtons.filter(function (button) { return !button.icon; });
+    eq('登录页按钮都带图标 id', iconless.length, 0);
+    var createTexts = textsOfLogin('createRole');
+    var createButtons = login.buttons();
+    missingText = [];
+    for (b = 0; b < createButtons.length; b += 1) {
+      if (createTexts.indexOf(createButtons[b].label) < 0) missingText.push(createButtons[b].id);
+    }
+    ok('创建角色页每个按钮都把文案画出来了', missingText.length === 0, missingText.join(','));
+    ok('创建角色页能看到按钮文字', createTexts.join('|').indexOf('创建角色并进入游戏') >= 0, createTexts.join('|'));
+    eq('创建角色页按钮都带图标 id', createButtons.filter(function (button) { return !button.icon; }).length, 0);
+    login.open('welcome');
+
+    // 背包面板：四个部位（带内观图标）+ 属性入口
+    G.PANELS.open('bag');
+    var bagRows = G.PANELS.rows(view);
+    var slotRows = 0;
+    var gearIcons = 0;
+    var bagIds = [];
+    for (b = 0; b < bagRows.length; b += 1) {
+      bagIds.push(bagRows[b].id);
+      if (bagRows[b].id.indexOf('bag:slot:') === 0) {
+        slotRows += 1;
+        if (bagRows[b].icon && bagRows[b].icon.kind === 'gear') gearIcons += 1;
+      }
+    }
+    eq('背包面板列出 4 个装备部位', slotRows, 4);
+    eq('四个部位都用"装备内观"图标', gearIcons, 4);
+    ok('背包面板有「角色属性」入口', bagIds.indexOf('bag:stat') >= 0, bagIds.join(','));
+    var bagCtx = fakeContext();
+    G.PANELS.draw(bagCtx, view);
+    ok('背包面板（含内观图标）画得出来', bagCtx.calls.count > 40, 'calls=' + bagCtx.calls.count);
+    G.PANELS.close();
+
+    // 属性面板：一行一项，数值来自 PLAYER.breakdown（等级基础 + 装备加成分开写）
+    G.PANELS.open('stat');
+    var statRows = G.PANELS.rows(view);
+    ok('属性面板有 10 项以上', statRows.length >= 10, String(statRows.length));
+    var statText = statRows.map(function (row) { return row.text + '/' + row.sub; }).join('|');
+    ok('属性面板含攻击', statText.indexOf('攻击') >= 0, statText);
+    ok('属性面板含生命上限', statText.indexOf('生命上限') >= 0);
+    ok('属性面板含暴击率与暴击伤害', statText.indexOf('暴击率') >= 0 && statText.indexOf('暴击伤害') >= 0);
+    ok('属性面板写清了「装备」加成', statText.indexOf('装备') >= 0);
+    var statCtx = fakeContext();
+    G.PANELS.draw(statCtx, view);
+    ok('属性面板画得出来', statCtx.calls.count > 40, 'calls=' + statCtx.calls.count);
+    G.PANELS.close();
+
+    // 设置面板：A6 多了「角色属性」一行，而且能打开属性面板
+    G.PANELS.open('menu');
+    var menuIds = G.PANELS.rows(view).map(function (row) { return row.id; });
+    ok('设置面板有「角色属性」入口', menuIds.indexOf('menu:stat') >= 0, menuIds.join(','));
+    var openStat = null;
+    var menuRows = G.PANELS.rows(view);
+    for (b = 0; b < menuRows.length; b += 1) {
+      if (menuRows[b].id === 'menu:stat') openStat = menuRows[b].action;
+    }
+    ok('那一行的 action 是打开属性面板', !!openStat && openStat.type === 'open' && openStat.panel === 'stat', JSON.stringify(openStat));
+    G.PANELS.close();
+  }
+
+  /**
+   * 把玩家挪到"营地之外、确定有怪"的地方（A6 新增）。
+   *
+   * A6 起营地半径内不刷怪，于是"站在出生点原地打怪"的测试必然抓不到目标 ——
+   * 这里直接用**生成层**（05-spawn，不受营地过滤影响）取某个 chunk 的巢穴坐标，
+   * 把玩家放到它旁边，再正常装载 chunk。这样断言不用碰运气，也不依赖出生点在哪。
+   */
+  function standOutsideCamp(game, cx, cy) {
+    var spawn = G.SPAWN.buildChunkMonsters(BAL.season.worldSeed, cx, cy);
+    var player = game.state.player;
+    if (spawn.length) {
+      player.x = spawn[0].homeX + 140;
+      player.y = spawn[0].homeY;
+    } else {
+      player.x = G.CHUNK.chunkOrigin(cx) + G.CHUNK.CHUNK_SIZE / 2;
+      player.y = G.CHUNK.chunkOrigin(cy) + G.CHUNK.CHUNK_SIZE / 2;
+    }
+    player.dead = false;
+    player.hp = game.state.stats.hpMax;
+    game.state.camera.x = player.x;
+    game.state.camera.y = player.y;
+    G.WORLD.ensureChunks(player.x, player.y, 2);
+    return player;
   }
 
   /**
@@ -921,10 +1232,9 @@ G.SELFTEST = (function () {
     ok('开关写进了存档', G.SAVE.load(BAL.season.worldSeed, 1).settings.autoBattle === true);
     eq('再点一次关闭', GAME.toggleAutoBattle(), false);
 
-    // 走位：把周边 chunk 装出来，然后只跑 autoStep（怪不跑 AI，落点才可断言）
-    var player = GAME.state.player;
+    // 走位：把玩家挪到营地外（A6 起营地里不刷怪），然后只跑 autoStep（怪不跑 AI，落点才可断言）
+    var player = standOutsideCamp(GAME, 6, 6);
     var stats = GAME.state.stats;
-    G.WORLD.ensureChunks(player.x, player.y, 2);
     var target = G.WORLD.pickTarget(player);
     ok('视野内选到了最近的怪', !!target);
     if (target) {
@@ -1022,6 +1332,8 @@ G.SELFTEST = (function () {
     ok('顿帧结束后世界继续跑', WORLD.now() > beforeStop);
 
     // 斩击特效：开着自动战斗打一会儿，必然会看到刀光
+    // A6：营地里不刷怪，所以先站到"确定有怪"的地方（见 standOutsideCamp）
+    standOutsideCamp(GAME, 6, 7);
     GAME.state.save.settings.autoBattle = true;
     var sawEffect = false;
     var i;
@@ -1187,6 +1499,62 @@ G.SELFTEST = (function () {
     // 传送与治疗都会存档（重开游戏冷却不会被刷掉）
     var reloaded = G.SAVE.load(BAL.season.worldSeed, 1);
     ok('营地冷却标记写进了存档', reloaded.camp.used === true, JSON.stringify(reloaded.camp));
+
+    /* ---------------------------------------------- A6：营地不刷怪（真正的安全区） */
+
+    // ① 生成层照旧有"落在营地里的怪" —— 说明下面那道过滤真的在做事（不是本来就空）
+    var genInCamp = 0;
+    var genTotal = 0;
+    var gx;
+    var gy;
+    var m;
+    for (gx = -2; gx <= 2; gx += 1) {
+      for (gy = -2; gy <= 2; gy += 1) {
+        var generated = G.SPAWN.buildChunkMonsters(BAL.season.worldSeed, gx, gy);
+        genTotal += generated.length;
+        for (m = 0; m < generated.length; m += 1) {
+          if (T.isInCamp(generated[m].homeX, generated[m].homeY)) genInCamp += 1;
+        }
+      }
+    }
+    ok('生成层里确实有落在营地里的怪（过滤不是空转）', genInCamp > 0, genInCamp + ' / ' + genTotal);
+
+    // ② 装载之后：营地里一只怪都不能有；营地外照旧有怪
+    GAME.state.player.x = 0;
+    GAME.state.player.y = 0;
+    GAME.state.player.dead = false;
+    GAME.state.player.hp = GAME.state.stats.hpMax;
+    GAME.state.camera.x = 0;
+    GAME.state.camera.y = 0;
+    G.WORLD.ensureChunks(0, 0, 2);
+    var loadedMonsters = G.WORLD.allMonsters();
+    var loadedInCamp = 0;
+    for (m = 0; m < loadedMonsters.length; m += 1) {
+      if (T.isInCamp(loadedMonsters[m].homeX, loadedMonsters[m].homeY)) loadedInCamp += 1;
+    }
+    eq('装载后营地里一只怪都没有', loadedInCamp, 0);
+    ok('营地外照样有怪（不是把怪全禁了）', loadedMonsters.length > 0, String(loadedMonsters.length));
+
+    // ③ 屏障：把一只怪摆到营地边上让它"往里挤"，下一步必须被推回安全半径之外并转身回家
+    var intruder = loadedMonsters.length > 0 ? loadedMonsters[0] : null;
+    if (intruder) {
+      intruder.state = 'idle';
+      intruder.hp = intruder.hpMax;
+      intruder.x = 120;
+      intruder.y = 0;
+      intruder.knockX = 0;
+      intruder.knockY = 0;
+      G.WORLD.update(1000 / 60, GAME.state.player, GAME.state.stats, GAME.state.camera, G.SCREEN.width(), G.SCREEN.height());
+      var intruderDist = G.CHUNK.distanceToOrigin(intruder.x, intruder.y);
+      ok(
+        '闯进营地的怪被推回安全半径之外',
+        intruderDist >= BAL.world.camp.monsterFreeRadius - 0.001,
+        Math.round(intruderDist) + ' / ' + BAL.world.camp.monsterFreeRadius
+      );
+      eq('而且它转身回家（state = return）', intruder.state, 'return');
+    } else {
+      ok('闯进营地的怪被推回安全半径之外', false, '装载不到任何怪，跳过');
+    }
   }
 
   /**
@@ -1365,8 +1733,8 @@ G.SELFTEST = (function () {
     eq('等级不够时点锁着的技能 → locked', GAME.castSkillSlot(3).reason, 'locked');
     eq('解锁前不进冷却', GAME.state.skillCooldowns[3] || 0, 0);
 
-    // 3. 真放一次横扫：把一只怪搬到脚边（血拉高，免得被打死影响断言）
-    G.WORLD.ensureChunks(player.x, player.y, 2);
+    // 3. 真放一次横扫：先站到营地外有怪的地方（A6），再把怪搬到脚边（血拉高，免得被打死影响断言）
+    standOutsideCamp(GAME, 7, 7);
     var target = G.WORLD.pickTarget(player);
     ok('附近有怪可以打（技能要有对象）', !!target);
     if (target) {

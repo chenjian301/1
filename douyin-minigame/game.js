@@ -1,8 +1,8 @@
 /* AUTO-GENERATED FILE -- DO NOT EDIT.
  *
  * Assembled from douyin-minigame\src\*.js by tools\build-minigame.ps1.
- * Parts (in order): 00-config.js, 01-balance.js, 02-rng.js, 03-chunk.js, 04-terrain.js, 05-spawn.js, 06-progression.js, 07-combat.js, 07-skills.js, 08-loot.js, 09-equipment.js, 10-player.js, 11-save.js, 12-platform.js, 13-screen.js, 14-world.js, 15-input.js, 16-render.js, 17-hud.js, 18-panels.js, 19-selftest.js, 20-main.js
- * parts sha256 = c756b9ac0a6aab4e3562c96293deb301b44c0976018123cbc03e7c5f928fdf6f
+ * Parts (in order): 00-config.js, 01-balance.js, 02-rng.js, 03-chunk.js, 04-terrain.js, 05-spawn.js, 06-progression.js, 07-combat.js, 07-skills.js, 08-loot.js, 09-equipment.js, 10-player.js, 11-save.js, 12-platform.js, 13-screen.js, 14-world.js, 15-input.js, 16-icons.js, 16-render.js, 17-hud.js, 18-panels.js, 19-selftest.js, 20-main.js
+ * parts sha256 = caf8d7f7ade7b7210a44cda5ceb6db64dc2e130ff617f16b4235191218909b5e
  *
  * Edit files under douyin-minigame\src\ and rebuild:
  *   powershell -ExecutionPolicy Bypass -File tools\build-minigame.ps1
@@ -73,8 +73,8 @@ G.CONFIG = {
  *   powershell -ExecutionPolicy Bypass -File tools\build-minigame.ps1
  * (or simply run tools\minigame-now.cmd, which does both plus the checks)
  *
- * balance.json sha256, raw file format                  = 1b347ccc98af68a03445f34382ed13be086aeb8835adb509134f940f1efc118c
- * balance.json sha256, normalised (BOM stripped, CRLF -> LF) = db3bfb447dfa09e8866d58839da2cab470cdce32b0bfb8a60aa3766cf6e90dd5
+ * balance.json sha256, raw file format                  = d193b01d1e3eab6c92920866ed1ef04d71fc1a09e924944dfb1589ddf39d6941
+ * balance.json sha256, normalised (BOM stripped, CRLF -> LF) = 81f72e786085f7783f44d3f508d2c2ed28740101f4bc036eded8d7600d43d118
  * tools\check-minigame.ps1 fails if the normalised hash no longer matches balance.json.
  *
  * NOTE: this header is ASCII on purpose -- see tools\gen-minigame-balance.ps1.
@@ -82,7 +82,7 @@ G.CONFIG = {
  * the _readme line) is exactly what shared\balance.json contains.
  */
 
-G.BAL_SOURCE_SHA256 = 'db3bfb447dfa09e8866d58839da2cab470cdce32b0bfb8a60aa3766cf6e90dd5';
+G.BAL_SOURCE_SHA256 = '81f72e786085f7783f44d3f508d2c2ed28740101f4bc036eded8d7600d43d118';
 G.BAL ={
   "_readme": "唯一真相：玩法数值与掉落表（决策 #4）。客户端与服务端共读这一份，谁都不许在代码里另写一套数字。改完必须重跑 tools/test-logic.mjs。",
   "version": 1,
@@ -101,12 +101,14 @@ G.BAL ={
     "eliteMaxPerChunk": 1,
     "decorPerChunk": { "min": 8, "max": 24 },
     "landmarkChunkSpan": 5,
-    "_camp": "原点新手营地：玩家出生地 + 视觉安全区（阶段 A 只做外观，怪照样刷新）",
+    "_camp": "原点新手营地：玩家出生地 + 真正的安全区（A6 起怪物不在营地里刷新，也走不进来）",
     "camp": {
       "radius": 900,
       "plazaPlate": 96,
       "fenceRadius": 824,
       "gateWidth": 220,
+      "_monsterFree": "安全半径（A6）：装载 chunk 时跳过巢穴落在这里面的怪 —— 过滤发生在装载层，生成层的数据一个字都没动，所以世界指纹不变；已经在外面的怪走进来会被推到边上并回家",
+      "monsterFreeRadius": 900,
       "_interact": "营地交互入口（A4）：治疗按缺失血量收金币；回营地中心有短冷却 + 战斗中禁用",
       "heal": { "goldPerHp": 0.05, "minGold": 1 },
       "teleportCooldownMs": 10000
@@ -263,11 +265,9 @@ G.BAL ={
   "equipment": {
     "slots": [
       { "id": "weapon", "name": "武器", "mainStat": "attack" },
-      { "id": "helmet", "name": "头盔", "mainStat": "hp" },
-      { "id": "armor", "name": "护甲", "mainStat": "defense" },
-      { "id": "gloves", "name": "手套", "mainStat": "attack" },
-      { "id": "boots", "name": "鞋", "mainStat": "defense" },
-      { "id": "trinket", "name": "饰品", "mainStat": "hp" }
+      { "id": "armor", "name": "衣服", "mainStat": "hp" },
+      { "id": "boots", "name": "鞋子", "mainStat": "defense" },
+      { "id": "trinket", "name": "饰品", "mainStat": "critChance" }
     ],
     "tiers": [
       { "id": 1, "name": "普通", "affixes": 1, "multiplier": 1.0 },
@@ -277,9 +277,73 @@ G.BAL ={
       { "id": 5, "name": "神话", "affixes": 5, "multiplier": 3.7 },
       { "id": 6, "name": "天赐", "affixes": 5, "multiplier": 5.3, "uniqueAffix": true }
     ],
-    "mainStatBase": { "attack": 6, "hp": 40, "defense": 3 },
-    "mainStatPerLevel": { "attack": 0.9, "hp": 6.5, "defense": 0.45 },
-    "levelRequirement": { "perTier": 3, "base": 1 },
+    "_catalog": "六阶各 10 件（武器 3 / 衣服 3 / 鞋 2 / 饰品 2）共 60 件：宝箱开出来的装备就是从这里抽的。外观字段（weapon/armor/boots/trinket + 配色）由 16-render.js 画在角色身上、由 16-icons.js 画成背包内观（程序自绘，不贴图）。同一阶里越靠后越强（statMul = 1 + index*statMulPerIndex），等级门槛也越高。",
+    "mainStatBase": { "attack": 6, "hp": 40, "defense": 3, "critChance": 0.008 },
+    "mainStatPerLevel": { "attack": 0.9, "hp": 6.5, "defense": 0.45, "critChance": 0.0006 },
+    "levelRequirement": { "perTier": 3, "base": 1, "itemsPerStep": 4 },
+    "catalogStep": { "statMulPerIndex": 0.02 },
+    "catalog": [
+      { "id": "t1_woodsword", "name": "木剑", "tier": 1, "slot": "weapon", "weapon": "sword", "blade": "#c9a06a", "grip": "#7a5a38", "guard": "#b98b4e" },
+      { "id": "t1_knife", "name": "猎刀", "tier": 1, "slot": "weapon", "weapon": "dagger", "blade": "#d8dde6", "grip": "#6b4a2c", "guard": "#9aa0ad" },
+      { "id": "t1_stonehammer", "name": "石锤", "tier": 1, "slot": "weapon", "weapon": "hammer", "blade": "#9aa0ad", "grip": "#7a5a38", "guard": "#8d939c" },
+      { "id": "t1_clothrobe", "name": "粗布衣", "tier": 1, "slot": "armor", "armor": "robe", "cloth": "#8d7d63", "trim": "#c8b48c" },
+      { "id": "t1_leathera", "name": "皮革甲", "tier": 1, "slot": "armor", "armor": "leather", "cloth": "#8a5a34", "trim": "#c9a06a" },
+      { "id": "t1_hemptunic", "name": "麻布袍", "tier": 1, "slot": "armor", "armor": "tunic", "cloth": "#a99a7c", "trim": "#7d6a4a" },
+      { "id": "t1_strawsandals", "name": "草鞋", "tier": 1, "slot": "boots", "boots": "sandal", "color": "#b59a5e", "sole": "#6b5a36" },
+      { "id": "t1_clothboots", "name": "布靴", "tier": 1, "slot": "boots", "boots": "boot", "color": "#6d6a7a", "sole": "#3f3d4a" },
+      { "id": "t1_woodbeads", "name": "木珠串", "tier": 1, "slot": "trinket", "trinket": "amulet", "gem": "#c9a06a", "metal": "#7a5a38" },
+      { "id": "t1_copperring", "name": "铜指环", "tier": 1, "slot": "trinket", "trinket": "ring", "gem": "#e0a76a", "metal": "#b98b4e" },
+      { "id": "t2_ironsword", "name": "铁剑", "tier": 2, "slot": "weapon", "weapon": "sword", "blade": "#dbe4f2", "grip": "#5a3f28", "guard": "#c8ccd6" },
+      { "id": "t2_ironlance", "name": "铁枪", "tier": 2, "slot": "weapon", "weapon": "spear", "blade": "#dbe4f2", "grip": "#6b4a2c", "guard": "#c8ccd6" },
+      { "id": "t2_waraxe", "name": "战斧", "tier": 2, "slot": "weapon", "weapon": "axe", "blade": "#cfd6e2", "grip": "#5a3f28", "guard": "#8d939c" },
+      { "id": "t2_chainmail", "name": "锁子甲", "tier": 2, "slot": "armor", "armor": "mail", "cloth": "#8d939c", "trim": "#c8ccd6" },
+      { "id": "t2_ironplate", "name": "铁片胸甲", "tier": 2, "slot": "armor", "armor": "plate", "cloth": "#9aa0ad", "trim": "#dbe4f2" },
+      { "id": "t2_leathercloak", "name": "皮风衣", "tier": 2, "slot": "armor", "armor": "cloak", "cloth": "#7a5a38", "trim": "#c9a06a" },
+      { "id": "t2_irongreaves", "name": "铁靴", "tier": 2, "slot": "boots", "boots": "greave", "color": "#8d939c", "sole": "#4a4f5c" },
+      { "id": "t2_travelerboots", "name": "旅人靴", "tier": 2, "slot": "boots", "boots": "boot", "color": "#6b4a2c", "sole": "#3f2e1c" },
+      { "id": "t2_moonpendant", "name": "银月坠", "tier": 2, "slot": "trinket", "trinket": "amulet", "gem": "#dbe4f2", "metal": "#c8ccd6" },
+      { "id": "t2_ironring", "name": "铁镶戒", "tier": 2, "slot": "trinket", "trinket": "ring", "gem": "#9ad4ff", "metal": "#8d939c" },
+      { "id": "t3_fineblade", "name": "精铁长剑", "tier": 3, "slot": "weapon", "weapon": "sword", "blade": "#eaf2ff", "grip": "#3f2e1c", "guard": "#ffd479" },
+      { "id": "t3_mithrilknife", "name": "秘银短刃", "tier": 3, "slot": "weapon", "weapon": "dagger", "blade": "#cdd7ff", "grip": "#2f3a5c", "guard": "#9ad4ff" },
+      { "id": "t3_runewarhammer", "name": "符文战锤", "tier": 3, "slot": "weapon", "weapon": "hammer", "blade": "#c9a6ff", "grip": "#3f2e1c", "guard": "#ffd479" },
+      { "id": "t3_mithrilmail", "name": "秘银锁甲", "tier": 3, "slot": "armor", "armor": "mail", "cloth": "#6f8fd8", "trim": "#cdd7ff" },
+      { "id": "t3_runerobe", "name": "符文法袍", "tier": 3, "slot": "armor", "armor": "robe", "cloth": "#4f5fa8", "trim": "#c9a6ff" },
+      { "id": "t3_lionleather", "name": "狮纹皮甲", "tier": 3, "slot": "armor", "armor": "leather", "cloth": "#b57a3a", "trim": "#ffd479" },
+      { "id": "t3_galewindgreaves", "name": "疾风长靴", "tier": 3, "slot": "boots", "boots": "greave", "color": "#6f8fd8", "sole": "#2f3a5c" },
+      { "id": "t3_runegreaves", "name": "符文战靴", "tier": 3, "slot": "boots", "boots": "plateboot", "color": "#c9a6ff", "sole": "#4a3a6b" },
+      { "id": "t3_starpendant", "name": "星辉吊坠", "tier": 3, "slot": "trinket", "trinket": "amulet", "gem": "#9ad4ff", "metal": "#cdd7ff" },
+      { "id": "t3_bluering", "name": "蓝瞳指环", "tier": 3, "slot": "trinket", "trinket": "ring", "gem": "#6fd0ff", "metal": "#9aa0ad" },
+      { "id": "t4_dragonfang", "name": "龙牙巨剑", "tier": 4, "slot": "weapon", "weapon": "greatsword", "blade": "#ffd8a8", "grip": "#6b2f2f", "guard": "#ffd479" },
+      { "id": "t4_thunderlance", "name": "雷鸣长枪", "tier": 4, "slot": "weapon", "weapon": "spear", "blade": "#9ad4ff", "grip": "#2f3a5c", "guard": "#ffd479" },
+      { "id": "t4_flameaxe", "name": "烈焰战斧", "tier": 4, "slot": "weapon", "weapon": "axe", "blade": "#ff9b5a", "grip": "#5a2f1c", "guard": "#ffd479" },
+      { "id": "t4_dragonscale", "name": "龙鳞重铠", "tier": 4, "slot": "armor", "armor": "plate", "cloth": "#b8563f", "trim": "#ffd479" },
+      { "id": "t4_thunderrobe", "name": "雷霆法袍", "tier": 4, "slot": "armor", "armor": "robe", "cloth": "#3f5fa8", "trim": "#9ad4ff" },
+      { "id": "t4_shadowcloak", "name": "影袭斗篷", "tier": 4, "slot": "armor", "armor": "cloak", "cloth": "#2f2f4a", "trim": "#a9d5ff" },
+      { "id": "t4_skystepgreaves", "name": "踏空战靴", "tier": 4, "slot": "boots", "boots": "plateboot", "color": "#8d939c", "sole": "#3a2f2a" },
+      { "id": "t4_thunderboots", "name": "疾雷软靴", "tier": 4, "slot": "boots", "boots": "boot", "color": "#3f4f8c", "sole": "#2a2f4a" },
+      { "id": "t4_dragonheart", "name": "龙心坠饰", "tier": 4, "slot": "trinket", "trinket": "amulet", "gem": "#ff8a5a", "metal": "#ffd479" },
+      { "id": "t4_thundercrown", "name": "雷冠指环", "tier": 4, "slot": "trinket", "trinket": "crown", "gem": "#9ad4ff", "metal": "#ffd479" },
+      { "id": "t5_frostmoon", "name": "霜月神剑", "tier": 5, "slot": "weapon", "weapon": "greatsword", "blade": "#dff0ff", "grip": "#3a4a6b", "guard": "#9ad4ff" },
+      { "id": "t5_voidstaff", "name": "虚空法杖", "tier": 5, "slot": "weapon", "weapon": "staff", "blade": "#c9a6ff", "grip": "#33234a", "guard": "#6fd0ff" },
+      { "id": "t5_skyhammer", "name": "天陨战锤", "tier": 5, "slot": "weapon", "weapon": "hammer", "blade": "#c9a6ff", "grip": "#4a3a6b", "guard": "#ffd479" },
+      { "id": "t5_divineplate", "name": "神纹圣铠", "tier": 5, "slot": "armor", "armor": "plate", "cloth": "#e8e2c8", "trim": "#ffd479" },
+      { "id": "t5_moonrobe", "name": "月华仙袍", "tier": 5, "slot": "armor", "armor": "robe", "cloth": "#4a5fa8", "trim": "#dff0ff" },
+      { "id": "t5_stararmor", "name": "星辰战衣", "tier": 5, "slot": "armor", "armor": "mail", "cloth": "#3f4f8c", "trim": "#c9a6ff" },
+      { "id": "t5_divinegreaves", "name": "神行仙靴", "tier": 5, "slot": "boots", "boots": "greave", "color": "#dff0ff", "sole": "#4a5fa8" },
+      { "id": "t5_cloudboots", "name": "踏云靴", "tier": 5, "slot": "boots", "boots": "boot", "color": "#e8f1ff", "sole": "#8d9bb5" },
+      { "id": "t5_oracleeye", "name": "神谕之眼", "tier": 5, "slot": "trinket", "trinket": "orb", "gem": "#6fd0ff", "metal": "#dff0ff" },
+      { "id": "t5_zodiacring", "name": "星象戒", "tier": 5, "slot": "trinket", "trinket": "ring", "gem": "#c9a6ff", "metal": "#e8e2c8" },
+      { "id": "t6_destinyblade", "name": "天命之剑", "tier": 6, "slot": "weapon", "weapon": "greatsword", "blade": "#fff3d0", "grip": "#6b2f2f", "guard": "#ffd479" },
+      { "id": "t6_creationstaff", "name": "创世法杖", "tier": 6, "slot": "weapon", "weapon": "staff", "blade": "#ffe6a8", "grip": "#3a2f5c", "guard": "#ffffff" },
+      { "id": "t6_meteoraxe", "name": "星陨神斧", "tier": 6, "slot": "weapon", "weapon": "axe", "blade": "#ffd479", "grip": "#4a2f2f", "guard": "#fff3d0" },
+      { "id": "t6_blessedplate", "name": "天赐圣铠", "tier": 6, "slot": "armor", "armor": "plate", "cloth": "#ffd479", "trim": "#ffffff" },
+      { "id": "t6_apocalyprobe", "name": "天启圣袍", "tier": 6, "slot": "armor", "armor": "robe", "cloth": "#fff3d0", "trim": "#ffd479" },
+      { "id": "t6_eternalarmor", "name": "永恒战衣", "tier": 6, "slot": "armor", "armor": "mail", "cloth": "#e8e2c8", "trim": "#fff3d0" },
+      { "id": "t6_destinygreaves", "name": "天命战靴", "tier": 6, "slot": "boots", "boots": "plateboot", "color": "#ffd479", "sole": "#6b5a36" },
+      { "id": "t6_lightsteps", "name": "流光仙履", "tier": 6, "slot": "boots", "boots": "boot", "color": "#ffffff", "sole": "#ffd479" },
+      { "id": "t6_eternalheart", "name": "永恒之心", "tier": 6, "slot": "trinket", "trinket": "amulet", "gem": "#ffffff", "metal": "#ffd479" },
+      { "id": "t6_blessedring", "name": "天赐星环", "tier": 6, "slot": "trinket", "trinket": "ring", "gem": "#fff3d0", "metal": "#ffffff" }
+    ],
     "affixes": [
       { "id": "attack", "name": "攻击", "weight": 100, "min": 2, "max": 6, "percent": false },
       { "id": "hp", "name": "生命", "weight": 100, "min": 20, "max": 60, "percent": false },
@@ -369,6 +433,10 @@ G.BAL ={
 
   "view": {
     "designWidth": 720,
+    "_cameraZoom": "视角倍率（A6）：< 1 = 镜头拉远、看得更广（只缩放世界层，UI 尺寸不变）。0.8 ≈ 每边多看 25%",
+    "cameraZoom": 0.8,
+    "_icon": "程序自绘图标尺寸（A6）：功能键圆里一个、面板行左侧一个、部位格一个",
+    "icon": { "buttonSize": 42, "rowSize": 44, "captionSize": 15, "slotSize": 62 },
     "minimap": { "size": 190, "margin": 18, "chunkRadius": 3 },
     "_panel": "面板卡片：宽 = 屏宽 - leftMargin - rightReserve（rightReserve 给右下功能键让位），高 = 屏高 x heightRatio。0.79 x 0.38 约等于 1/3 屏面积",
     "panel": {
@@ -1836,27 +1904,41 @@ G.LOOT = (function () {
 })();
 
 /**
- * 09-equipment.js —— 装备生成 / 词条 / 战力（阶段 A2 新增）
+ * 09-equipment.js —— 装备目录（六阶 × 十件）/ 词条 / 战力 / 外观（阶段 A2 新增，A6 改成目录驱动）
  *
- * 一件装备 = `等阶（1..6） + 部位（6 种） + 等级门槛 + 主属性 + N 条词条`。
- * 等阶决定**词条条数**与**数值倍率**（balance.equipment.tiers）：
- *   普通 1 条 ×1.00 / 专家 2 ×1.35 / 史诗 3 ×1.85 / 传说 4 ×2.60 / 神话 5 ×3.70 / 天赐 5+专属 ×5.30
+ * A6 之前的做法：一件装备 = 等阶 + **随机抽一个部位** + 随机词条 —— 于是"武器"只是一个数值，
+ * 既没有名字也没有外观，穿在身上看不出任何区别。
+ * A6 起改为**目录驱动**：`balance.equipment.catalog` 里写死 60 件（六阶各 10 件），
+ * 每件 = 名字 + 部位（武器 / 衣服 / 鞋子 / 饰品）+ 外观字段 + 阶内序号。
+ * `generate()` 先在**该阶的那 10 件里抽一件**，再按等阶抽词条 ——
+ * 于是每一件都有名字（"龙牙巨剑"）、有外观（造型 + 配色）、有自己的等级门槛。
  *
- * 两条"文档没写死、由这里定下来"的规则（定在这里，别处不许再各定一套）：
- *   1. **主属性随掉落等级走**：`(基础 + 每级成长 × (掉落等级-1)) × 等阶倍率`。
+ * 四条"定在这里、别处不许再各定一套"的规则：
+ *   1. **主属性随掉落等级走**：`(基础 + 每级成长 × (掉落等级-1)) × 等阶倍率 × 阶内系数`。
  *      "掉落等级"取那只怪（或那口箱）的等级 —— 越往远处走，同阶装备也越强，
- *      这正是无限地图"越远越好赚"的兑现方式（等级门槛只由等阶决定，见 levelRequirement）。
- *   2. **战力** = 主属性与词条按 `balance.equipment.powerWeights` 折算成一个数，
- *      只用来做"穿上会不会更强"的一眼判断（背包里 ↑↓），不参与任何战斗结算。
+ *      这正是无限地图"越远越好赚"的兑现方式。
+ *   2. **同阶内越靠后越强**：`statMul = 1 + 阶内序号 × catalogStep.statMulPerIndex`（第 10 件 +18%），
+ *      同时它的等级门槛也更高（见 requirementForItem）—— 这就是"装备的等级划分"。
+ *   3. **外观是一份数据**（lookOfDef）：部位 + 造型 id + 三档配色（a 主色 / b 副色 / c 点缀）。
+ *      画在人物身上的是 16-render.js，画成背包内观的是 16-icons.js —— 两边读**同一份 look**，
+ *      所以"穿上什么就像什么"不会出现两套说法。
+ *   4. **等级门槛 = 等阶门槛 + 阶内台阶**：`base + (阶-1) × perTier + floor(阶内序号 / itemsPerStep)`。
+ *      穿之前一律先过 `canWear(item, level)`（20-main 的两个穿戴入口都走它）。
+ *
+ * 战力：主属性与词条按 `balance.equipment.powerWeights` 折算成一个数，
+ * 只用来做"穿上会不会更强"的一眼判断（背包里 ↑↓），不参与任何战斗结算。
  *
  * 阶段 B 起：装备生成必须在服务端做（客户端只发"开这个箱"），否则改包就能出神装。
- * 所以这里所有随机都走**传入的 rng**，接口一行都不用改。
+ * 目录本身就是一份 JSON，搬到服务端即可；这里所有随机都走**传入的 rng**，接口一行都不用改。
  */
 
 G.EQUIP = (function () {
   'use strict';
 
   var BAL = G.BAL;
+
+  /** 部位顺序（与 balance.equipment.slots 一一对应，不许各写一套） */
+  var SLOT_IDS = ['weapon', 'armor', 'boots', 'trinket'];
 
   /** 属性中文名（渲染、日志、自检共用一份，避免两处写两套） */
   var STAT_NAMES = {
@@ -1884,6 +1966,13 @@ G.EQUIP = (function () {
     goldBonus: true
   };
 
+  /** 阶内序号缓存：目录是常量，算一次就够（键加前缀，避免和 Object 原名撞上） */
+  var indexCache = null;
+
+  function slotIds() {
+    return SLOT_IDS;
+  }
+
   function tierById(tierId) {
     for (var i = 0; i < BAL.equipment.tiers.length; i += 1) {
       if (BAL.equipment.tiers[i].id === tierId) return BAL.equipment.tiers[i];
@@ -1898,6 +1987,11 @@ G.EQUIP = (function () {
     return null;
   }
 
+  /** 这个部位 id 是否存在（存档迁移与"穿装备"都要问它） */
+  function hasSlot(slotId) {
+    return slotById(slotId) !== null;
+  }
+
   function statName(stat) {
     return STAT_NAMES[stat] || stat;
   }
@@ -1906,11 +2000,106 @@ G.EQUIP = (function () {
     return PERCENT_STATS[stat] === true;
   }
 
-  /** 等级门槛：base + (等阶-1) × perTier → 天赐 = 1 + 5×3 = 16 级 */
+  /* ------------------------------------------------------------ 目录（60 件） */
+
+  function catalog() {
+    return BAL.equipment.catalog;
+  }
+
+  function buildIndexCache() {
+    indexCache = {};
+    var tiers = BAL.equipment.tiers;
+    for (var t = 0; t < tiers.length; t += 1) {
+      var n = 0;
+      for (var i = 0; i < BAL.equipment.catalog.length; i += 1) {
+        var def = BAL.equipment.catalog[i];
+        if (def.tier === tiers[t].id) {
+          indexCache['#' + def.id] = n;
+          n += 1;
+        }
+      }
+    }
+    return indexCache;
+  }
+
+  /** 一件目录装备在**自己那一阶里**的序号（0 起）：同阶内越靠后越强、门槛越高 */
+  function indexInTier(defId) {
+    if (!indexCache) buildIndexCache();
+    var index = indexCache['#' + defId];
+    return index === undefined ? 0 : index;
+  }
+
+  /** 某一阶的全部目录装备（按目录里的顺序；generate 就在这份里抽） */
+  function catalogForTier(tierId) {
+    var out = [];
+    for (var i = 0; i < BAL.equipment.catalog.length; i += 1) {
+      if (BAL.equipment.catalog[i].tier === tierId) out.push(BAL.equipment.catalog[i]);
+    }
+    return out;
+  }
+
+  function defById(defId) {
+    for (var i = 0; i < BAL.equipment.catalog.length; i += 1) {
+      if (BAL.equipment.catalog[i].id === defId) return BAL.equipment.catalog[i];
+    }
+    return null;
+  }
+
+  /** 阶内系数：第 1 件 ×1.00、第 10 件 ×(1 + 9 × step) */
+  function statMulOf(def) {
+    var step = BAL.equipment.catalogStep.statMulPerIndex;
+    return 1 + indexInTier(def.id) * step;
+  }
+
+  /** 等阶门槛（只要这一阶的**最低**门槛时用它；具体到某一件见 requirementForItem） */
   function requirementFor(tierId) {
     var rule = BAL.equipment.levelRequirement;
     return rule.base + (tierId - 1) * rule.perTier;
   }
+
+  /** 某一件的等级门槛：等阶门槛 + 阶内台阶（每 itemsPerStep 件上一级） */
+  function requirementForItem(def) {
+    var rule = BAL.equipment.levelRequirement;
+    var step = rule.itemsPerStep > 0 ? rule.itemsPerStep : 4;
+    return rule.base + (def.tier - 1) * rule.perTier + Math.floor(indexInTier(def.id) / step);
+  }
+
+  /** 等级够不够穿（界面只用它决定提示文案，真正的拦截在 20-main） */
+  function canWear(item, level) {
+    if (!item || !hasSlot(item.slotId)) return false;
+    return level >= item.reqLevel;
+  }
+
+  /**
+   * 外观描述（渲染层与图标层共用的一份数据）：{ slot, style, a, b, c, tier }
+   * 三档配色对四个部位的语义：
+   *   武器 a=刃 b=柄 c=护手 / 衣服 a=衣 b=边 / 鞋 a=鞋面 b=鞋底 / 饰品 a=宝石 b=金属
+   */
+  function lookOfDef(def) {
+    if (!def) return null;
+    if (def.slot === 'weapon') return { slot: 'weapon', style: def.weapon, a: def.blade, b: def.grip, c: def.guard, tier: def.tier };
+    if (def.slot === 'armor') return { slot: 'armor', style: def.armor, a: def.cloth, b: def.trim, c: def.trim, tier: def.tier };
+    if (def.slot === 'boots') return { slot: 'boots', style: def.boots, a: def.color, b: def.sole, c: def.color, tier: def.tier };
+    return { slot: 'trinket', style: def.trinket, a: def.gem, b: def.metal, c: def.gem, tier: def.tier };
+  }
+
+  /** 空外观（四个部位都没有）—— 渲染层拿到的永远是一份完整结构，不用到处判空 */
+  function emptyLook() {
+    return { weapon: null, armor: null, boots: null, trinket: null };
+  }
+
+  /** 身上四件装备的外观（值就是上面那份 look），渲染与图标都读它 */
+  function lookOf(loadout) {
+    var look = emptyLook();
+    if (!loadout) return look;
+    for (var i = 0; i < SLOT_IDS.length; i += 1) {
+      var item = loadout[SLOT_IDS[i]];
+      if (item && item.look) look[SLOT_IDS[i]] = item.look;
+    }
+    return look;
+  }
+
+  /* ------------------------------------------------------------ 数值与词条 */
 
   /** 数值取整：百分比保留 4 位、生命取整、其余保留 1 位 */
   function tidy(stat, value) {
@@ -1922,7 +2111,7 @@ G.EQUIP = (function () {
     return Math.round(value * 10) / 10;
   }
 
-  /** 主属性数值：基础 + 每级成长 × (掉落等级-1)，再乘等阶倍率 */
+  /** 主属性数值：基础 + 每级成长 × (掉落等级-1)，再乘等阶倍率（阶内系数在 generate 里乘） */
   function mainValue(stat, level, tier) {
     var base = BAL.equipment.mainStatBase[stat] || 0;
     var per = BAL.equipment.mainStatPerLevel[stat] || 0;
@@ -1974,38 +2163,46 @@ G.EQUIP = (function () {
   }
 
   /**
-   * 生成一件装备。
+   * 生成一件装备：**在该阶的 10 件里抽一件**（名字 / 部位 / 外观 / 等级门槛都随目录），
+   * 再按等阶抽词条，主属性乘上阶内系数。
    * `id` 由调用方给（存档里的自增号），这样同一次掉落重放两次也拿到同一个 id。
    */
   function generate(tierId, level, rng, id) {
     var tier = tierById(tierId);
-    var slots = BAL.equipment.slots;
-    var slot = slots[rng.int(0, slots.length - 1)];
+    var pool = catalogForTier(tier.id);
+    if (pool.length === 0) pool = BAL.equipment.catalog;
+    var def = pool[rng.int(0, pool.length - 1)];
+    var slot = slotById(def.slot) || BAL.equipment.slots[0];
     if (!(level >= 1)) level = 1;
 
     var affixes = rollAffixes(tier.affixes, tier, rng);
     if (tier.uniqueAffix === true) affixes.push(rollUniqueAffix(tier, rng));
 
+    var mul = statMulOf(def);
     var item = {
       id: id,
+      defId: def.id,
+      name: def.name,
       tier: tier.id,
       tierName: tier.name,
-      slotId: slot.id,
+      slotId: def.slot,
       slotName: slot.name,
       level: level,
-      reqLevel: requirementFor(tier.id),
+      reqLevel: requirementForItem(def),
+      statMul: Math.round(mul * 1000) / 1000,
       main: {
         stat: slot.mainStat,
         name: statName(slot.mainStat),
-        value: mainValue(slot.mainStat, level, tier)
+        value: tidy(slot.mainStat, mainValue(slot.mainStat, level, tier) * mul)
       },
-      affixes: affixes
+      affixes: affixes,
+      look: lookOfDef(def)
     };
     item.power = powerOf(item);
     return item;
   }
 
-  /** 一件装备的属性折成战斗加成（10-player.js 汇总 6 件时用） */
+  /** 一件装备的属性折成战斗加成（10-player.js 汇总 4 件时用） */
   function applyTo(totals, item) {
     if (!item) return totals;
     totals[item.main.stat] = (totals[item.main.stat] || 0) + item.main.value;
@@ -2016,20 +2213,20 @@ G.EQUIP = (function () {
     return totals;
   }
 
-  /** 身上 6 件装备的加成总和 */
+  /** 身上 4 件装备的加成总和 */
   function totalsOf(loadout) {
     var totals = {};
     if (!loadout) return totals;
-    for (var i = 0; i < BAL.equipment.slots.length; i += 1) {
-      applyTo(totals, loadout[BAL.equipment.slots[i].id]);
+    for (var i = 0; i < SLOT_IDS.length; i += 1) {
+      applyTo(totals, loadout[SLOT_IDS[i]]);
     }
     return totals;
   }
 
-  /** 空装备栏（6 个部位都是 null） */
+  /** 空装备栏（4 个部位都是 null） */
   function emptyLoadout() {
     var loadout = {};
-    for (var i = 0; i < BAL.equipment.slots.length; i += 1) loadout[BAL.equipment.slots[i].id] = null;
+    for (var i = 0; i < SLOT_IDS.length; i += 1) loadout[SLOT_IDS[i]] = null;
     return loadout;
   }
 
@@ -2037,8 +2234,8 @@ G.EQUIP = (function () {
   function armoryPower(loadout) {
     var power = 0;
     if (!loadout) return 0;
-    for (var i = 0; i < BAL.equipment.slots.length; i += 1) {
-      var item = loadout[BAL.equipment.slots[i].id];
+    for (var i = 0; i < SLOT_IDS.length; i += 1) {
+      var item = loadout[SLOT_IDS[i]];
       if (item) power += item.power;
     }
     return power;
@@ -2050,13 +2247,32 @@ G.EQUIP = (function () {
     return '+' + (Math.round(value * 10) / 10) + ' ' + statName(stat);
   }
 
+  /** 界面文案：`天赐 天命之剑`（阶名 + 装备名；卡面与提示共用一份） */
+  function labelOf(item) {
+    if (!item) return '空';
+    return (item.tierName || tierById(item.tier).name) + ' ' + (item.name || item.slotName);
+  }
+
   return {
+    SLOT_IDS: SLOT_IDS,
     STAT_NAMES: STAT_NAMES,
+    slotIds: slotIds,
     tierById: tierById,
     slotById: slotById,
+    hasSlot: hasSlot,
     statName: statName,
     isPercent: isPercent,
+    catalog: catalog,
+    catalogForTier: catalogForTier,
+    defById: defById,
+    indexInTier: indexInTier,
+    statMulOf: statMulOf,
     requirementFor: requirementFor,
+    requirementForItem: requirementForItem,
+    canWear: canWear,
+    lookOfDef: lookOfDef,
+    emptyLook: emptyLook,
+    lookOf: lookOf,
     tidy: tidy,
     mainValue: mainValue,
     rollAffixes: rollAffixes,
@@ -2067,7 +2283,8 @@ G.EQUIP = (function () {
     totalsOf: totalsOf,
     emptyLoadout: emptyLoadout,
     armoryPower: armoryPower,
-    formatValue: formatValue
+    formatValue: formatValue,
+    labelOf: labelOf
   };
 })();
 
@@ -2241,9 +2458,72 @@ G.PLAYER = (function () {
     return player.hurtUntil > nowMs;
   }
 
+  /**
+   * 属性面板的行数据（A6）：一行一项，副行把"等级基础"与"装备加成"分开写 ——
+   * 玩家一眼就知道该练级还是该去开箱。
+   *
+   * 放在这里而不是 18-panels 的原因与 statsOf 一样：属性公式只能有一份，
+   * 面板只负责排版（界面层不读玩法公式，决策 #4）。
+   */
+  function breakdown(level, loadout) {
+    var stats = statsOf(level, loadout);
+    var grow = PROG.statsForLevel(level);
+    var totals = EQUIP.totalsOf(loadout);
+    var base = BAL.player;
+    var pct = function (value) {
+      return (value * 100).toFixed(1) + '%';
+    };
+    return [
+      { label: '等级', value: 'Lv.' + level, sub: '升到下一级还需 ' + Math.round(PROG.xpToNext(level)) + ' 经验' },
+      {
+        label: '战力',
+        value: String(stats.power),
+        sub: '四件装备战力之和（只用来一眼比较强弱，不参与战斗结算）',
+        color: '#ffd479'
+      },
+      {
+        label: '攻击',
+        value: String(stats.attack),
+        sub: '等级基础 ' + Math.round((base.baseAttack + grow.attack) * 10) / 10 + ' ＋ 装备 ' + (totals.attack || 0)
+      },
+      {
+        label: '生命上限',
+        value: String(stats.hpMax),
+        sub: '等级基础 ' + Math.round(base.baseHp * (1 + grow.hpPct)) + ' ＋ 装备 ' + (totals.hp || 0)
+      },
+      { label: '防御', value: String(stats.defense), sub: '基础 ' + base.baseDefense + ' ＋ 装备 ' + (totals.defense || 0) },
+      {
+        label: '攻速',
+        value: stats.attackSpeed.toFixed(2) + ' 次/秒',
+        sub: '基础 ' + base.attackSpeed + ' ×（1 ＋ 装备攻速 ' + pct(totals.attackSpeed || 0) + '）'
+      },
+      {
+        label: '暴击率',
+        value: pct(stats.critChance),
+        sub: '基础 ' + pct(base.critChance) + ' ＋ 装备 ' + pct(totals.critChance || 0) + '（上限 100%）'
+      },
+      {
+        label: '暴击伤害',
+        value: Math.round(stats.critDamage * 100) + '%',
+        sub: '基础 ' + Math.round(base.critDamage * 100) + '% ＋ 装备 ' + Math.round((totals.critDamage || 0) * 100) + '%'
+      },
+      { label: '增伤', value: pct(stats.damageBonus), sub: '装备词条合计（乘算在攻击上）' },
+      { label: '减伤', value: pct(stats.damageReduction), sub: '装备词条合计（上限 75%，防止无敌套）' },
+      { label: '移动速度', value: String(stats.moveSpeed), sub: '固定值：装备不影响走位手感' },
+      {
+        label: '拾取范围',
+        value: String(stats.pickupRange),
+        sub: '基础 ' + base.pickupRange + ' ＋ 装备 ' + (totals.pickupRange || 0)
+      },
+      { label: '经验加成', value: pct(stats.xpBonus), sub: '装备词条合计' },
+      { label: '金币加成', value: pct(stats.goldBonus), sub: '装备词条合计' }
+    ];
+  }
+
   return {
     normalizeLoadout: normalizeLoadout,
     statsOf: statsOf,
+    breakdown: breakdown,
     create: create,
     clampHp: clampHp,
     onLevelUp: onLevelUp,
@@ -2355,7 +2635,15 @@ G.SAVE = (function () {
     save.pity.epic = numberOr(raw.pity && raw.pity.epic, 0, 0, 100000);
     save.pity.mythic = numberOr(raw.pity && raw.pity.mythic, 0, 0, 100000);
     save.loadout = G.PLAYER.normalizeLoadout(raw.loadout);
-    save.items = raw.items && raw.items.length ? raw.items.slice(0, BAL.chests.bagCap) : [];
+    // A6：部位从 6 个（含头盔 / 手套）收敛成 4 个 —— 老存档里那两件的部位已经不存在了，
+    // 直接丢掉：留着也穿不上，还会在背包里占一行看不懂的格子。
+    save.items = [];
+    if (raw.items && raw.items.length) {
+      for (var k = 0; k < raw.items.length && save.items.length < BAL.chests.bagCap; k += 1) {
+        var rawItem = raw.items[k];
+        if (rawItem && G.EQUIP.hasSlot(rawItem.slotId) && rawItem.main && rawItem.affixes) save.items.push(rawItem);
+      }
+    }
     save.nextItemId = numberOr(raw.nextItemId, 1, 1, Infinity);
     save.horns = numberOr(raw.horns, 0, 0, 9999);
     save.guild = raw.guild && raw.guild.name ? raw.guild : null;
@@ -3428,6 +3716,44 @@ G.WORLD = (function () {
 
   /* ---------------------------------------------------------------- chunk 装载 */
 
+  /**
+   * 营地的安全半径（A6，`world.camp.monsterFreeRadius`）：巢穴落在这里面的怪**不装载**。
+   *
+   * 关键取舍：过滤发生在**装载层**，`05-spawn` 的生成流一个字都没动 ——
+   * 于是"同一坐标永远同一份内容"与**世界指纹**都不受影响（跨端确定性建立在生成层）。
+   * 已经在外面的怪走进来会被 `keepOutOfCamp` 推回边界并回家。
+   */
+  function campSafeRadius() {
+    var value = BAL.world.camp.monsterFreeRadius;
+    return value > 0 ? value : 0;
+  }
+
+  /** 这个巢穴在营地安全区里吗（在的话这只怪根本不会出现在世界里） */
+  function isHomeInCamp(x, y) {
+    var safe = campSafeRadius();
+    return safe > 0 && CHUNK.distanceToOrigin(x, y) <= safe;
+  }
+
+  /**
+   * 营地屏障：怪一旦落进安全半径就被沿半径推回边界，返回 true（= "它闯进来了"）。
+   * 纯距离判断，无随机、无三角函数；正好压在原点时推向一个固定方向，保证可重放。
+   */
+  function keepOutOfCamp(monster) {
+    var safe = campSafeRadius();
+    if (safe <= 0) return false;
+    var dist = CHUNK.distanceToOrigin(monster.x, monster.y);
+    if (dist >= safe) return false;
+    if (dist < 0.0001) {
+      monster.x = safe;
+      monster.y = 0;
+      return true;
+    }
+    var k = safe / dist;
+    monster.x *= k;
+    monster.y *= k;
+    return true;
+  }
+
   function loadChunk(cx, cy) {
     var key = CHUNK.chunkKeyOf(cx, cy);
     var band = SPAWN.chunkCenterBand(cx, cy);
@@ -3435,6 +3761,8 @@ G.WORLD = (function () {
     var monsters = [];
     for (var i = 0; i < spawned.length; i += 1) {
       var source = spawned[i];
+      // A6：营地不刷怪 —— 过滤的是"装载"，不是"生成"（所以指纹与跨端确定性都不动）
+      if (isHomeInCamp(source.homeX, source.homeY)) continue;
       monsters.push({
         id: source.id,
         cx: source.cx,
@@ -3660,6 +3988,13 @@ G.WORLD = (function () {
 
     if (player.dead) {
       monster.state = 'idle';
+      return;
+    }
+
+    // 营地是安全区（A6）：闯进安全半径的怪被推到边上，并立刻转身回家
+    if (keepOutOfCamp(monster)) {
+      monster.state = 'return';
+      moveToward(monster, monster.homeX, monster.homeY, monster.speed * dtSec);
       return;
     }
 
@@ -4024,6 +4359,8 @@ G.WORLD = (function () {
         continue;
       }
       updateMonster(monster, player, stats, events, dtSec);
+      // A6：所有移动结算之后再夹一次营地屏障 —— 怪"往家走"时路线穿过营地也挡得住
+      if (keepOutOfCamp(monster)) monster.state = 'return';
     }
 
     if (!player.dead) playerAttack(player, stats, monsters, events);
@@ -4316,12 +4653,605 @@ G.INPUT = (function () {
 })();
 
 /**
+ * 16-icons.js —— 程序自绘图标（阶段 A6 新增）
+ *
+ * 用户要求："每个 UI 按钮都做出对应的图标" + "装备内观（背包显示）"。
+ * 小游戏包体里没有图集（贴图是阶段 E 的事），所以图标也**用基本图元画**：
+ * 每个图标都在一个 s×s 的方框里、以 (cx, cy) 为中心，只用
+ * fillRect / moveTo / lineTo / arc / fill / stroke —— 和 16-render.js 同一套纪律
+ * （arcTo / ellipse / 虚线在冒烟测试的假 canvas 里没有实现）。
+ *
+ * 三组图标：
+ *   1. **功能键与技能键**（`button`）：箱 / 包 / 会 / 营 / 设 / 自动 + 斩 / 疗 / 刺 / 旋；
+ *   2. **装备内观**（`item` / `weapon` / `armor` / `boots` / `trinket`）：读的是
+ *      09-equipment 的 look（造型 id + 三档配色），所以"装备长什么样"只有一份说法 ——
+ *      人物身上由 16-render.js 画，背包里由这里画；
+ *   3. **部位占位**（`slotPlaceholder`）与**阶色边框**（`frame`）：空部位也要看得出是哪个部位。
+ *
+ * 注意：本文件**不引入三角函数**（齿轮的斜齿用显式坐标的菱形），
+ * 于是 check-minigame.ps1 的三角函数白名单一个字都不用改。
+ */
+
+G.ICONS = (function () {
+  'use strict';
+
+  var BAL = G.BAL;
+  var TAU = Math.PI * 2;
+
+  /** 六阶阶色（唯一一份：18-panels 的 tierColor 也读它，免得两处各写一套颜色） */
+  var TIER_COLORS = ['#c7c7c7', '#8ce99a', '#a9d5ff', '#d0a9ff', '#ff9b5a', '#ffd479'];
+
+  /** 图标里的"暗色"（锁扣 / 门洞 / 中心孔这类负形） */
+  var DARK = '#1b2438';
+
+  function tierColor(tier) {
+    return TIER_COLORS[tier - 1] || '#c7c7c7';
+  }
+
+  /* ------------------------------------------------------------ 基本图元 */
+
+  function rect(ctx, x, y, w, h, color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, w, h);
+  }
+
+  /** 多边形填充：points = [[x,y], ...]（只用 moveTo/lineTo/closePath/fill） */
+  function poly(ctx, points, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(points[0][0], points[0][1]);
+    for (var i = 1; i < points.length; i += 1) ctx.lineTo(points[i][0], points[i][1]);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function circle(ctx, x, y, r, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, TAU);
+    ctx.fill();
+  }
+
+  function ring(ctx, x, y, r, color, width) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, TAU);
+    ctx.stroke();
+  }
+
+  function bar(ctx, x1, y1, x2, y2, color, width) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  /** 一小段圆弧（横扫 / 旋风 / 自动这类"绕圈"的语义都靠它） */
+  function arc(ctx, x, y, r, from, to, color, width) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(x, y, r, from, to);
+    ctx.stroke();
+  }
+
+  /** 三角形（箭头 / 枪尖 / 宝石切面都用它） */
+  function triangle(ctx, ax, ay, bx, by, cx2, cy2, color) {
+    poly(ctx, [[ax, ay], [bx, by], [cx2, cy2]], color);
+  }
+
+  /* ------------------------------------------------------------ 功能键图标 */
+
+  /** 开箱：箱体 + 梯形盖 + 锁带 */
+  function chest(ctx, cx, cy, s, color) {
+    var w = s * 0.88;
+    var h = s * 0.6;
+    var x = cx - w / 2;
+    var y = cy - h * 0.3;
+    rect(ctx, x, y + h * 0.44, w, h * 0.56, color);
+    poly(ctx, [[x, y + h * 0.46], [x + w, y + h * 0.46], [x + w * 0.87, y], [x + w * 0.13, y]], color);
+    rect(ctx, cx - w * 0.08, y + h * 0.3, w * 0.16, h * 0.72, DARK);
+    rect(ctx, x, y + h * 0.8, w, h * 0.08, DARK);
+    circle(ctx, cx, y + h * 0.62, s * 0.06, '#fff3d0');
+  }
+
+  /** 背包：方包 + 两条背带 + 束带 */
+  function bag(ctx, cx, cy, s, color) {
+    var w = s * 0.66;
+    var h = s * 0.66;
+    var x = cx - w / 2;
+    var y = cy - h * 0.18;
+    rect(ctx, x, y, w, h, color);
+    bar(ctx, x + w * 0.26, y, x + w * 0.36, y - h * 0.4, color, s * 0.07);
+    bar(ctx, x + w * 0.74, y, x + w * 0.64, y - h * 0.4, color, s * 0.07);
+    rect(ctx, x, y + h * 0.4, w, h * 0.12, DARK);
+    rect(ctx, cx - w * 0.09, y + h * 0.36, w * 0.18, h * 0.2, DARK);
+  }
+
+  /** 公会：盾牌 + 中间的星 */
+  function guild(ctx, cx, cy, s, color) {
+    var w = s * 0.66;
+    var top = cy - s * 0.42;
+    poly(
+      ctx,
+      [[cx - w / 2, top], [cx + w / 2, top], [cx + w / 2, cy + s * 0.06], [cx, cy + s * 0.44], [cx - w / 2, cy + s * 0.06]],
+      color
+    );
+    var d = s * 0.16;
+    poly(ctx, [[cx, cy - s * 0.22], [cx + d, cy - s * 0.02], [cx, cy + s * 0.2], [cx - d, cy - s * 0.02]], DARK);
+  }
+
+  /** 营地：三角帐篷 + 门洞 + 顶杆 */
+  function camp(ctx, cx, cy, s, color) {
+    var w = s * 0.9;
+    var h = s * 0.66;
+    poly(ctx, [[cx - w / 2, cy + h * 0.52], [cx + w / 2, cy + h * 0.52], [cx, cy - h * 0.48]], color);
+    poly(ctx, [[cx - w * 0.13, cy + h * 0.52], [cx + w * 0.13, cy + h * 0.52], [cx, cy - h * 0.02]], DARK);
+    bar(ctx, cx, cy - h * 0.48, cx, cy - h * 0.48 - s * 0.12, color, s * 0.06);
+  }
+
+  /** 设置：齿轮（4 个正齿 + 4 个斜齿用显式坐标，不引入三角函数） */
+  function menu(ctx, cx, cy, s, color) {
+    var outer = s * 0.34;
+    var tooth = s * 0.11;
+    var i;
+    var sign = [1, -1];
+    for (i = 0; i < 2; i += 1) {
+      rect(ctx, cx - tooth / 2, cy + sign[i] * outer - tooth / 2, tooth, tooth, color);
+      rect(ctx, cx + sign[i] * outer - tooth / 2, cy - tooth / 2, tooth, tooth, color);
+    }
+    var d = outer * 0.76;
+    var k = tooth * 0.62;
+    for (i = 0; i < 4; i += 1) {
+      var sx = i === 0 || i === 3 ? 1 : -1;
+      var sy = i < 2 ? -1 : 1;
+      poly(
+        ctx,
+        [
+          [cx + sx * d, cy + sy * d - k],
+          [cx + sx * d + k, cy + sy * d],
+          [cx + sx * d, cy + sy * d + k],
+          [cx + sx * d - k, cy + sy * d]
+        ],
+        color
+      );
+    }
+    circle(ctx, cx, cy, outer * 0.86, color);
+    circle(ctx, cx, cy, s * 0.11, DARK);
+  }
+
+  /** 自动战斗：一把小剑 + 一圈环绕箭头（"它自己在打"） */
+  function auto(ctx, cx, cy, s, color) {
+    rect(ctx, cx - s * 0.05, cy - s * 0.06, s * 0.1, s * 0.44, color);
+    rect(ctx, cx - s * 0.16, cy - s * 0.1, s * 0.32, s * 0.07, color);
+    triangle(ctx, cx, cy - s * 0.44, cx + s * 0.11, cy - s * 0.16, cx - s * 0.11, cy - s * 0.16, color);
+    arc(ctx, cx, cy, s * 0.42, -0.35, 2.1, color, s * 0.07);
+    arc(ctx, cx, cy, s * 0.42, Math.PI - 0.35, Math.PI + 2.1, color, s * 0.07);
+    triangle(ctx, cx + s * 0.44, cy + s * 0.1, cx + s * 0.3, cy + s * 0.18, cx + s * 0.52, cy + s * 0.24, color);
+  }
+
+  /** 攻击：斜劈的刀 + 一道光（留给以后的手动攻击键） */
+  function attack(ctx, cx, cy, s, color) {
+    bar(ctx, cx - s * 0.3, cy + s * 0.3, cx + s * 0.26, cy - s * 0.26, color, s * 0.14);
+    triangle(ctx, cx + s * 0.44, cy - s * 0.44, cx + s * 0.46, cy - s * 0.14, cx + s * 0.14, cy - s * 0.46, color);
+    bar(ctx, cx - s * 0.34, cy + s * 0.16, cx - s * 0.14, cy + s * 0.36, '#ffd479', s * 0.08);
+  }
+
+  /* ------------------------------------------------------------ 技能键图标 */
+
+  /** 横扫：两道弧 + 一个箭头（范围技） */
+  function cleave(ctx, cx, cy, s, color) {
+    arc(ctx, cx - s * 0.12, cy + s * 0.12, s * 0.44, -1.5, 0.5, color, s * 0.11);
+    arc(ctx, cx - s * 0.12, cy + s * 0.12, s * 0.26, -1.5, 0.5, color, s * 0.08);
+    triangle(ctx, cx + s * 0.2, cy - s * 0.34, cx + s * 0.42, cy - s * 0.24, cx + s * 0.22, cy - s * 0.06, color);
+  }
+
+  /** 疗愈：十字 + 一道光环 */
+  function mend(ctx, cx, cy, s, color) {
+    rect(ctx, cx - s * 0.1, cy - s * 0.34, s * 0.2, s * 0.68, color);
+    rect(ctx, cx - s * 0.34, cy - s * 0.1, s * 0.68, s * 0.2, color);
+    ring(ctx, cx, cy, s * 0.46, color, s * 0.06);
+  }
+
+  /** 穿刺：长枪 + 速度线（单体远距离） */
+  function pierce(ctx, cx, cy, s, color) {
+    bar(ctx, cx - s * 0.4, cy + s * 0.36, cx + s * 0.24, cy - s * 0.2, color, s * 0.1);
+    triangle(ctx, cx + s * 0.46, cy - s * 0.46, cx + s * 0.4, cy - s * 0.14, cx + s * 0.14, cy - s * 0.4, color);
+    bar(ctx, cx - s * 0.38, cy + s * 0.06, cx - s * 0.18, cy + s * 0.2, color, s * 0.06);
+  }
+
+  /** 旋风：中心圆 + 三道环绕弧（周身范围） */
+  function whirl(ctx, cx, cy, s, color) {
+    circle(ctx, cx, cy, s * 0.16, color);
+    arc(ctx, cx, cy, s * 0.38, 0.2, 1.9, color, s * 0.1);
+    arc(ctx, cx, cy, s * 0.38, Math.PI + 0.2, Math.PI + 1.9, color, s * 0.1);
+    arc(ctx, cx, cy, s * 0.46, -1.3, -0.4, color, s * 0.07);
+  }
+
+  /* ------------------------------------------------------------ 装备内观 */
+
+  /** 空部位用的"幽灵款式"：只给个剪影，玩家一眼知道这里是武器 / 衣服 / 鞋 / 饰品 */
+  var GHOST_STYLE = { weapon: 'sword', armor: 'tunic', boots: 'boot', trinket: 'amulet' };
+
+  function ghostLook(slotId, color) {
+    return { slot: slotId, style: GHOST_STYLE[slotId] || 'sword', a: color, b: color, c: color, tier: 1 };
+  }
+
+  /** 武器：柄 + 护手 + 按造型画刃（剑 / 短刃 / 巨剑 / 枪 / 斧 / 锤 / 法杖 / 镰） */
+  function weapon(ctx, look, cx, cy, s) {
+    var style = (look && look.style) || 'sword';
+    var blade = (look && look.a) || '#dbe4f2';
+    var grip = (look && look.b) || '#6b4a2c';
+    var guard = (look && look.c) || '#c8ccd6';
+    var bottom = cy + s * 0.46;
+    var tip = cy - s * 0.46;
+
+    rect(ctx, cx - s * 0.055, bottom - s * 0.24, s * 0.11, s * 0.24, grip);
+    rect(ctx, cx - s * 0.085, bottom - s * 0.03, s * 0.17, s * 0.06, grip);
+
+    if (style === 'spear') {
+      bar(ctx, cx, bottom - s * 0.04, cx, cy - s * 0.18, grip, s * 0.08);
+      rect(ctx, cx - s * 0.09, cy - s * 0.24, s * 0.18, s * 0.07, guard);
+      triangle(ctx, cx, tip, cx + s * 0.15, cy - s * 0.1, cx - s * 0.15, cy - s * 0.1, blade);
+      return;
+    }
+    if (style === 'staff') {
+      bar(ctx, cx, bottom - s * 0.02, cx, cy - s * 0.2, grip, s * 0.08);
+      ring(ctx, cx, cy - s * 0.32, s * 0.16, guard, s * 0.05);
+      circle(ctx, cx, cy - s * 0.32, s * 0.1, blade);
+      return;
+    }
+    if (style === 'hammer') {
+      bar(ctx, cx, bottom - s * 0.04, cx, cy - s * 0.18, grip, s * 0.09);
+      rect(ctx, cx - s * 0.25, cy - s * 0.44, s * 0.5, s * 0.26, blade);
+      rect(ctx, cx - s * 0.25, cy - s * 0.22, s * 0.5, s * 0.07, guard);
+      return;
+    }
+    if (style === 'axe') {
+      bar(ctx, cx, bottom - s * 0.04, cx, cy - s * 0.32, grip, s * 0.09);
+      poly(ctx, [[cx - s * 0.02, cy - s * 0.46], [cx - s * 0.34, cy - s * 0.33], [cx - s * 0.34, cy - s * 0.02], [cx - s * 0.02, cy - s * 0.1]], blade);
+      poly(ctx, [[cx + s * 0.02, cy - s * 0.46], [cx + s * 0.34, cy - s * 0.33], [cx + s * 0.34, cy - s * 0.02], [cx + s * 0.02, cy - s * 0.1]], guard);
+      return;
+    }
+    if (style === 'scythe') {
+      bar(ctx, cx, bottom - s * 0.04, cx, cy - s * 0.4, grip, s * 0.08);
+      arc(ctx, cx + s * 0.18, cy - s * 0.34, s * 0.24, Math.PI * 0.5, Math.PI * 1.4, blade, s * 0.09);
+      return;
+    }
+
+    var wide = style === 'greatsword';
+    var short = style === 'dagger';
+    var w = wide ? s * 0.22 : short ? s * 0.12 : s * 0.16;
+    var bladeTop = short ? cy - s * 0.2 : tip;
+    rect(ctx, cx - (wide ? s * 0.3 : s * 0.22), cy - s * 0.3, wide ? s * 0.6 : s * 0.44, s * 0.09, guard);
+    poly(
+      ctx,
+      [
+        [cx - w / 2, cy - s * 0.26],
+        [cx + w / 2, cy - s * 0.26],
+        [cx + w / 2, bladeTop + s * 0.1],
+        [cx, bladeTop],
+        [cx - w / 2, bladeTop + s * 0.1]
+      ],
+      blade
+    );
+    bar(ctx, cx, cy - s * 0.22, cx, bladeTop + s * 0.13, 'rgba(255,255,255,0.3)', s * 0.03);
+  }
+
+  /** 衣服：躯干 + 领口 + 腰带，按款式加肩甲 / 锁环 / 长摆 / 披风 / 皮带 */
+  function armor(ctx, look, cx, cy, s) {
+    var style = (look && look.style) || 'tunic';
+    var cloth = (look && look.a) || '#4f7fd8';
+    var trim = (look && look.b) || '#e0c07a';
+    var light = 'rgba(255,255,255,0.18)';
+
+    if (style === 'cloak') {
+      poly(ctx, [[cx - s * 0.4, cy - s * 0.36], [cx + s * 0.4, cy - s * 0.36], [cx + s * 0.3, cy + s * 0.42], [cx - s * 0.3, cy + s * 0.42]], cloth);
+      rect(ctx, cx - s * 0.4, cy - s * 0.38, s * 0.8, s * 0.08, trim);
+      poly(ctx, [[cx - s * 0.1, cy - s * 0.3], [cx + s * 0.1, cy - s * 0.3], [cx, cy - s * 0.12]], DARK);
+      return;
+    }
+
+    poly(ctx, [[cx - s * 0.3, cy - s * 0.34], [cx + s * 0.3, cy - s * 0.34], [cx + s * 0.24, cy + s * 0.3], [cx - s * 0.24, cy + s * 0.3]], cloth);
+    poly(ctx, [[cx - s * 0.1, cy - s * 0.34], [cx + s * 0.1, cy - s * 0.34], [cx, cy - s * 0.18]], DARK);
+    rect(ctx, cx - s * 0.26, cy + s * 0.12, s * 0.52, s * 0.08, trim);
+    rect(ctx, cx - s * 0.05, cy + s * 0.12, s * 0.1, s * 0.08, DARK);
+
+    if (style === 'plate') {
+      poly(ctx, [[cx - s * 0.44, cy - s * 0.3], [cx - s * 0.26, cy - s * 0.34], [cx - s * 0.26, cy - s * 0.04], [cx - s * 0.44, cy - s * 0.08]], trim);
+      poly(ctx, [[cx + s * 0.44, cy - s * 0.3], [cx + s * 0.26, cy - s * 0.34], [cx + s * 0.26, cy - s * 0.04], [cx + s * 0.44, cy - s * 0.08]], trim);
+      bar(ctx, cx - s * 0.2, cy - s * 0.16, cx + s * 0.2, cy - s * 0.16, light, s * 0.04);
+    } else if (style === 'mail') {
+      bar(ctx, cx - s * 0.22, cy - s * 0.2, cx + s * 0.22, cy - s * 0.2, light, s * 0.035);
+      bar(ctx, cx - s * 0.22, cy - s * 0.08, cx + s * 0.22, cy - s * 0.08, light, s * 0.035);
+      bar(ctx, cx - s * 0.2, cy + s * 0.04, cx + s * 0.2, cy + s * 0.04, light, s * 0.035);
+    } else if (style === 'robe') {
+      poly(ctx, [[cx - s * 0.24, cy + s * 0.3], [cx + s * 0.24, cy + s * 0.3], [cx + s * 0.32, cy + s * 0.46], [cx - s * 0.32, cy + s * 0.46]], cloth);
+      rect(ctx, cx - s * 0.32, cy + s * 0.44, s * 0.64, s * 0.05, trim);
+    } else if (style === 'leather') {
+      bar(ctx, cx - s * 0.18, cy - s * 0.28, cx + s * 0.14, cy + s * 0.06, trim, s * 0.05);
+      bar(ctx, cx + s * 0.18, cy - s * 0.28, cx - s * 0.14, cy + s * 0.06, trim, s * 0.05);
+    } else {
+      bar(ctx, cx - s * 0.2, cy - s * 0.02, cx + s * 0.2, cy - s * 0.02, light, s * 0.035);
+    }
+  }
+
+  /** 一只鞋：小腿 + 脚掌 + 鞋底，按款式加绑带 / 胫甲 / 膝甲 */
+  function bootOne(ctx, x, baseY, s, h, color, sole, style) {
+    var w = s * 0.3;
+    var top = baseY - h;
+    rect(ctx, x - w * 0.5, top, w, h * 0.72, color);
+    poly(ctx, [[x - w * 0.5, top + h * 0.66], [x + w * 1.1, top + h * 0.66], [x + w * 1.1, top + h * 0.9], [x - w * 0.5, top + h * 0.9]], color);
+    rect(ctx, x - w * 0.5, top + h * 0.9, w * 1.6, h * 0.12, sole);
+
+    if (style === 'sandal') {
+      bar(ctx, x - w * 0.5, top + h * 0.3, x + w * 0.5, top + h * 0.3, sole, s * 0.05);
+      bar(ctx, x - w * 0.5, top + h * 0.55, x + w * 0.5, top + h * 0.55, sole, s * 0.05);
+    } else if (style === 'greave') {
+      bar(ctx, x, top + h * 0.08, x, top + h * 0.64, sole, s * 0.05);
+      rect(ctx, x - w * 0.6, top - s * 0.03, w * 1.2, s * 0.06, sole);
+    } else if (style === 'plateboot') {
+      circle(ctx, x, top - s * 0.14, s * 0.1, sole);
+      rect(ctx, x - w * 0.55, top + h * 0.2, w * 1.1, s * 0.05, sole);
+    } else {
+      bar(ctx, x - w * 0.3, top + h * 0.14, x + w * 0.3, top + h * 0.14, 'rgba(255,255,255,0.2)', s * 0.04);
+    }
+  }
+
+  /** 鞋子：两只并排（一眼看出是"一双鞋"） */
+  function boots(ctx, look, cx, cy, s) {
+    var style = (look && look.style) || 'boot';
+    var color = (look && look.a) || '#2b3550';
+    var sole = (look && look.b) || '#1b2438';
+    var h = style === 'greave' || style === 'plateboot' ? s * 0.64 : s * 0.5;
+    var baseY = cy + h * 0.5;
+    bootOne(ctx, cx - s * 0.17, baseY, s, h, color, sole, style);
+    bootOne(ctx, cx + s * 0.17, baseY, s, h, color, sole, style);
+  }
+
+  /** 饰品：项链 / 指环 / 宝珠 / 头冠 */
+  function trinket(ctx, look, cx, cy, s) {
+    var style = (look && look.style) || 'amulet';
+    var gem = (look && look.a) || '#ffd479';
+    var metal = (look && look.b) || '#c0c7d6';
+    var d = s * 0.17;
+
+    if (style === 'ring') {
+      ring(ctx, cx, cy + s * 0.1, s * 0.28, metal, s * 0.1);
+      poly(ctx, [[cx, cy - s * 0.24], [cx + d, cy - s * 0.02], [cx, cy + s * 0.2], [cx - d, cy - s * 0.02]], gem);
+      return;
+    }
+    if (style === 'orb') {
+      ring(ctx, cx, cy, s * 0.38, metal, s * 0.05);
+      circle(ctx, cx, cy, s * 0.24, gem);
+      circle(ctx, cx - s * 0.08, cy - s * 0.09, s * 0.07, 'rgba(255,255,255,0.75)');
+      return;
+    }
+    if (style === 'crown') {
+      poly(
+        ctx,
+        [
+          [cx - s * 0.38, cy + s * 0.22],
+          [cx - s * 0.38, cy - s * 0.1],
+          [cx - s * 0.18, cy + s * 0.04],
+          [cx, cy - s * 0.26],
+          [cx + s * 0.18, cy + s * 0.04],
+          [cx + s * 0.38, cy - s * 0.1],
+          [cx + s * 0.38, cy + s * 0.22]
+        ],
+        metal
+      );
+      rect(ctx, cx - s * 0.4, cy + s * 0.24, s * 0.8, s * 0.09, metal);
+      circle(ctx, cx, cy - s * 0.02, s * 0.06, gem);
+      circle(ctx, cx - s * 0.26, cy + s * 0.08, s * 0.05, gem);
+      circle(ctx, cx + s * 0.26, cy + s * 0.08, s * 0.05, gem);
+      return;
+    }
+    // 项链（默认）：一道链 + 一颗坠
+    arc(ctx, cx, cy - s * 0.04, s * 0.3, Math.PI * 1.12, Math.PI * 1.88, metal, s * 0.06);
+    poly(ctx, [[cx, cy + s * 0.02], [cx + d, cy + s * 0.24], [cx, cy + s * 0.46], [cx - d, cy + s * 0.24]], gem);
+    circle(ctx, cx - s * 0.05, cy + s * 0.18, s * 0.045, 'rgba(255,255,255,0.7)');
+  }
+
+  /**
+   * 装备内观（背包 / 部位格都用它）：按 look.slot 分派。
+   * look 为空 = "这里没有装备"，画一个很淡的点，格子不会空得莫名其妙。
+   */
+  function item(ctx, look, cx, cy, s) {
+    if (!look) {
+      circle(ctx, cx, cy, s * 0.2, 'rgba(109,134,181,0.45)');
+      return;
+    }
+    if (look.slot === 'weapon') return weapon(ctx, look, cx, cy, s);
+    if (look.slot === 'armor') return armor(ctx, look, cx, cy, s);
+    if (look.slot === 'boots') return boots(ctx, look, cx, cy, s);
+    return trinket(ctx, look, cx, cy, s);
+  }
+
+  /** 空部位的剪影占位（统一压淡，和真装备区分得开） */
+  function slotPlaceholder(ctx, slotId, cx, cy, s, color) {
+    item(ctx, ghostLook(slotId, color || 'rgba(140,164,208,0.5)'), cx, cy, s * 0.84);
+  }
+
+  /** 八边形路径（不依赖 roundRectPath，加载顺序更自由） */
+  function path(ctx, points) {
+    ctx.beginPath();
+    ctx.moveTo(points[0][0], points[0][1]);
+    for (var i = 1; i < points.length; i += 1) ctx.lineTo(points[i][0], points[i][1]);
+    ctx.closePath();
+  }
+
+  /** 装备格 / 图标外框：阶色描边（dim = 空位或等级不够时压淡） */
+  function frame(ctx, x, y, size, tier, dim) {
+    var k = size * 0.2;
+    var points = [
+      [x + k, y],
+      [x + size - k, y],
+      [x + size, y + k],
+      [x + size, y + size - k],
+      [x + size - k, y + size],
+      [x + k, y + size],
+      [x, y + size - k],
+      [x, y + k]
+    ];
+    path(ctx, points);
+    ctx.fillStyle = 'rgba(12,18,32,0.86)';
+    ctx.fill();
+    ctx.strokeStyle = dim ? 'rgba(109,134,181,0.65)' : tierColor(tier || 1);
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+
+  /* ------------------------------------------------------------ 登录 / 系统图标 */
+
+  /** 登录：一扇门 + 走出去的箭头 */
+  function login(ctx, cx, cy, s, color) {
+    var w = s * 0.44;
+    var h = s * 0.76;
+    var x = cx - s * 0.36;
+    var y = cy - h / 2;
+    poly(ctx, [[x, y], [x + w, y], [x + w, y + h], [x, y + h]], color);
+    circle(ctx, x + w * 0.72, cy, s * 0.05, DARK);
+    bar(ctx, cx + s * 0.16, cy, cx + s * 0.44, cy, color, s * 0.08);
+    triangle(ctx, cx + s * 0.52, cy, cx + s * 0.32, cy - s * 0.15, cx + s * 0.32, cy + s * 0.15, color);
+  }
+
+  /** 创建角色：一个人头 + 肩膀 */
+  function user(ctx, cx, cy, s, color) {
+    circle(ctx, cx, cy - s * 0.18, s * 0.22, color);
+    arc(ctx, cx, cy + s * 0.46, s * 0.34, Math.PI, TAU, color, s * 0.14);
+  }
+
+  /** 输入昵称：键盘（一排排小方块） */
+  function keyboard(ctx, cx, cy, s, color) {
+    var w = s * 0.78;
+    var h = s * 0.52;
+    var x = cx - w / 2;
+    var y = cy - h / 2;
+    var i;
+    var j;
+    rect(ctx, x, y, w, h, color);
+    for (i = 0; i < 3; i += 1) {
+      for (j = 0; j < 4; j += 1) {
+        rect(ctx, x + w * 0.08 + j * w * 0.22, y + h * 0.14 + i * h * 0.27, w * 0.14, h * 0.18, DARK);
+      }
+    }
+  }
+
+  /** 换一个随机的：骰子（三个点） */
+  function dice(ctx, cx, cy, s, color) {
+    var w = s * 0.64;
+    var x = cx - w / 2;
+    var y = cy - w / 2;
+    rect(ctx, x, y, w, w, color);
+    circle(ctx, x + w * 0.3, y + w * 0.3, w * 0.09, DARK);
+    circle(ctx, x + w * 0.5, y + w * 0.5, w * 0.09, DARK);
+    circle(ctx, x + w * 0.7, y + w * 0.7, w * 0.09, DARK);
+  }
+
+  /** 清账号：垃圾桶 */
+  function trash(ctx, cx, cy, s, color) {
+    var w = s * 0.5;
+    var x = cx - w / 2;
+    rect(ctx, cx - w * 0.74, cy - s * 0.4, w * 1.48, s * 0.1, color);
+    rect(ctx, x, cy - s * 0.28, w, s * 0.1, color);
+    poly(ctx, [[x, cy - s * 0.16], [x + w, cy - s * 0.16], [x + w * 0.84, cy + s * 0.42], [x + w * 0.16, cy + s * 0.42]], color);
+    bar(ctx, cx, cy - s * 0.06, cx, cy + s * 0.3, DARK, s * 0.06);
+  }
+
+  /** 属性：三根高低柱子（一眼看出"数值面板"） */
+  function stat(ctx, cx, cy, s, color) {
+    var baseY = cy + s * 0.4;
+    var w = s * 0.2;
+    rect(ctx, cx - s * 0.36, baseY - s * 0.28, w, s * 0.28, color);
+    rect(ctx, cx - w / 2, baseY - s * 0.54, w, s * 0.54, color);
+    rect(ctx, cx + s * 0.16, baseY - s * 0.78, w, s * 0.78, color);
+  }
+
+  /* ------------------------------------------------------------ 按钮图标分发 */
+
+  var SKILL_ICONS = [cleave, mend, pierce, whirl];
+
+  function skillIcon(index, ctx, cx, cy, s, color) {
+    var fn = SKILL_ICONS[index % SKILL_ICONS.length];
+    fn(ctx, cx, cy, s, color);
+  }
+
+  /** 一个键 id → 一个图标（HUD 的功能键与技能键走这里，未知 id 退化成圆环） */
+  function button(ctx, id, cx, cy, s, color) {
+    if (id === 'chest') return chest(ctx, cx, cy, s, color);
+    if (id === 'bag') return bag(ctx, cx, cy, s, color);
+    if (id === 'guild') return guild(ctx, cx, cy, s, color);
+    if (id === 'camp') return camp(ctx, cx, cy, s, color);
+    if (id === 'menu') return menu(ctx, cx, cy, s, color);
+    if (id === 'auto') return auto(ctx, cx, cy, s, color);
+    if (id === 'attack') return attack(ctx, cx, cy, s, color);
+    if (id === 'login') return login(ctx, cx, cy, s, color);
+    if (id === 'user') return user(ctx, cx, cy, s, color);
+    if (id === 'keyboard') return keyboard(ctx, cx, cy, s, color);
+    if (id === 'dice') return dice(ctx, cx, cy, s, color);
+    if (id === 'trash') return trash(ctx, cx, cy, s, color);
+    if (id === 'stat') return stat(ctx, cx, cy, s, color);
+    if (typeof id === 'string' && id.indexOf('skill') === 0) {
+      skillIcon(Number(id.slice(5)) || 0, ctx, cx, cy, s, color);
+      return;
+    }
+    ring(ctx, cx, cy, s * 0.36, color, s * 0.08);
+  }
+
+  /** 图标尺寸统一从 balance.view.icon 取（改大小不用改代码） */
+  function size(key) {
+    var config = BAL.view.icon;
+    return config && config[key] ? config[key] : 40;
+  }
+
+  return {
+    TIER_COLORS: TIER_COLORS,
+    tierColor: tierColor,
+    size: size,
+    frame: frame,
+    item: item,
+    slotPlaceholder: slotPlaceholder,
+    weapon: weapon,
+    armor: armor,
+    boots: boots,
+    trinket: trinket,
+    chest: chest,
+    bag: bag,
+    guild: guild,
+    camp: camp,
+    menu: menu,
+    auto: auto,
+    attack: attack,
+    cleave: cleave,
+    mend: mend,
+    pierce: pierce,
+    whirl: whirl,
+    login: login,
+    user: user,
+    keyboard: keyboard,
+    dice: dice,
+    trash: trash,
+    stat: stat,
+    skillIcon: skillIcon,
+    button: button
+  };
+})();
+
+/**
  * 16-render.js —— 世界渲染（纯 Canvas 2D，**没有引擎**，决策 #7 + 02-architecture §1）
  *
  * 阶段 A3：实体从"圆"升级成**简单自绘角色**，地图从"色块 + 圆点"升级成**有设计感的地图**。
+ * 阶段 A6（本轮）：**Q版** 角色（大头 + 大眼 + 腮红）+ **装备外观**（穿的什么就像什么）+
+ * **视角倍率**（`view.cameraZoom` 把世界层整体拉远，UI 不变）+ **更细的地表**（5×5 色块与细纹）。
  * 一帧的顺序（20-main.renderTo 调用）：
  *   地表色块 + 营地石砖 → 小径路网 → 装饰（按主题换造型）→ 地标（废墟 / 石碑）→ 营地道具
- *   → 弹道 → 怪（4 种造型 + 朝向 + 走路）→ 目标环 → 玩家（小人 + 八方向 + 挥砍）→ 飘字
+ *   → 弹道 → 怪（4 种造型 + 朝向 + 走路）→ 目标环 → 玩家（小人 + 八方向 + 挥砍 + 装备外观）→ 飘字
  *
  * 为什么仍然**不贴图**：包体与图集是阶段 E 的事（01-game-design §12），而"简单角色"用
  * 十几个基本图元就能画出来 —— 先把辨识度与手感做出来，以后换图集只动这一层。
@@ -4335,6 +5265,8 @@ G.INPUT = (function () {
  * 相机与坐标：世界坐标 → 屏幕（设计单位）：
  *   sx = x - camera.x + SCREEN.width() / 2
  *   sy = y - camera.y + SCREEN.height() / 2
+ * 视角倍率不改变这条公式 —— 它由 `beginWorld` 绕屏幕中心缩一次画布来完成，
+ * 于是半径 / 线宽 / 字体一起缩放，视觉上是"镜头拉远"而不是"UI 变小"。
  */
 
 G.RENDER = (function () {
@@ -4439,10 +5371,40 @@ G.RENDER = (function () {
     return { x: x - camera.x + SCREEN.width() / 2, y: y - camera.y + SCREEN.height() / 2 };
   }
 
-  /** 视野矩形（世界坐标）：渲染各处共用一份，别各算一套 */
+  /**
+   * 视角倍率（A6，`balance.view.cameraZoom`）：< 1 = 镜头拉远、看得更广。
+   * 0.8 时每边多看 25%，而且**只缩放世界层** —— HUD / 面板 / 按钮保持原尺寸。
+   */
+  function zoom() {
+    var value = BAL.view.cameraZoom;
+    return value > 0 ? value : 1;
+  }
+
+  /**
+   * 世界层开始 / 结束：绕屏幕中心缩放一次。
+   * 好处是 `toScreen` 的公式一个字都不用改，而且**半径、线宽、字体都跟着缩放** ——
+   * 于是"视野变大"不会变成"UI 变大"。
+   */
+  function beginWorld(ctx) {
+    var k = zoom();
+    ctx.save();
+    if (k !== 1) {
+      ctx.translate(SCREEN.width() / 2, SCREEN.height() / 2);
+      ctx.scale(k, k);
+      ctx.translate(-SCREEN.width() / 2, -SCREEN.height() / 2);
+    }
+    return k;
+  }
+
+  function endWorld(ctx) {
+    ctx.restore();
+  }
+
+  /** 视野矩形（世界坐标）：渲染各处共用一份，别各算一套（含视角倍率） */
   function viewRect(camera) {
-    var width = SCREEN.width();
-    var height = SCREEN.height();
+    var k = zoom();
+    var width = SCREEN.width() / k;
+    var height = SCREEN.height() / k;
     return {
       minX: camera.x - width / 2,
       minY: camera.y - height / 2,
@@ -4537,15 +5499,23 @@ G.RENDER = (function () {
     ctx.globalAlpha = 1;
   }
 
+  /** 地表细度（A6）：每个 chunk 切 5×5 色块 + 一撮细纹（细纹攒成一条路径，一次 fill 画完） */
+  var GROUND_BLOCKS = 5;
+  var GROUND_SPECKS = 12;
+
   /**
-   * 地表：每 chunk 一块主题底色 + 4×4 色块（颜色来自 groundVariant，位置与主题都由哈希决定），
+   * 地表：每 chunk 一块主题底色 + 5×5 色块（颜色来自 groundVariant，位置与主题都由哈希决定），
    * 最后在原点盖上营地的石砖地。
+   *
+   * A6 的做法差别：同色的色块**攒进一条路径**再一次性 fill —— 一个 chunk 从最多 16 次落笔降到 3 次，
+   * 省下来的预算换成"更细的网格 + 每 chunk 一撮土斑"，于是画面更细而帧上的落笔更少。
    */
   function drawGround(ctx, camera) {
     var rect = viewRect(camera);
     var chunks = CHUNK.chunksInRect(rect.minX, rect.minY, rect.maxX, rect.maxY, 0);
     var seed = BAL.season.worldSeed;
-    var block = CHUNK.CHUNK_SIZE / 4;
+    var blocks = GROUND_BLOCKS;
+    var block = CHUNK.CHUNK_SIZE / blocks;
 
     for (var i = 0; i < chunks.length; i += 1) {
       var cx = chunks[i].cx;
@@ -4560,15 +5530,44 @@ G.RENDER = (function () {
       ctx.fillStyle = TERRAIN.mixHex(ground[0], '#000010', tint);
       ctx.fillRect(origin.x, origin.y, CHUNK.CHUNK_SIZE, CHUNK.CHUNK_SIZE);
 
-      for (var by = 0; by < 4; by += 1) {
-        for (var bx = 0; bx < 4; bx += 1) {
-          // 取 8×8 噪声网格上的偶数格当代表，视觉效果一样但少画一大半
-          var variant = TERRAIN.groundVariant(seed, cx, cy, bx * 2, by * 2);
-          if (variant === 0) continue;
-          ctx.fillStyle = TERRAIN.mixHex(ground[variant], '#000010', tint);
-          ctx.fillRect(origin.x + bx * block, origin.y + by * block, block + 1, block + 1);
+      var v;
+      for (v = 1; v < 3; v += 1) {
+        var any = false;
+        ctx.beginPath();
+        for (var by = 0; by < blocks; by += 1) {
+          for (var bx = 0; bx < blocks; bx += 1) {
+            if (TERRAIN.groundVariant(seed, cx, cy, bx, by) !== v) continue;
+            var bx0 = origin.x + bx * block;
+            var by0 = origin.y + by * block;
+            ctx.moveTo(bx0, by0);
+            ctx.lineTo(bx0 + block, by0);
+            ctx.lineTo(bx0 + block, by0 + block);
+            ctx.lineTo(bx0, by0 + block);
+            ctx.closePath();
+            any = true;
+          }
         }
+        if (!any) continue;
+        ctx.fillStyle = TERRAIN.mixHex(ground[v], '#000010', tint);
+        ctx.fill();
       }
+
+      // 细纹：土斑 / 草籽（位置是纯哈希 → 同一块地永远同一撮，不会闪）
+      ctx.beginPath();
+      for (var s = 0; s < GROUND_SPECKS; s += 1) {
+        var hx = G.RNG.hashInt([seed, cx, cy, s, 0x5b], 4096) / 4096;
+        var hy = G.RNG.hashInt([seed, cx, cy, s, 0x7c], 4096) / 4096;
+        var sx = origin.x + hx * CHUNK.CHUNK_SIZE;
+        var sy = origin.y + hy * CHUNK.CHUNK_SIZE;
+        var len = 3 + G.RNG.hashInt([seed, cx, cy, s, 0x11], 4);
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sx + len, sy);
+        ctx.lineTo(sx + len, sy - len * 0.5);
+        ctx.lineTo(sx, sy - len * 0.5);
+        ctx.closePath();
+      }
+      ctx.fillStyle = TERRAIN.mixHex(theme.decor, '#000010', 0.3 + tint);
+      ctx.fill();
     }
 
     drawCampPlaza(ctx, camera, rect);
@@ -4603,18 +5602,49 @@ G.RENDER = (function () {
     var clampMinY = rect.minY > campRect.minY ? rect.minY : campRect.minY;
     var clampMaxY = rect.maxY < campRect.maxY ? rect.maxY : campRect.maxY;
     var radiusSq = camp.radius * camp.radius;
+    var tone;
+    var any;
 
-    for (var py = Math.floor(clampMinY / plate) * plate; py <= clampMaxY; py += plate) {
-      for (var px = Math.floor(clampMinX / plate) * plate; px <= clampMaxX; px += plate) {
-        var dx = px + plate / 2 - camp.x;
-        var dy = py + plate / 2 - camp.y;
-        if (dx * dx + dy * dy > radiusSq) continue;
-        var tone = G.RNG.hashInt([seed, Math.round(px / plate), Math.round(py / plate)], CAMP_COLORS.plate.length);
-        var point = toScreen(camera, px, py);
-        ctx.fillStyle = CAMP_COLORS.plate[tone];
-        ctx.fillRect(point.x + inset, point.y + inset, plate - inset * 2, plate - inset * 2);
+    // A6：同一色调的石板攒进一条路径（站在广场上原本要 200 次落笔，现在 3 次）
+    for (tone = 0; tone < CAMP_COLORS.plate.length; tone += 1) {
+      any = false;
+      ctx.beginPath();
+      for (var py = Math.floor(clampMinY / plate) * plate; py <= clampMaxY; py += plate) {
+        for (var px = Math.floor(clampMinX / plate) * plate; px <= clampMaxX; px += plate) {
+          var dx = px + plate / 2 - camp.x;
+          var dy = py + plate / 2 - camp.y;
+          if (dx * dx + dy * dy > radiusSq) continue;
+          if (G.RNG.hashInt([seed, Math.round(px / plate), Math.round(py / plate)], CAMP_COLORS.plate.length) !== tone) continue;
+          var stone = toScreen(camera, px, py);
+          ctx.moveTo(stone.x + inset, stone.y + inset);
+          ctx.lineTo(stone.x + plate - inset, stone.y + inset);
+          ctx.lineTo(stone.x + plate - inset, stone.y + plate - inset);
+          ctx.lineTo(stone.x + inset, stone.y + plate - inset);
+          ctx.closePath();
+          any = true;
+        }
       }
+      if (!any) continue;
+      ctx.fillStyle = CAMP_COLORS.plate[tone];
+      ctx.fill();
     }
+
+    // 广场纹章（A6 加的细节）：中心一圈石环 + 一枚菱形刻纹，站在原点一眼就知道这是营地中心
+    var centerStone = toScreen(camera, camp.x, camp.y);
+    ctx.strokeStyle = CAMP_COLORS.plateEdge;
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.arc(centerStone.x, centerStone.y, 168, 0, TAU);
+    ctx.stroke();
+    var mark = 30;
+    ctx.fillStyle = CAMP_COLORS.banner;
+    ctx.beginPath();
+    ctx.moveTo(centerStone.x, centerStone.y - mark);
+    ctx.lineTo(centerStone.x + mark, centerStone.y);
+    ctx.lineTo(centerStone.x, centerStone.y + mark);
+    ctx.lineTo(centerStone.x - mark, centerStone.y);
+    ctx.closePath();
+    ctx.fill();
   }
 
   /**
@@ -5310,9 +6340,18 @@ G.RENDER = (function () {
     ctx.closePath();
     ctx.fill();
     if (!facesAway(index)) {
+      // A6：眼睛放大 + 一点高光（Q版的脸一半靠眼睛）
       ctx.fillStyle = '#ffef9f';
       ctx.beginPath();
-      ctx.arc(headX + r * 0.14 * flip, headY - r * 0.04, r * 0.09, 0, TAU);
+      ctx.arc(headX + r * 0.16 * flip, headY - r * 0.04, r * 0.15, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = '#20242c';
+      ctx.beginPath();
+      ctx.arc(headX + r * 0.21 * flip, headY - r * 0.02, r * 0.08, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath();
+      ctx.arc(headX + r * 0.1 * flip, headY - r * 0.11, r * 0.045, 0, TAU);
       ctx.fill();
     }
   }
@@ -5352,13 +6391,7 @@ G.RENDER = (function () {
     ctx.fill();
 
     if (!facesAway(index)) {
-      ctx.fillStyle = '#ff8a8a';
-      ctx.beginPath();
-      ctx.arc(point.x - r * 0.14, y - r * 0.62, r * 0.08, 0, TAU);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(point.x + r * 0.14, y - r * 0.62, r * 0.08, 0, TAU);
-      ctx.fill();
+      drawEyes(ctx, point.x, y - r * 0.62, r * 0.14, r * 0.17, 0, '#b8352f');
     }
   }
 
@@ -5382,10 +6415,7 @@ G.RENDER = (function () {
     ctx.arc(point.x, baseY - r * 1.6, r * 0.5, 0, TAU);
     ctx.fill();
     if (!facesAway(index)) {
-      ctx.fillStyle = '#d9e8ff';
-      ctx.beginPath();
-      ctx.arc(point.x + r * 0.14 * flip, baseY - r * 1.6, r * 0.12, 0, TAU);
-      ctx.fill();
+      drawEyes(ctx, point.x, baseY - r * 1.6, r * 0.12, r * 0.17, r * 0.03 * flip, '#6fd0ff');
     }
 
     ctx.strokeStyle = '#6a4a2c';
@@ -5428,8 +6458,10 @@ G.RENDER = (function () {
     ctx.fillStyle = '#20242c';
     ctx.fillRect(point.x - r * 0.42, point.y - r * 2.06, r * 0.84, r * 0.16);
     if (!facesAway(index)) {
+      // A6：面甲里两道发光的眼（宽一点、成对，比原来那条缝更"有表情"）
       ctx.fillStyle = '#ff9b5a';
-      ctx.fillRect(point.x - r * 0.26 + r * 0.14 * flip, point.y - r * 2.05, r * 0.16, r * 0.1);
+      ctx.fillRect(point.x - r * 0.32 + r * 0.12 * flip, point.y - r * 2.1, r * 0.2, r * 0.14);
+      ctx.fillRect(point.x + r * 0.12 + r * 0.12 * flip, point.y - r * 2.1, r * 0.2, r * 0.14);
     }
 
     ctx.strokeStyle = '#5a4630';
@@ -5469,11 +6501,41 @@ G.RENDER = (function () {
     ctx.stroke();
   }
 
+  /** 空外观（没穿装备）：渲染层不读玩法数据，四件装备都由 20-main 传进来 */
+  var EMPTY_LOOK = { weapon: null, armor: null, boots: null, trinket: null };
+
+  /** 颜色压暗：TERRAIN.mixHex 是工程里唯一一份调色实现，这里只是给它一个短名字 */
+  function shade(hex, t) {
+    if (!hex || hex.indexOf('#') !== 0) return hex || '#000000';
+    return TERRAIN.mixHex(hex, '#000010', t);
+  }
+
+  /** Q版大眼睛：白眼球 + 黑瞳 + 一点高光（玩家与怪共用，眼神才统一） */
+  function drawEyes(ctx, x, y, size, gap, pupilDx, pupilColor) {
+    for (var i = -1; i <= 1; i += 2) {
+      var ex = x + i * gap;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(ex, y, size, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = pupilColor || '#20242c';
+      ctx.beginPath();
+      ctx.arc(ex + pupilDx, y + size * 0.12, size * 0.58, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath();
+      ctx.arc(ex - size * 0.32 + pupilDx, y - size * 0.3, size * 0.2, 0, TAU);
+      ctx.fill();
+    }
+  }
+
   /**
-   * 玩家：自绘小人（八方向朝向 + 走路摆腿摆臂 + 出手挥砍 + 受击闪红 + 倒地躺平）。
+   * 玩家：自绘 Q版小人（八方向朝向 + 走路摆腿摆臂 + 出手挥砍 + 受击闪红 + 倒地躺平）。
    * `stats` 只用来推出手间隔，好让"挥砍"跟得上真正的攻速；`nowMs` 缺省取逻辑时间。
+   * `look` = 身上四件装备的外观（09-equipment 的 lookOf，20-main 每帧传进来）：
+   * 衣服改配色与款式、鞋子改脚、饰品多一笔、武器换造型 —— 穿什么就像什么。
    */
-  function drawPlayer(ctx, camera, player, stats, nowMs) {
+  function drawPlayer(ctx, camera, player, stats, nowMs, look) {
     var now = typeof nowMs === 'number' ? nowMs : G.WORLD.now();
     var point = toScreen(camera, player.x, player.y);
     var index = facingIndex(player.facing);
@@ -5502,87 +6564,409 @@ G.RENDER = (function () {
       ctx.rotate(-Math.PI / 2);
       ctx.translate(-point.x, -point.y);
     }
-    drawHumanoid(ctx, point, BAL.player.radius, index, walkPhase(now, moving), palette, swing);
+    drawHumanoid(ctx, point, BAL.player.radius, index, walkPhase(now, moving), palette, swing, look || EMPTY_LOOK);
     ctx.restore();
   }
 
   /**
-   * 简单小人：腿 → 身体 → 腰带 → 手臂 → 头 → 武器。
-   * 造型一律按"朝右"画，朝左时 flip = -1 镜像；朝上（背对镜头）不画脸。
+   * Q版小人（A6 重画）：大头 + 短身 + 短腿，眼睛占掉小半张脸。
+   * 画法顺序：披风 → 腿 / 鞋 → 躯干 → 衣服款式 → 腰带 → 手臂 → 头 / 脸 / 饰品 → 武器。
+   * 造型一律按"朝右"画，朝左时 flip = -1 镜像；背对镜头不画脸。
    */
-  function drawHumanoid(ctx, point, r, index, phase, palette, swing) {
+  function drawHumanoid(ctx, point, r, index, phase, palette, swing, look) {
     var flip = facesLeft(index) ? -1 : 1;
     var away = facesAway(index);
-    var legSwing = Math.sin(phase * TAU) * r * 0.5;
-    var bob = Math.abs(Math.sin(phase * TAU)) * r * 0.14;
+    var armor = look.armor;
+    var boots = look.boots;
+    var cloth = armor ? armor.a : palette.tunic;
+    var clothDark = armor ? shade(armor.a, 0.34) : palette.tunicDark;
+    var trim = armor ? armor.b : palette.belt;
+    var bootColor = boots ? boots.a : palette.boot;
+    var soleColor = boots ? boots.b : palette.boot;
+    var legSwing = Math.sin(phase * TAU) * r * 0.42;
+    var bob = Math.abs(Math.sin(phase * TAU)) * r * 0.12;
     var baseY = point.y - bob;
+    var leg;
 
-    ctx.fillStyle = palette.boot;
-    roundRectPath(ctx, point.x - r * 0.4 + legSwing * 0.5, baseY - r * 0.9, r * 0.34, r * 0.9, r * 0.17);
+    // 披风：画在身体后面（只有 cloak 款式有）
+    if (armor && armor.style === 'cloak') {
+      ctx.fillStyle = clothDark;
+      ctx.beginPath();
+      ctx.moveTo(point.x - r * 0.6, baseY - r * 1.95);
+      ctx.lineTo(point.x + r * 0.6, baseY - r * 1.95);
+      ctx.lineTo(point.x + r * 0.8, baseY - r * 0.4);
+      ctx.lineTo(point.x - r * 0.8, baseY - r * 0.4);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // 腿 + 鞋（Q版：腿短、鞋大）
+    for (leg = -1; leg <= 1; leg += 2) {
+      var legX = point.x + leg * r * 0.22 + leg * legSwing * 0.35;
+      ctx.fillStyle = palette.skin;
+      roundRectPath(ctx, legX - r * 0.15, baseY - r * 0.96, r * 0.3, r * 0.7, r * 0.14);
+      ctx.fill();
+      ctx.fillStyle = bootColor;
+      roundRectPath(ctx, legX - r * 0.2, baseY - r * 0.44, r * 0.4, r * 0.44, r * 0.14);
+      ctx.fill();
+      ctx.fillStyle = soleColor;
+      ctx.fillRect(legX - r * 0.2, baseY - r * 0.12, r * 0.42, r * 0.12);
+      if (boots && boots.style === 'sandal') {
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.fillRect(legX - r * 0.2, baseY - r * 0.3, r * 0.4, r * 0.06);
+      } else if (boots && (boots.style === 'greave' || boots.style === 'plateboot')) {
+        ctx.fillStyle = soleColor;
+        ctx.fillRect(legX - r * 0.22, baseY - r * 0.68, r * 0.44, r * 0.1);
+      }
+    }
+
+    // 躯干（短而圆）
+    ctx.fillStyle = cloth;
+    roundRectPath(ctx, point.x - r * 0.58, baseY - r * 2.0, r * 1.16, r * 1.2, r * 0.32);
     ctx.fill();
-    roundRectPath(ctx, point.x + r * 0.06 - legSwing * 0.5, baseY - r * 0.9, r * 0.34, r * 0.9, r * 0.17);
+    drawArmorDetail(ctx, point, baseY, r, armor, clothDark, trim);
+
+    // 腰带
+    ctx.fillStyle = trim;
+    ctx.fillRect(point.x - r * 0.58, baseY - r * 1.02, r * 1.16, r * 0.16);
+
+    // 后手（与腿反向摆）
+    ctx.fillStyle = clothDark;
+    roundRectPath(ctx, point.x - r * 0.82 - legSwing * 0.4, baseY - r * 1.92, r * 0.3, r * 0.9, r * 0.15);
     ctx.fill();
 
-    ctx.fillStyle = palette.tunic;
-    roundRectPath(ctx, point.x - r * 0.5, baseY - r * 1.95, r, r * 1.15, r * 0.28);
-    ctx.fill();
-    ctx.fillStyle = palette.tunicDark;
-    ctx.fillRect(point.x + (flip > 0 ? r * 0.14 : -r * 0.48), baseY - r * 1.92, r * 0.34, r * 1.08);
-    ctx.fillStyle = palette.belt;
-    ctx.fillRect(point.x - r * 0.5, baseY - r * 1.0, r, r * 0.16);
-
-    // 空着的那只手（与腿反向摆）
-    ctx.fillStyle = palette.tunicDark;
-    roundRectPath(ctx, point.x - r * 0.8 - legSwing * 0.5, baseY - r * 1.9, r * 0.3, r * 0.95, r * 0.15);
-    ctx.fill();
-
-    // 持剑手：位置固定，出手靠手腕旋转表现
-    var handX = point.x + r * 0.66 * flip;
-    var handY = baseY - r * 1.5;
+    // 持械手：位置固定，出手靠手腕旋转表现
+    var handX = point.x + r * 0.7 * flip;
+    var handY = baseY - r * 1.55;
     ctx.fillStyle = palette.skin;
-    roundRectPath(ctx, handX - r * 0.15, handY - r * 0.1, r * 0.3, r * 0.85, r * 0.15);
+    roundRectPath(ctx, handX - r * 0.16, handY - r * 0.1, r * 0.32, r * 0.82, r * 0.15);
     ctx.fill();
-    drawWeapon(ctx, handX, handY, r, flip, -ACTOR_STYLE.swingArc * 0.55 + (1 - swing) * ACTOR_STYLE.swingArc, palette);
+    drawWeapon(ctx, handX, handY, r, flip, -ACTOR_STYLE.swingArc * 0.55 + (1 - swing) * ACTOR_STYLE.swingArc, palette, look.weapon);
 
-    var headY = baseY - r * 2.45;
+    // 大头（Q版的关键：头几乎和躯干一样大）
+    var headY = baseY - r * 2.72;
+    var headR = r * 0.74;
+    var headX = point.x + r * 0.06 * flip;
     ctx.fillStyle = palette.skin;
     ctx.beginPath();
-    ctx.arc(point.x + r * 0.06 * flip, headY, r * 0.5, 0, TAU);
+    ctx.arc(headX, headY, headR, 0, TAU);
     ctx.fill();
+
     ctx.fillStyle = palette.hair;
     ctx.beginPath();
     if (away) {
       // 背对镜头：整颗头都是头发（一眼看出"我在往上走"）
-      ctx.arc(point.x, headY, r * 0.5, 0, TAU);
+      ctx.arc(point.x, headY, headR, 0, TAU);
     } else {
-      ctx.arc(point.x + r * 0.06 * flip, headY - r * 0.1, r * 0.5, Math.PI * 1.02, Math.PI * 2 - 0.02);
+      ctx.arc(headX, headY - headR * 0.14, headR * 1.02, Math.PI * 1.02, Math.PI * 2 - 0.02);
     }
     ctx.fill();
+
     if (!away) {
-      ctx.fillStyle = '#20242c';
+      // 两撮呆毛（Q版的可爱税只花一次落笔）
       ctx.beginPath();
-      ctx.arc(point.x + r * 0.3 * flip, headY + r * 0.06, r * 0.09, 0, TAU);
+      ctx.arc(headX - headR * 0.58, headY - headR * 0.78, headR * 0.26, 0, TAU);
+      ctx.arc(headX + headR * 0.62, headY - headR * 0.7, headR * 0.22, 0, TAU);
+      ctx.fill();
+
+      drawEyes(ctx, headX, headY + headR * 0.12, headR * 0.24, headR * 0.42, r * 0.04 * flip, '#20242c');
+
+      // 腮红
+      ctx.fillStyle = 'rgba(255,155,155,0.55)';
+      ctx.beginPath();
+      ctx.arc(headX - headR * 0.62, headY + headR * 0.44, headR * 0.17, 0, TAU);
+      ctx.arc(headX + headR * 0.66, headY + headR * 0.42, headR * 0.17, 0, TAU);
       ctx.fill();
     }
+
+    drawTrinket(ctx, point, headX, headY, headR, r, flip, look.trinket);
   }
 
-  /** 武器：一把短剑，绕手旋转（出手瞬间扫到最前，然后收回肩上） */
-  function drawWeapon(ctx, handX, handY, r, flip, angle, palette) {
-    var length = r * 1.5;
-    var dx = Math.cos(angle) * length * flip;
-    var dy = Math.sin(angle) * length;
-    ctx.lineCap = 'round';
-    ctx.strokeStyle = palette.weapon;
-    ctx.lineWidth = r * 0.18;
+  /** 衣服款式细节：肩甲 / 锁环 / 长摆 / 交叉皮带 / 领口（底色由躯干铺好，这里只加"款式"） */
+  function drawArmorDetail(ctx, point, baseY, r, armor, clothDark, trim) {
+    var style = armor ? armor.style : 'tunic';
+    var i;
+    var y;
+    if (style === 'plate') {
+      ctx.fillStyle = trim;
+      ctx.beginPath();
+      ctx.arc(point.x - r * 0.62, baseY - r * 1.76, r * 0.3, 0, TAU);
+      ctx.arc(point.x + r * 0.62, baseY - r * 1.76, r * 0.3, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.22)';
+      ctx.fillRect(point.x - r * 0.4, baseY - r * 1.7, r * 0.8, r * 0.12);
+      return;
+    }
+    if (style === 'mail') {
+      ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+      ctx.lineWidth = r * 0.07;
+      ctx.beginPath();
+      for (i = 0; i < 3; i += 1) {
+        y = baseY - r * 1.74 + i * r * 0.22;
+        ctx.moveTo(point.x - r * 0.4, y);
+        ctx.lineTo(point.x + r * 0.4, y);
+      }
+      ctx.stroke();
+      return;
+    }
+    if (style === 'robe') {
+      ctx.fillStyle = clothDark;
+      ctx.beginPath();
+      ctx.moveTo(point.x - r * 0.52, baseY - r * 1.0);
+      ctx.lineTo(point.x + r * 0.52, baseY - r * 1.0);
+      ctx.lineTo(point.x + r * 0.66, baseY - r * 0.46);
+      ctx.lineTo(point.x - r * 0.66, baseY - r * 0.46);
+      ctx.closePath();
+      ctx.fill();
+      return;
+    }
+    if (style === 'leather') {
+      ctx.strokeStyle = trim;
+      ctx.lineWidth = r * 0.09;
+      ctx.beginPath();
+      ctx.moveTo(point.x - r * 0.4, baseY - r * 1.9);
+      ctx.lineTo(point.x + r * 0.34, baseY - r * 1.2);
+      ctx.moveTo(point.x + r * 0.4, baseY - r * 1.9);
+      ctx.lineTo(point.x - r * 0.34, baseY - r * 1.2);
+      ctx.stroke();
+      return;
+    }
+    // tunic / cloak：领口（一个倒三角）
+    ctx.fillStyle = trim;
     ctx.beginPath();
-    ctx.moveTo(handX, handY);
-    ctx.lineTo(handX + dx, handY + dy);
+    ctx.moveTo(point.x - r * 0.2, baseY - r * 2.0);
+    ctx.lineTo(point.x + r * 0.2, baseY - r * 2.0);
+    ctx.lineTo(point.x, baseY - r * 1.66);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  /**
+   * 饰品外观：项链 / 指环 / 宝珠 / 头冠各画"多出来的那一笔"，不改角色本体 ——
+   * 于是戴什么都还是同一个角色，只是身上多了一点东西。
+   */
+  function drawTrinket(ctx, point, headX, headY, headR, r, flip, trinket) {
+    if (!trinket) return;
+    var style = trinket.style || 'amulet';
+    var orbX;
+    var orbY;
+    var w;
+    if (style === 'ring') {
+      ctx.strokeStyle = trinket.b;
+      ctx.lineWidth = r * 0.09;
+      ctx.beginPath();
+      ctx.arc(point.x + r * 0.82 * flip, headY + r * 0.62, r * 0.14, 0, TAU);
+      ctx.stroke();
+      ctx.fillStyle = trinket.a;
+      ctx.beginPath();
+      ctx.arc(point.x + r * 0.82 * flip, headY + r * 0.48, r * 0.08, 0, TAU);
+      ctx.fill();
+      return;
+    }
+    if (style === 'orb') {
+      orbX = point.x - r * 0.9 * flip;
+      orbY = headY - r * 0.1;
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = trinket.a;
+      ctx.beginPath();
+      ctx.arc(orbX, orbY, r * 0.28, 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = trinket.a;
+      ctx.beginPath();
+      ctx.arc(orbX, orbY, r * 0.16, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = trinket.b;
+      ctx.lineWidth = r * 0.05;
+      ctx.beginPath();
+      ctx.arc(orbX, orbY, r * 0.24, 0, TAU);
+      ctx.stroke();
+      return;
+    }
+    if (style === 'crown') {
+      w = headR * 0.72;
+      ctx.fillStyle = trinket.b;
+      ctx.beginPath();
+      ctx.moveTo(headX - w, headY - headR * 0.58);
+      ctx.lineTo(headX - w, headY - headR * 0.98);
+      ctx.lineTo(headX - w * 0.4, headY - headR * 0.72);
+      ctx.lineTo(headX, headY - headR * 1.1);
+      ctx.lineTo(headX + w * 0.4, headY - headR * 0.72);
+      ctx.lineTo(headX + w, headY - headR * 0.98);
+      ctx.lineTo(headX + w, headY - headR * 0.58);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = trinket.a;
+      ctx.beginPath();
+      ctx.arc(headX, headY - headR * 0.84, headR * 0.12, 0, TAU);
+      ctx.fill();
+      return;
+    }
+    // 项链（默认）：颈前一线 + 一颗宝石
+    ctx.strokeStyle = trinket.b;
+    ctx.lineWidth = r * 0.07;
+    ctx.beginPath();
+    ctx.moveTo(point.x - r * 0.3, headY + r * 0.66);
+    ctx.lineTo(point.x, headY + r * 1.0);
+    ctx.lineTo(point.x + r * 0.3, headY + r * 0.66);
     ctx.stroke();
-    ctx.strokeStyle = palette.guard;
-    ctx.lineWidth = r * 0.16;
+    ctx.fillStyle = trinket.a;
     ctx.beginPath();
-    ctx.moveTo(handX - dy * 0.18, handY + dx * 0.18);
-    ctx.lineTo(handX + dy * 0.18, handY - dx * 0.18);
+    ctx.arc(point.x, headY + r * 1.06, r * 0.13, 0, TAU);
+    ctx.fill();
+  }
+
+  /**
+   * 武器（A6 按造型画）：剑 / 巨剑 / 短刃 / 枪 / 斧 / 锤 / 法杖 / 镰，绕手腕旋转。
+   *
+   * 方向单位向量 (ux, uy) 与它的垂直向量 (px, py) 是两根"轴"，所有造型都用它们搭：
+   * 沿轴摆长度、沿垂轴摆宽度 —— 于是加武器只需要加一个分支，旋转逻辑一个字都不用动。
+   */
+  function drawWeapon(ctx, handX, handY, r, flip, angle, palette, weapon) {
+    var style = (weapon && weapon.style) || 'sword';
+    var bladeColor = (weapon && weapon.a) || palette.weapon;
+    var gripColor = (weapon && weapon.b) || '#7a5a38';
+    var guardColor = (weapon && weapon.c) || palette.guard;
+    var reach = style === 'spear' ? 2.0 : style === 'staff' ? 1.9 : style === 'greatsword' ? 1.75 : style === 'dagger' ? 1.0 : 1.5;
+    var dx = Math.cos(angle) * r * reach * flip;
+    var dy = Math.sin(angle) * r * reach;
+    var len = Math.sqrt(dx * dx + dy * dy);
+    if (!(len > 0.0001)) return;
+
+    var ux = dx / len;
+    var uy = dy / len;
+    var px = -uy;
+    var py = ux;
+    var tipX = handX + ux * len;
+    var tipY = handY + uy * len;
+    var half = style === 'greatsword' ? 0.34 : 0.26;
+
+    ctx.lineCap = 'round';
+
+    // 柄：所有武器都有（法杖与枪另画长杆）
+    ctx.strokeStyle = gripColor;
+    ctx.lineWidth = r * 0.14;
+    ctx.beginPath();
+    ctx.moveTo(handX - ux * r * 0.2, handY - uy * r * 0.2);
+    ctx.lineTo(handX + ux * r * 0.34, handY + uy * r * 0.34);
+    ctx.stroke();
+
+    if (style === 'staff') {
+      ctx.strokeStyle = gripColor;
+      ctx.lineWidth = r * 0.12;
+      ctx.beginPath();
+      ctx.moveTo(handX, handY);
+      ctx.lineTo(handX + ux * len * 0.86, handY + uy * len * 0.86);
+      ctx.stroke();
+      ctx.fillStyle = bladeColor;
+      ctx.beginPath();
+      ctx.arc(tipX, tipY, r * 0.2, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = guardColor;
+      ctx.lineWidth = r * 0.06;
+      ctx.beginPath();
+      ctx.arc(tipX, tipY, r * 0.3, 0, TAU);
+      ctx.stroke();
+      return;
+    }
+
+    if (style === 'spear') {
+      ctx.strokeStyle = gripColor;
+      ctx.lineWidth = r * 0.1;
+      ctx.beginPath();
+      ctx.moveTo(handX - ux * r * 0.6, handY - uy * r * 0.6);
+      ctx.lineTo(handX + ux * len * 0.86, handY + uy * len * 0.86);
+      ctx.stroke();
+      ctx.fillStyle = bladeColor;
+      ctx.beginPath();
+      ctx.moveTo(tipX, tipY);
+      ctx.lineTo(handX + ux * len * 0.7 + px * r * 0.2, handY + uy * len * 0.7 + py * r * 0.2);
+      ctx.lineTo(handX + ux * len * 0.7 - px * r * 0.2, handY + uy * len * 0.7 - py * r * 0.2);
+      ctx.closePath();
+      ctx.fill();
+      return;
+    }
+
+    if (style === 'axe') {
+      ctx.strokeStyle = gripColor;
+      ctx.lineWidth = r * 0.12;
+      ctx.beginPath();
+      ctx.moveTo(handX - ux * r * 0.4, handY - uy * r * 0.4);
+      ctx.lineTo(handX + ux * len * 0.78, handY + uy * len * 0.78);
+      ctx.stroke();
+      ctx.fillStyle = bladeColor;
+      ctx.beginPath();
+      ctx.moveTo(tipX, tipY);
+      ctx.lineTo(handX + ux * len * 0.6 + px * r * 0.5, handY + uy * len * 0.6 + py * r * 0.5);
+      ctx.lineTo(handX + ux * len * 0.6, handY + uy * len * 0.6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = guardColor;
+      ctx.beginPath();
+      ctx.moveTo(tipX, tipY);
+      ctx.lineTo(handX + ux * len * 0.6 - px * r * 0.5, handY + uy * len * 0.6 - py * r * 0.5);
+      ctx.lineTo(handX + ux * len * 0.6, handY + uy * len * 0.6);
+      ctx.closePath();
+      ctx.fill();
+      return;
+    }
+
+    if (style === 'hammer') {
+      ctx.strokeStyle = gripColor;
+      ctx.lineWidth = r * 0.12;
+      ctx.beginPath();
+      ctx.moveTo(handX - ux * r * 0.4, handY - uy * r * 0.4);
+      ctx.lineTo(handX + ux * len * 0.72, handY + uy * len * 0.72);
+      ctx.stroke();
+      ctx.fillStyle = bladeColor;
+      ctx.beginPath();
+      ctx.moveTo(handX + ux * len * 0.72 + px * r * 0.3, handY + uy * len * 0.72 + py * r * 0.3);
+      ctx.lineTo(tipX + px * r * 0.3, tipY + py * r * 0.3);
+      ctx.lineTo(tipX - px * r * 0.3, tipY - py * r * 0.3);
+      ctx.lineTo(handX + ux * len * 0.72 - px * r * 0.3, handY + uy * len * 0.72 - py * r * 0.3);
+      ctx.closePath();
+      ctx.fill();
+      return;
+    }
+
+    if (style === 'scythe') {
+      ctx.strokeStyle = gripColor;
+      ctx.lineWidth = r * 0.11;
+      ctx.beginPath();
+      ctx.moveTo(handX - ux * r * 0.4, handY - uy * r * 0.4);
+      ctx.lineTo(handX + ux * len * 0.9, handY + uy * len * 0.9);
+      ctx.stroke();
+      ctx.fillStyle = bladeColor;
+      ctx.beginPath();
+      ctx.moveTo(tipX, tipY);
+      ctx.lineTo(handX + ux * len * 0.6 + px * r * 0.62, handY + uy * len * 0.6 + py * r * 0.62);
+      ctx.lineTo(handX + ux * len * 0.45 + px * r * 0.66, handY + uy * len * 0.45 + py * r * 0.66);
+      ctx.lineTo(handX + ux * len * 0.72, handY + uy * len * 0.72);
+      ctx.closePath();
+      ctx.fill();
+      return;
+    }
+
+    // 剑 / 巨剑 / 短刃：护手 + 刃 + 一道高光
+    ctx.strokeStyle = guardColor;
+    ctx.lineWidth = r * 0.14;
+    ctx.beginPath();
+    ctx.moveTo(handX + ux * r * 0.34 - px * r * half, handY + uy * r * 0.34 - py * r * half);
+    ctx.lineTo(handX + ux * r * 0.34 + px * r * half, handY + uy * r * 0.34 + py * r * half);
+    ctx.stroke();
+
+    ctx.strokeStyle = bladeColor;
+    ctx.lineWidth = r * (style === 'greatsword' ? 0.3 : style === 'dagger' ? 0.14 : 0.2);
+    ctx.beginPath();
+    ctx.moveTo(handX + ux * r * 0.4, handY + uy * r * 0.4);
+    ctx.lineTo(tipX, tipY);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = r * 0.05;
+    ctx.beginPath();
+    ctx.moveTo(handX + ux * r * 0.5 - px * r * 0.05, handY + uy * r * 0.5 - py * r * 0.05);
+    ctx.lineTo(handX + ux * len * 0.9 - px * r * 0.05, handY + uy * len * 0.9 - py * r * 0.05);
     ctx.stroke();
   }
 
@@ -5827,6 +7211,9 @@ G.RENDER = (function () {
     ellipsePath: ellipsePath,
     toScreen: toScreen,
     viewRect: viewRect,
+    zoom: zoom,
+    beginWorld: beginWorld,
+    endWorld: endWorld,
     facingIndex: facingIndex,
     facesLeft: facesLeft,
     facesAway: facesAway,
@@ -6031,7 +7418,17 @@ G.HUD = (function () {
       ctx.arc(button.x, button.y, button.r, 0, Math.PI * 2);
       ctx.stroke();
 
-      // 冷却：从正上方顺时针压一层暗扇形（"还剩四成"一眼可见），中间改成读秒
+      // A6：图标（每个键都有对应图形：箱 / 包 / 会 / 营 / 设 / 自动 + 斩 / 疗 / 刺 / 旋）
+      G.ICONS.button(
+        ctx,
+        button.id,
+        button.x,
+        button.y,
+        button.id.indexOf('skill') === 0 ? button.r * 1.5 : G.ICONS.size('buttonSize'),
+        locked ? '#38415a' : pressed ? '#241a05' : '#dce6ff'
+      );
+
+      // 冷却：从正上方顺时针压一层暗扇形（"还剩四成"一眼可见）—— 压在图标上，图标仍看得见
       if (cooling) {
         ctx.globalAlpha = 0.62;
         ctx.fillStyle = '#0b1020';
@@ -6043,18 +7440,29 @@ G.HUD = (function () {
         ctx.globalAlpha = 1;
       }
 
-      if (locked) text(ctx, '锁', button.x, button.y, 26, '#5c6b8a', 'center');
-      else if (button.remainSec > 0) text(ctx, String(button.remainSec), button.x, button.y, 26, '#ffffff', 'center');
-      else text(ctx, button.label, button.x, button.y, 30, pressed ? '#241a05' : '#dce6ff', 'center');
+      if (locked) text(ctx, '锁', button.x, button.y + button.r * 0.5, 22, '#5c6b8a', 'center');
+      else if (button.remainSec > 0) text(ctx, String(button.remainSec), button.x, button.y + button.r * 0.5, 24, '#ffffff', 'center');
 
-      // 技能键在圈下面写名字（锁着的写解锁等级）—— 功能键没有 name，不受影响
-      if (button.name) {
+      // 技能键：把「斩 / 疗 / 刺 / 旋」当左上角的小徽章（图标与键位字都要有）
+      if (button.id.indexOf('skill') === 0 && !locked) {
+        var chipX = button.x - button.r * 0.64;
+        var chipY = button.y - button.r * 0.64;
+        ctx.fillStyle = 'rgba(11,16,32,0.85)';
+        ctx.beginPath();
+        ctx.arc(chipX, chipY, 15, 0, Math.PI * 2);
+        ctx.fill();
+        text(ctx, button.label, chipX, chipY, 18, '#ffd479', 'center');
+      }
+
+      // 圈下面一行说明：技能键写技能名（锁着写解锁等级），功能键写「箱 / 包 / 会 / 营 / 设 / 自动」
+      var caption = button.name ? (locked ? 'Lv.' + button.unlockLevel : button.name) : button.label;
+      if (caption) {
         text(
           ctx,
-          locked ? 'Lv.' + button.unlockLevel : button.name,
+          caption,
           button.x,
           button.y + button.r + 14,
-          BAL.view.skillBar.nameSize,
+          button.name ? BAL.view.skillBar.nameSize : G.ICONS.size('captionSize'),
           locked ? '#8d8d8d' : cooling ? '#9fb4d8' : '#e8f1ff',
           'center'
         );
@@ -6501,9 +7909,30 @@ G.PANELS = (function () {
     return current;
   }
 
+  /** 阶色只有一份：16-icons 的 TIER_COLORS（这里只转发，免得两处各写一套颜色） */
   function tierColor(tier) {
-    var colors = ['#c7c7c7', '#8ce99a', '#a9d5ff', '#d0a9ff', '#ff9b5a', '#ffd479'];
-    return colors[tier - 1] || '#c7c7c7';
+    return G.ICONS.tierColor(tier);
+  }
+
+  /**
+   * 行左侧的图标盒（A6）：阶色边框 + 装备内观 / 部位剪影 / 功能图形。
+   * 返回文字应该从哪个 x 开始 —— 于是"有图标就右移"只用一处代码管住所有面板。
+   */
+  function iconBox(ctx, area, row) {
+    var size = row.icon.size || G.ICONS.size('rowSize');
+    var x = area.x + 16;
+    var y = row.y + ((row.h - 10) - size) / 2;
+    var icon = row.icon;
+    var gear = icon.kind === 'gear';
+    var dim = gear && !icon.look;
+    G.ICONS.frame(ctx, x, y, size, icon.tier, dim);
+    if (gear) {
+      if (icon.look) G.ICONS.item(ctx, icon.look, x + size / 2, y + size / 2, size * 0.92);
+      else G.ICONS.slotPlaceholder(ctx, icon.slot, x + size / 2, y + size / 2, size * 0.92);
+    } else {
+      G.ICONS.button(ctx, icon.key, x + size / 2, y + size / 2, size * 0.8, '#dce6ff');
+    }
+    return x + size;
   }
 
   /** 面板里唯一的圆按钮：卡片右上角的关闭键。返回数组是为了和 HUD 的按钮同构 */
@@ -6530,6 +7959,7 @@ G.PANELS = (function () {
         id: 'chest:open1',
         y: top,
         h: rowH,
+        icon: { kind: 'ui', key: 'chest' },
         text: '开 1 个宝箱',
         sub: '保底计数：史诗 ' + view.save.pity.epic + '/' + BAL.chests.pity.epic + ' · 神话 ' + view.save.pity.mythic + '/' + BAL.chests.pity.mythic,
         color: '#ffd479',
@@ -6539,6 +7969,7 @@ G.PANELS = (function () {
         id: 'chest:open10',
         y: top + rowH,
         h: rowH,
+        icon: { kind: 'ui', key: 'chest' },
         text: '开 10 个宝箱',
         sub: '背包 ' + view.save.chests.length + ' / ' + BAL.chests.bagCap + '（满了自动分解成金币）',
         color: '#ffd479',
@@ -6551,6 +7982,7 @@ G.PANELS = (function () {
           id: 'chest:bag:' + i,
           y: top + i * 62,
           h: 62,
+          icon: { kind: 'ui', key: 'chest', tier: chest.tier },
           text: LOOT.tierName(chest.tier) + '（掉落等级 ' + chest.level + '）',
           sub: '',
           color: tierColor(chest.tier),
@@ -6564,33 +7996,86 @@ G.PANELS = (function () {
     }
 
     if (current === 'bag') {
+      // A6：四个部位（武器 / 衣服 / 鞋子 / 饰品）—— 穿了什么一眼可见，点一下脱下来
+      for (i = 0; i < EQUIP.SLOT_IDS.length; i += 1) {
+        var slotId = EQUIP.SLOT_IDS[i];
+        var slotDef = EQUIP.slotById(slotId);
+        var equipped = view.save.loadout ? view.save.loadout[slotId] : null;
+        list.push({
+          id: 'bag:slot:' + slotId,
+          y: top + i * 80,
+          h: 76,
+          icon: {
+            kind: 'gear',
+            slot: slotId,
+            look: equipped ? equipped.look : null,
+            tier: equipped ? equipped.tier : 0,
+            size: G.ICONS.size('slotSize')
+          },
+          text: slotDef.name + '：' + (equipped ? equipped.name : '（空）'),
+          sub: equipped
+            ? EQUIP.tierById(equipped.tier).name + ' · 战力 ' + equipped.power + ' · 需求 Lv.' + equipped.reqLevel + ' · 点一下脱下'
+            : '还没穿：开箱开出更好的会自动穿上（等级够的话）',
+          color: equipped ? tierColor(equipped.tier) : '#8d9bb5',
+          action: equipped ? { type: 'unequip', slotId: slotId } : null
+        });
+      }
+      top += EQUIP.SLOT_IDS.length * 80 + 8;
       list.push({
-        id: 'bag:salvageAll',
+        id: 'bag:stat',
         y: top,
         h: rowH,
+        icon: { kind: 'ui', key: 'stat' },
+        text: '角色属性',
+        sub: '等级基础与装备加成逐项对照（当前战力 ' + view.stats.power + '）',
+        color: '#a9d5ff',
+        action: { type: 'open', panel: 'stat' }
+      });
+      list.push({
+        id: 'bag:salvageAll',
+        y: top + rowH,
+        h: rowH,
+        icon: { kind: 'ui', key: 'bag' },
         text: '一键分解（每件都留最强的）',
         sub: '换金币 · 背包 ' + view.save.items.length + ' 件',
         color: '#ffd479',
         action: { type: 'salvageAll' }
       });
-      top += rowH + 24;
+      top += rowH * 2 + 16;
       for (i = 0; i < view.save.items.length && i < 9; i += 1) {
         var item = view.save.items[i];
         var worn = view.save.loadout[item.slotId];
         var better = !worn || item.power > worn.power;
+        var wearable = EQUIP.canWear(item, view.save.level);
         list.push({
           id: 'bag:item:' + item.id,
-          y: top + i * 62,
-          h: 62,
-          text: EQUIP.tierById(item.tier).name + ' ' + item.slotName + '（战力 ' + item.power + '）',
-          sub: (better ? '↑ 更强' : '↓ 更弱') + ' · 需求 Lv.' + item.reqLevel + ' · 点一下穿上',
-          color: better ? '#8ce99a' : '#c7c7c7',
+          y: top + i * 74,
+          h: 70,
+          icon: { kind: 'gear', slot: item.slotId, look: item.look, tier: item.tier },
+          text: item.name + '（战力 ' + item.power + '）',
+          sub:
+            (wearable ? (better ? '↑ 更强' : '↓ 更弱') : '等级不够') +
+            ' · ' +
+            EQUIP.tierById(item.tier).name +
+            ' · 需求 Lv.' +
+            item.reqLevel +
+            (wearable ? ' · 点一下穿上' : ''),
+          color: wearable ? (better ? '#8ce99a' : '#c7c7c7') : '#8d8d8d',
           action: { type: 'equip', itemId: item.id }
         });
       }
       if (view.save.items.length === 0) {
-        list.push({ id: 'bag:empty', y: top, h: 62, text: '背包是空的', sub: '开箱会自动穿上更强的装备，不要的在这里分解', color: '#c7c7c7', action: null });
+        list.push({
+          id: 'bag:empty',
+          y: top,
+          h: 62,
+          text: '背包是空的',
+          sub: '开箱会自动穿上更强的装备（等级够的话），不要的在这里分解',
+          color: '#c7c7c7',
+          action: null
+        });
       }
+      return list;
     }
 
     if (current === 'shop') {
@@ -6731,8 +8216,8 @@ G.PANELS = (function () {
         id: 'camp:note',
         y: top + rowH * 4,
         h: rowH,
-        text: '营地是"外观"安全区：怪照样刷新',
-        sub: '阶段 A 的取舍（04-decisions #9）；真正的不刷怪半径要和公会锚点 safeRadius 一起定',
+        text: '营地是安全区：怪不在这里刷新',
+        sub: 'A6 起：巢穴落在营地半径 ' + BAL.world.camp.monsterFreeRadius + ' 内的怪不装载，走进来的会被推回边界并回家',
         color: '#c7c7c7',
         action: null
       });
@@ -6742,10 +8227,22 @@ G.PANELS = (function () {
     if (current === 'menu') {
       var settings = view.save.settings || { autoBattle: false, sfx: true, bgm: true, vibrate: true };
       var audio = view.audio || null;
+      // A6：属性面板的入口（与背包里的「角色属性」是同一个面板）
       list.push({
-        id: 'menu:selftest',
+        id: 'menu:stat',
         y: top,
         h: rowH,
+        icon: { kind: 'ui', key: 'stat' },
+        text: '角色属性',
+        sub: '等级基础与装备加成逐项对照（攻击 / 生命 / 攻速 / 暴击 / 减伤…）',
+        color: '#a9d5ff',
+        action: { type: 'open', panel: 'stat' }
+      });
+      list.push({
+        id: 'menu:selftest',
+        y: top + rowH,
+        h: rowH,
+        icon: { kind: 'ui', key: 'menu' },
         text: '立即跑自检',
         sub: '地图确定性 / 伤害 / 掉箱 / 装备 / 升级曲线 / 账号与界面 / 技能栏，四百多项断言当场出结果',
         color: '#8ce99a',
@@ -6753,7 +8250,7 @@ G.PANELS = (function () {
       });
       list.push({
         id: 'menu:cloud',
-        y: top + rowH,
+        y: top + rowH * 2,
         h: rowH,
         text: '云后端连通性自测',
         sub: '部署抖音云后把域名填进 00-config.js 的 cloudBase，这里会调一次 /api/health',
@@ -6762,7 +8259,7 @@ G.PANELS = (function () {
       });
       list.push({
         id: 'menu:debug',
-        y: top + rowH * 2,
+        y: top + rowH * 3,
         h: rowH,
         text: (view.debug ? '关闭' : '打开') + '调试面板',
         sub: 'FPS / chunk 数 / 活跃怪 / 当前目标 / 世界种子',
@@ -6771,7 +8268,7 @@ G.PANELS = (function () {
       });
       list.push({
         id: 'menu:sfx',
-        y: top + rowH * 3,
+        y: top + rowH * 4,
         h: rowH,
         text: '音效：' + (settings.sfx ? '开' : '关'),
         sub: '命中 / 暴击 / 击杀 / 受伤 / 升级 / 开箱（音量在 balance.audio，声音文件由工具生成）',
@@ -6780,7 +8277,7 @@ G.PANELS = (function () {
       });
       list.push({
         id: 'menu:bgm',
-        y: top + rowH * 4,
+        y: top + rowH * 5,
         h: rowH,
         text: '背景音乐：' + (settings.bgm ? '开' : '关'),
         sub: audio && audio.supported ? '首次触摸后才会响（平台要求）' : '当前环境没有音频接口（模拟器里可能如此）',
@@ -6789,7 +8286,7 @@ G.PANELS = (function () {
       });
       list.push({
         id: 'menu:vibrate',
-        y: top + rowH * 5,
+        y: top + rowH * 6,
         h: rowH,
         text: '震动：' + (settings.vibrate ? '开' : '关'),
         sub: '暴击与挨打时短震一下（暴击的手感一半在手上）',
@@ -6798,13 +8295,29 @@ G.PANELS = (function () {
       });
       list.push({
         id: 'menu:reset',
-        y: top + rowH * 6,
+        y: top + rowH * 7,
         h: rowH,
         text: '重置本地存档',
         sub: view.resetArmed ? '再点一次真的删（等级 / 装备 / 宝箱全清，角色名保留）' : '点一下先确认',
         color: view.resetArmed ? '#ff8a8a' : '#c7c7c7',
         action: { type: 'resetSave' }
       });
+    }
+
+    if (current === 'stat') {
+      // A6：属性面板 —— 一行一项，副行写"等级基础 vs 装备加成"，玩家才知道该练级还是该换装备
+      var statRows = G.PLAYER.breakdown(view.save.level, view.save.loadout);
+      for (i = 0; i < statRows.length; i += 1) {
+        list.push({
+          id: 'stat:' + i,
+          y: top + i * 58,
+          h: 54,
+          text: statRows[i].label + '：' + statRows[i].value,
+          sub: statRows[i].sub,
+          color: statRows[i].color || '#e8f1ff',
+          action: null
+        });
+      }
     }
 
     return list;
@@ -6949,8 +8462,10 @@ G.PANELS = (function () {
       var pressed = pressedRowId === row.id;
       ctx.fillStyle = pressed ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.05)';
       ctx.fillRect(area.x + 10, row.y, area.w - 20, row.h - 10);
-      G.HUD.text(ctx, row.text, area.x + 24, row.y + (row.sub ? 22 : (row.h - 10) / 2), 26, row.color, 'left');
-      if (row.sub) G.HUD.text(ctx, row.sub, area.x + 24, row.y + 44, 17, '#9fb4d8', 'left');
+      // A6：行左侧的图标（装备 = 内观，功能 = 对应图形）；有没有图标决定文字从哪开始
+      var textX = row.icon ? iconBox(ctx, area, row) + 14 : area.x + 24;
+      G.HUD.text(ctx, row.text, textX, row.y + (row.sub ? 22 : (row.h - 10) / 2), 26, row.color, 'left');
+      if (row.sub) G.HUD.text(ctx, row.sub, textX, row.y + 44, 17, '#9fb4d8', 'left');
       if (!row.action) {
         // 不可点的行给个视觉标记，免得玩家一直点它
         ctx.globalAlpha = 0.5;
@@ -7022,6 +8537,7 @@ G.PANELS = (function () {
   function titlesOf(panel) {
     if (panel === 'chest') return '开箱';
     if (panel === 'bag') return '背包 / 装备';
+    if (panel === 'stat') return '角色属性';
     if (panel === 'shop') return '商城';
     if (panel === 'guild') return '公会';
     if (panel === 'camp') return '营地';
@@ -7160,6 +8676,7 @@ G.LOGIN = (function () {
     if (stage === 'welcome') {
       list.push({
         id: 'login',
+        icon: 'login',
         label: hasAccount ? '继续游戏（登录）' : '登录 / 开始游戏',
         x: left,
         y: card.y + 196,
@@ -7168,6 +8685,7 @@ G.LOGIN = (function () {
       });
       list.push({
         id: 'newAccount',
+        icon: 'trash',
         label: armed ? '再点一次：清掉本机账号' : '清掉本机账号（调试）',
         x: left,
         y: card.y + 292,
@@ -7176,9 +8694,18 @@ G.LOGIN = (function () {
       });
       return list;
     }
-    list.push({ id: 'typeName', label: '输入昵称', x: left, y: card.y + 196, w: wide, h: 64 });
-    list.push({ id: 'randomName', label: '换一个随机昵称', x: left, y: card.y + 270, w: wide, h: 58 });
-    list.push({ id: 'createRole', label: '创建角色并进入游戏', x: left, y: card.y + 342, w: wide, h: 70 });
+    list.push({ id: 'typeName', icon: 'keyboard', label: '输入昵称', x: left, y: card.y + 196, w: wide, h: 64 });
+    list.push({ id: 'randomName', icon: 'dice', label: '换一个随机昵称', x: left, y: card.y + 270, w: wide, h: 58 });
+    list.push({
+      id: 'createRole',
+      icon: 'user',
+      label: draft ? '创建角色并进入游戏' : '先输入昵称',
+      enabled: draft.length > 0,
+      x: left,
+      y: card.y + 342,
+      w: wide,
+      h: 70
+    });
     return list;
   }
 
@@ -7223,13 +8750,41 @@ G.LOGIN = (function () {
     return { type: id };
   }
 
-  /** 画一个矩形按钮（菜单语义：比圆形更好放长文案） */
+  /**
+   * 画一个矩形按钮：底 + 描边 + **左侧图标** + 文案。
+   *
+   * A6 修的 bug：以前这里只画底与边框，文案靠别处补 —— 而补字那一步漏了
+   * （2026-09-30 真机验收："登录 / 注册页面的按钮上没有显示对应操作的文字"）。
+   * 现在**按钮自己负责自己的字**：画按钮的地方就是唯一一处，不会再出现"按钮画了、字没画"。
+   * 19-selftest 里加了一条断言盯着它（假 canvas 会记下 fillText 的每一段文案）。
+   */
   function painted(ctx, button, pressed) {
-    ctx.fillStyle = pressed ? '#ffd479' : '#1b2438';
+    var enabled = button.enabled !== false;
+    ctx.fillStyle = pressed ? '#ffd479' : enabled ? '#1b2438' : '#141a26';
     ctx.fillRect(button.x, button.y, button.w, button.h);
-    ctx.strokeStyle = pressed ? '#fff3d0' : '#4d5f86';
+    ctx.strokeStyle = pressed ? '#fff3d0' : enabled ? '#4d5f86' : '#38415a';
     ctx.lineWidth = 3;
     ctx.strokeRect(button.x, button.y, button.w, button.h);
+
+    var iconSize = Math.min(button.h * 0.62, 44);
+    var centerY = button.y + button.h / 2;
+    var textLeft = button.x + 16;
+    if (button.icon) {
+      var iconX = textLeft + iconSize / 2;
+      G.ICONS.button(ctx, button.icon, iconX, centerY, iconSize, pressed ? '#241a05' : enabled ? '#ffd479' : '#5c6b8a');
+      textLeft = iconX + iconSize / 2 + 12;
+    }
+    var size = Math.min(28, button.h * 0.36);
+    if (button.label.length > 12) size = Math.min(size, 23);
+    G.HUD.text(
+      ctx,
+      button.label,
+      textLeft + (button.x + button.w - 16 - textLeft) / 2,
+      centerY,
+      size,
+      pressed ? '#241a05' : enabled ? '#e8f1ff' : '#7d8aa3',
+      'center'
+    );
   }
 
   /** 一屏的字：标题 / 账号态 / 昵称 / 提示 / 按钮 */
@@ -7461,7 +9016,15 @@ G.SELFTEST = (function () {
     eq('保底：50 箱无史诗', BAL.chests.pity.epic, 50);
     eq('保底：500 箱无神话', BAL.chests.pity.mythic, 500);
     eq('宝箱背包上限 200', BAL.chests.bagCap, 200);
-    eq('装备六部位', BAL.equipment.slots.length, 6);
+    eq('装备四部位（武器 / 衣服 / 鞋子 / 饰品）', BAL.equipment.slots.length, 4);
+    eq(
+      '部位顺序 = 武器 / 衣服 / 鞋子 / 饰品',
+      BAL.equipment.slots.map(function (s) { return s.id; }).join(','),
+      'weapon,armor,boots,trinket'
+    );
+    eq('装备目录 60 件（六阶 × 10 件）', BAL.equipment.catalog.length, 60);
+    eq('营地不刷怪的半径 = 石砖地半径', BAL.world.camp.monsterFreeRadius, BAL.world.camp.radius);
+    between('视角倍率在 0.5~1（拉远看得更多，又不会小到看不清）', BAL.view.cameraZoom, 0.5, 1);
     eq('装备词条数 1/2/3/4/5/5', BAL.equipment.tiers.map(function (t) { return t.affixes; }).join(','), '1,2,3,4,5,5');
     eq('装备末阶倍率 5.3', BAL.equipment.tiers[5].multiplier, 5.3);
     eq('公会人数上限 20', BAL.guild.memberCap, 20);
@@ -7762,26 +9325,94 @@ G.SELFTEST = (function () {
 
   /* ---------------------------------------- 8. 装备生成 / 词条 / 战力 */
 
+  /**
+   * 装备（A6 起是**目录驱动**：六阶 × 10 件 = 60 件，每件有名字 / 部位 / 外观 / 等级门槛）。
+   * 这一组盯三件事：① 目录本身合法（部位对得上、门槛单调、同阶越靠后越强）；
+   * ② 生成出来的东西与目录一致（名字 / 外观 / 门槛都跟着那一件走）；
+   * ③ 穿上之后的属性汇总与战力口径没变。
+   */
   function checkEquipment() {
-    section('装备生成 / 词条 / 战力（09-equipment.js）');
+    section('装备目录 / 生成 / 词条 / 战力 / 外观（09-equipment.js）');
     var EQUIP_ = G.EQUIP;
     var rng = new G.RNG.Rng(1234);
+    var c;
+
+    // ① 目录：60 件、id 唯一、部位合法、每阶 10 件、四个部位都有货
+    var catalog = EQUIP_.catalog();
+    var seen = {};
+    var dup = 0;
+    var badSlot = 0;
+    var noName = 0;
+    var noStyle = 0;
+    var noColor = 0;
+    var tierCount = [];
+    for (c = 0; c < catalog.length; c += 1) {
+      var entry = catalog[c];
+      if (seen['#' + entry.id]) dup += 1;
+      seen['#' + entry.id] = true;
+      if (!EQUIP_.hasSlot(entry.slot)) badSlot += 1;
+      if (!entry.name || entry.name.length === 0) noName += 1;
+      var entryLook = EQUIP_.lookOfDef(entry);
+      if (!entryLook || !entryLook.style) noStyle += 1;
+      if (!entryLook || !entryLook.a || !entryLook.b) noColor += 1;
+      tierCount[entry.tier] = (tierCount[entry.tier] || 0) + 1;
+    }
+    eq('目录 id 不重复', dup, 0);
+    eq('目录里每个部位都合法', badSlot, 0);
+    eq('每阶 10 件', tierCount.slice(1).join(','), '10,10,10,10,10,10');
+    eq('每件都有名字', noName, 0);
+    eq('每件都有造型 id（渲染与图标都读它）', noStyle, 0);
+    eq('每件都有配色（缺色的装备画不出来）', noColor, 0);
+    var tier1 = EQUIP_.catalogForTier(1);
+    var covered = 0;
+    for (c = 0; c < EQUIP_.SLOT_IDS.length; c += 1) {
+      var slotId = EQUIP_.SLOT_IDS[c];
+      for (var d = 0; d < tier1.length; d += 1) {
+        if (tier1[d].slot === slotId) covered += 1;
+      }
+    }
+    ok('1 阶 10 件把四个部位都覆盖到了', covered === tier1.length, String(covered));
+
+    // ② 等级门槛：等阶越高越高，同阶内越靠后越高（这就是"装备的等级划分"）
+    eq('1 阶门槛从 1 起', EQUIP_.requirementFor(1), 1);
+    eq('6 阶门槛 16', EQUIP_.requirementFor(6), 16);
+    ok(
+      '同阶内门槛单调不降',
+      EQUIP_.requirementForItem(tier1[9]) >= EQUIP_.requirementForItem(tier1[0]),
+      EQUIP_.requirementForItem(tier1[0]) + ' -> ' + EQUIP_.requirementForItem(tier1[9])
+    );
+    ok(
+      '同阶内越靠后越强（阶内系数）',
+      EQUIP_.statMulOf(tier1[9]) > EQUIP_.statMulOf(tier1[0]),
+      EQUIP_.statMulOf(tier1[0]) + ' -> ' + EQUIP_.statMulOf(tier1[9])
+    );
+    ok(
+      '最高门槛不超过目标等级 20（不然开出来穿不上）',
+      EQUIP_.requirementForItem(EQUIP_.defById('t6_destinyblade')) <= BAL.progression.targetLevel,
+      String(EQUIP_.requirementForItem(EQUIP_.defById('t6_destinyblade')))
+    );
 
     var t1 = EQUIP_.generate(1, 1, rng, 1);
     eq('1 阶 1 条词条', t1.affixes.length, 1);
-    eq('1 阶等级门槛 1', t1.reqLevel, 1);
+    ok('生成的东西来自目录', EQUIP_.defById(t1.defId) !== null, t1.defId);
+    eq('门槛取自目录那一件', t1.reqLevel, EQUIP_.requirementForItem(EQUIP_.defById(t1.defId)));
+    ok('带名字', !!t1.name && t1.name.length > 0, t1.name);
+    ok('带外观（部位 + 造型 + 配色）', !!(t1.look && t1.look.style && t1.look.a), JSON.stringify(t1.look));
     ok('主属性数值 > 0', t1.main.value > 0, t1.main.stat + ' ' + t1.main.value);
     ok('战力 > 0', t1.power > 0, String(t1.power));
+    eq('等级够就能穿', EQUIP_.canWear(t1, 99), true);
+    eq('等级不够穿不上', EQUIP_.canWear(t1, t1.reqLevel - 1), false);
+    eq('部位不存在（老存档的头盔）穿不上', EQUIP_.canWear({ slotId: 'helmet', reqLevel: 1 }, 99), false);
 
     var t3 = EQUIP_.generate(3, 8, new G.RNG.Rng(7), 2);
     eq('3 阶 3 条词条', t3.affixes.length, 3);
-    eq('3 阶等级门槛 7', t3.reqLevel, 7);
+    ok('3 阶门槛 ≥ 7', t3.reqLevel >= 7, String(t3.reqLevel));
     eq('词条不重复', new Set(t3.affixes.map(function (a) { return a.name; })).size, t3.affixes.length);
 
     var t6 = EQUIP_.generate(6, 20, new G.RNG.Rng(9), 3);
     eq('6 阶 = 5 条词条 + 1 条天赐专属', t6.affixes.length, 6);
     ok('第 6 条带"天赐"前缀', t6.affixes[5].name.indexOf('天赐') === 0, t6.affixes[5].name);
-    eq('6 阶等级门槛 16', t6.reqLevel, 16);
+    ok('6 阶门槛 ≥ 16', t6.reqLevel >= 16, String(t6.reqLevel));
 
     var again = EQUIP_.generate(3, 8, new G.RNG.Rng(7), 2);
     same('同种子同参数 → 同一件装备（可复现）', again, t3);
@@ -7795,6 +9426,16 @@ G.SELFTEST = (function () {
     }
     ok('6 阶战力远超 1 阶（同等级同平均）', powerSum6 > powerSum1 * 3, powerSum6 / 50 + ' vs ' + powerSum1 / 50);
 
+    // 掉 200 次必须四个部位都出得来（"装备类型分为四类"不能只是写在文档里）
+    var slotHits = { weapon: 0, armor: 0, boots: 0, trinket: 0 };
+    var cover = new G.RNG.Rng(777);
+    for (i = 0; i < 200; i += 1) slotHits[EQUIP_.generate(2, 5, cover, 0).slotId] += 1;
+    ok(
+      '200 次掉落覆盖四个部位',
+      slotHits.weapon > 0 && slotHits.armor > 0 && slotHits.boots > 0 && slotHits.trinket > 0,
+      JSON.stringify(slotHits)
+    );
+
     var loadout = EQUIP_.emptyLoadout();
     eq('空装备栏战力 0', EQUIP_.armoryPower(loadout), 0);
     loadout[t1.slotId] = t1;
@@ -7802,6 +9443,22 @@ G.SELFTEST = (function () {
     var totals = EQUIP_.totalsOf(loadout);
     ok('属性汇总里有主属性', totals[t1.main.stat] >= t1.main.value, String(totals[t1.main.stat]));
     eq('格式化百分比词条', EQUIP_.formatValue('critChance', 0.043), '+4.3% 暴击率');
+    eq('界面文案 = 阶名 + 装备名', EQUIP_.labelOf(t1), EQUIP_.tierById(1).name + ' ' + t1.name);
+
+    // ③ 外观汇总：渲染层每帧读的就是这一份
+    var look = EQUIP_.lookOf(loadout);
+    eq('外观只跟着穿上的那一件走', look[t1.slotId] === t1.look, true);
+    var rest = 0;
+    for (c = 0; c < EQUIP_.SLOT_IDS.length; c += 1) {
+      if (EQUIP_.SLOT_IDS[c] !== t1.slotId && look[EQUIP_.SLOT_IDS[c]] === null) rest += 1;
+    }
+    eq('没穿的部位在外观里是 null', rest, 3);
+    var nothing = EQUIP_.lookOf(null);
+    ok(
+      '没穿装备时外观是四个 null（渲染层不用到处判空）',
+      nothing.weapon === null && nothing.armor === null && nothing.boots === null && nothing.trinket === null
+    );
+    eq('饰品主属性是暴击率（A6：四部位各有各的定位）', EQUIP_.slotById('trinket').mainStat, 'critChance');
   }
 
   /* ---------------------------------------- 9. 玩家属性 / 移动 / 死亡 */
@@ -7849,6 +9506,29 @@ G.SELFTEST = (function () {
     PLAYER_.respawn(player, naked1);
     eq('复活半血（600 × 0.5）', player.hp, 300);
     eq('复活后不再处于倒地状态', player.dead, false);
+
+    // A6：属性面板的行数据（每行把"等级基础"与"装备加成"分开写）
+    var rows = PLAYER_.breakdown(20, loadout);
+    ok('属性行数 ≥ 10', rows.length >= 10, String(rows.length));
+    var labels = rows.map(function (row) { return row.label; }).join(',');
+    ok(
+      '含攻击 / 生命上限 / 防御 / 攻速 / 暴击率',
+      labels.indexOf('攻击') >= 0 &&
+        labels.indexOf('生命上限') >= 0 &&
+        labels.indexOf('防御') >= 0 &&
+        labels.indexOf('攻速') >= 0 &&
+        labels.indexOf('暴击率') >= 0,
+      labels
+    );
+    var powerRow = null;
+    var r;
+    var broken = '';
+    for (r = 0; r < rows.length; r += 1) {
+      if (rows[r].label === '战力') powerRow = rows[r];
+      if (!rows[r].sub || rows[r].sub.indexOf('NaN') >= 0 || String(rows[r].value).indexOf('NaN') >= 0) broken += rows[r].label + ';';
+    }
+    ok('战力一行与属性快照一致', !!powerRow && powerRow.value === String(PLAYER_.statsOf(20, loadout).power), powerRow ? powerRow.value : 'null');
+    eq('每行都有说明而且没有 NaN', broken, '');
   }
 
   /* ---------------------------------------- 10. 本地存档 */
@@ -7862,7 +9542,7 @@ G.SELFTEST = (function () {
     eq('新号 1 级', fresh.level, 1);
     eq('新号无宝箱', fresh.chests.length, 0);
     eq('新号保底计数为 0', fresh.pity.epic + fresh.pity.mythic, 0);
-    eq('新号有 6 个装备栏', Object.keys(fresh.loadout).length, 6);
+    eq('新号有 4 个装备栏（武器 / 衣服 / 鞋子 / 饰品）', Object.keys(fresh.loadout).length, 4);
     ok('出生点可用（决策 #5：首次随机出生）', G.SPAWN.isUsableSpawn(fresh.x, fresh.y), fresh.x + ',' + fresh.y);
 
     var broken = SAVE_.normalize({ v: 1, level: 99, x: NaN, y: 0, chests: [{ tier: 9 }, { tier: 3, level: 8 }] }, seed, 1);
@@ -8004,6 +9684,84 @@ G.SELFTEST = (function () {
     var hud = fakeContext();
     G.HUD.drawMinimap(hud, { player: { x: 0, y: 0, facing: { x: 1, y: 0 } }, save: { guild: null } });
     ok('小地图能画出来', hud.calls.count > 0, 'calls=' + hud.calls.count);
+
+    /* ---------------------------------------------- A6：视角倍率 / Q版外观 / 图标 */
+
+    // 视角倍率：viewRect 必须跟着放大，否则边缘会缺一块（最容易漏的一条）
+    var camRect = R.viewRect({ x: 0, y: 0 });
+    var k = R.zoom();
+    eq('视角倍率取自 balance', k, BAL.view.cameraZoom);
+    near('视野宽 = 屏宽 / 倍率', camRect.width, G.SCREEN.width() / k, 1e-9);
+    near('视野高 = 屏高 / 倍率', camRect.height, G.SCREEN.height() / k, 1e-9);
+    ok(
+      '拉远之后视野比屏幕大（"扩大视角"真的生效了）',
+      camRect.maxX - camRect.minX > G.SCREEN.width(),
+      Math.round(camRect.maxX - camRect.minX) + ' vs ' + Math.round(G.SCREEN.width())
+    );
+    ok('世界层缩放包夹成对出现（beginWorld / endWorld）', typeof R.beginWorld === 'function' && typeof R.endWorld === 'function');
+    var zoomCtx = fakeContext();
+    R.beginWorld(zoomCtx);
+    R.endWorld(zoomCtx);
+    ok('缩放包夹在假 canvas 上也能用（save + 3 次变换 + restore）', zoomCtx.calls.count >= 2, 'calls=' + zoomCtx.calls.count);
+
+    // 装备外观：穿满四件要画得出来，而且比裸装多画东西（含武器造型 / 衣服款式 / 鞋 / 饰品）
+    var full = {
+      weapon: { slot: 'weapon', style: 'greatsword', a: '#ffd479', b: '#6b2f2f', c: '#fff3d0', tier: 6 },
+      armor: { slot: 'armor', style: 'plate', a: '#ffd479', b: '#ffffff', c: '#ffffff', tier: 6 },
+      boots: { slot: 'boots', style: 'plateboot', a: '#ffd479', b: '#6b5a36', c: '#ffd479', tier: 6 },
+      trinket: { slot: 'trinket', style: 'orb', a: '#ffffff', b: '#ffd479', c: '#ffffff', tier: 6 }
+    };
+    var dressed = fakeContext();
+    R.drawPlayer(dressed, { x: 0, y: 0 }, { x: 0, y: 0, facing: { x: 1, y: 0 } }, { attackSpeed: 1.6 }, 0, full);
+    ok('穿满四件装备的玩家画得出来', dressed.calls.count > 0, 'calls=' + dressed.calls.count);
+    var naked = fakeContext();
+    R.drawPlayer(naked, { x: 0, y: 0 }, { x: 0, y: 0, facing: { x: 1, y: 0 } }, { attackSpeed: 1.6 }, 0);
+    ok('不传外观也能画（默认裸装）', naked.calls.count > 0, 'calls=' + naked.calls.count);
+    ok(
+      '穿装备比裸装多画东西（外观真的接上了）',
+      dressed.calls.count > naked.calls.count,
+      dressed.calls.count + ' vs ' + naked.calls.count
+    );
+    // 八种武器造型与四种饰品造型都要画得出来（不然"每件装备都有外观"是空话）
+    var weaponStyles = ['sword', 'greatsword', 'dagger', 'spear', 'axe', 'hammer', 'staff', 'scythe'];
+    var weaponMiss = [];
+    for (var ws = 0; ws < weaponStyles.length; ws += 1) {
+      var wctx = fakeContext();
+      G.ICONS.weapon(wctx, { slot: 'weapon', style: weaponStyles[ws], a: '#fff', b: '#000', c: '#888', tier: 1 }, 0, 0, 44);
+      if (wctx.calls.count < 2) weaponMiss.push(weaponStyles[ws]);
+    }
+    ok('八种武器造型图标都画得出来', weaponMiss.length === 0, weaponMiss.join(','));
+    var trinketStyles = ['amulet', 'ring', 'orb', 'crown'];
+    var trinketMiss = [];
+    for (var ts = 0; ts < trinketStyles.length; ts += 1) {
+      var tctx = fakeContext();
+      G.ICONS.trinket(tctx, { slot: 'trinket', style: trinketStyles[ts], a: '#fff', b: '#000', c: '#888', tier: 1 }, 0, 0, 44);
+      if (tctx.calls.count < 2) trinketMiss.push(trinketStyles[ts]);
+    }
+    ok('四种饰品造型图标都画得出来', trinketMiss.length === 0, trinketMiss.join(','));
+
+    // 每个按键都真的有一张图标（"每个 UI 按钮都做出对应的图标"）
+    var iconKeys = ['chest', 'bag', 'guild', 'camp', 'menu', 'auto', 'attack', 'login', 'user', 'keyboard', 'dice', 'trash', 'stat', 'skill0', 'skill1', 'skill2', 'skill3'];
+    var iconMiss = [];
+    for (var ik = 0; ik < iconKeys.length; ik += 1) {
+      var ictx = fakeContext();
+      G.ICONS.button(ictx, iconKeys[ik], 0, 0, 40, '#ffffff');
+      if (ictx.calls.count < 2) iconMiss.push(iconKeys[ik]);
+    }
+    ok('每个按钮 id 都有图标（而且不是空转）', iconMiss.length === 0, iconMiss.join(','));
+    var itemMiss = [];
+    for (var si = 0; si < G.EQUIP.SLOT_IDS.length; si += 1) {
+      var sctx = fakeContext();
+      G.ICONS.item(sctx, { slot: G.EQUIP.SLOT_IDS[si], style: 'x', a: '#fff', b: '#000', c: '#888', tier: 2 }, 0, 0, 44);
+      var gctx = fakeContext();
+      G.ICONS.slotPlaceholder(gctx, G.EQUIP.SLOT_IDS[si], 0, 0, 44);
+      if (sctx.calls.count < 2 || gctx.calls.count < 2) itemMiss.push(G.EQUIP.SLOT_IDS[si]);
+    }
+    ok('四个部位的内观与空位剪影都画得出来', itemMiss.length === 0, itemMiss.join(','));
+    var frameCtx = fakeContext();
+    G.ICONS.frame(frameCtx, 0, 0, 44, 6);
+    ok('阶色边框画得出来', frameCtx.calls.count >= 2, 'calls=' + frameCtx.calls.count);
+    eq('阶色只有一份（面板转发 icons 那份）', G.PANELS.tierColor(6), G.ICONS.TIER_COLORS[5]);
   }
 
   /* ---------------------------------------- 13. 账号 / 昵称 / 界面 / 自动战斗（A4） */
@@ -8226,6 +9984,114 @@ G.SELFTEST = (function () {
     var welcomeCtx = fakeContext();
     login.draw(welcomeCtx, { save: save, account: { name: '自检者', mode: 'local' }, stats: view.stats });
     ok('欢迎界面能画出来（防白屏）', welcomeCtx.calls.count > 20, 'calls=' + welcomeCtx.calls.count);
+
+    /* ------------------------------ A6：登录按钮上的字 / 背包内观 / 属性面板 */
+
+    // A6 修的 bug：登录 / 注册页面的按钮上**要真的有字**（以前只画了框，文案漏画）
+    function textsOfLogin(stageId) {
+      var texts = [];
+      var ctx2 = fakeContext();
+      var original = ctx2.fillText;
+      ctx2.fillText = function (value) {
+        texts.push(String(value));
+        return original.apply(this, arguments);
+      };
+      login.open(stageId);
+      login.draw(ctx2, { save: save, account: null, stats: view.stats });
+      return texts;
+    }
+    var welcomeTexts = textsOfLogin('welcome');
+    var welcomeButtons = login.buttons();
+    var missingText = [];
+    for (var b = 0; b < welcomeButtons.length; b += 1) {
+      if (welcomeTexts.indexOf(welcomeButtons[b].label) < 0) missingText.push(welcomeButtons[b].id);
+    }
+    ok('登录页每个按钮都把文案画出来了', missingText.length === 0, missingText.join(','));
+    ok('登录页能看到「登录 / 开始游戏」这几个字', welcomeTexts.join('|').indexOf('登录 / 开始游戏') >= 0, welcomeTexts.join('|'));
+    var iconless = welcomeButtons.filter(function (button) { return !button.icon; });
+    eq('登录页按钮都带图标 id', iconless.length, 0);
+    var createTexts = textsOfLogin('createRole');
+    var createButtons = login.buttons();
+    missingText = [];
+    for (b = 0; b < createButtons.length; b += 1) {
+      if (createTexts.indexOf(createButtons[b].label) < 0) missingText.push(createButtons[b].id);
+    }
+    ok('创建角色页每个按钮都把文案画出来了', missingText.length === 0, missingText.join(','));
+    ok('创建角色页能看到按钮文字', createTexts.join('|').indexOf('创建角色并进入游戏') >= 0, createTexts.join('|'));
+    eq('创建角色页按钮都带图标 id', createButtons.filter(function (button) { return !button.icon; }).length, 0);
+    login.open('welcome');
+
+    // 背包面板：四个部位（带内观图标）+ 属性入口
+    G.PANELS.open('bag');
+    var bagRows = G.PANELS.rows(view);
+    var slotRows = 0;
+    var gearIcons = 0;
+    var bagIds = [];
+    for (b = 0; b < bagRows.length; b += 1) {
+      bagIds.push(bagRows[b].id);
+      if (bagRows[b].id.indexOf('bag:slot:') === 0) {
+        slotRows += 1;
+        if (bagRows[b].icon && bagRows[b].icon.kind === 'gear') gearIcons += 1;
+      }
+    }
+    eq('背包面板列出 4 个装备部位', slotRows, 4);
+    eq('四个部位都用"装备内观"图标', gearIcons, 4);
+    ok('背包面板有「角色属性」入口', bagIds.indexOf('bag:stat') >= 0, bagIds.join(','));
+    var bagCtx = fakeContext();
+    G.PANELS.draw(bagCtx, view);
+    ok('背包面板（含内观图标）画得出来', bagCtx.calls.count > 40, 'calls=' + bagCtx.calls.count);
+    G.PANELS.close();
+
+    // 属性面板：一行一项，数值来自 PLAYER.breakdown（等级基础 + 装备加成分开写）
+    G.PANELS.open('stat');
+    var statRows = G.PANELS.rows(view);
+    ok('属性面板有 10 项以上', statRows.length >= 10, String(statRows.length));
+    var statText = statRows.map(function (row) { return row.text + '/' + row.sub; }).join('|');
+    ok('属性面板含攻击', statText.indexOf('攻击') >= 0, statText);
+    ok('属性面板含生命上限', statText.indexOf('生命上限') >= 0);
+    ok('属性面板含暴击率与暴击伤害', statText.indexOf('暴击率') >= 0 && statText.indexOf('暴击伤害') >= 0);
+    ok('属性面板写清了「装备」加成', statText.indexOf('装备') >= 0);
+    var statCtx = fakeContext();
+    G.PANELS.draw(statCtx, view);
+    ok('属性面板画得出来', statCtx.calls.count > 40, 'calls=' + statCtx.calls.count);
+    G.PANELS.close();
+
+    // 设置面板：A6 多了「角色属性」一行，而且能打开属性面板
+    G.PANELS.open('menu');
+    var menuIds = G.PANELS.rows(view).map(function (row) { return row.id; });
+    ok('设置面板有「角色属性」入口', menuIds.indexOf('menu:stat') >= 0, menuIds.join(','));
+    var openStat = null;
+    var menuRows = G.PANELS.rows(view);
+    for (b = 0; b < menuRows.length; b += 1) {
+      if (menuRows[b].id === 'menu:stat') openStat = menuRows[b].action;
+    }
+    ok('那一行的 action 是打开属性面板', !!openStat && openStat.type === 'open' && openStat.panel === 'stat', JSON.stringify(openStat));
+    G.PANELS.close();
+  }
+
+  /**
+   * 把玩家挪到"营地之外、确定有怪"的地方（A6 新增）。
+   *
+   * A6 起营地半径内不刷怪，于是"站在出生点原地打怪"的测试必然抓不到目标 ——
+   * 这里直接用**生成层**（05-spawn，不受营地过滤影响）取某个 chunk 的巢穴坐标，
+   * 把玩家放到它旁边，再正常装载 chunk。这样断言不用碰运气，也不依赖出生点在哪。
+   */
+  function standOutsideCamp(game, cx, cy) {
+    var spawn = G.SPAWN.buildChunkMonsters(BAL.season.worldSeed, cx, cy);
+    var player = game.state.player;
+    if (spawn.length) {
+      player.x = spawn[0].homeX + 140;
+      player.y = spawn[0].homeY;
+    } else {
+      player.x = G.CHUNK.chunkOrigin(cx) + G.CHUNK.CHUNK_SIZE / 2;
+      player.y = G.CHUNK.chunkOrigin(cy) + G.CHUNK.CHUNK_SIZE / 2;
+    }
+    player.dead = false;
+    player.hp = game.state.stats.hpMax;
+    game.state.camera.x = player.x;
+    game.state.camera.y = player.y;
+    G.WORLD.ensureChunks(player.x, player.y, 2);
+    return player;
   }
 
   /**
@@ -8253,10 +10119,9 @@ G.SELFTEST = (function () {
     ok('开关写进了存档', G.SAVE.load(BAL.season.worldSeed, 1).settings.autoBattle === true);
     eq('再点一次关闭', GAME.toggleAutoBattle(), false);
 
-    // 走位：把周边 chunk 装出来，然后只跑 autoStep（怪不跑 AI，落点才可断言）
-    var player = GAME.state.player;
+    // 走位：把玩家挪到营地外（A6 起营地里不刷怪），然后只跑 autoStep（怪不跑 AI，落点才可断言）
+    var player = standOutsideCamp(GAME, 6, 6);
     var stats = GAME.state.stats;
-    G.WORLD.ensureChunks(player.x, player.y, 2);
     var target = G.WORLD.pickTarget(player);
     ok('视野内选到了最近的怪', !!target);
     if (target) {
@@ -8354,6 +10219,8 @@ G.SELFTEST = (function () {
     ok('顿帧结束后世界继续跑', WORLD.now() > beforeStop);
 
     // 斩击特效：开着自动战斗打一会儿，必然会看到刀光
+    // A6：营地里不刷怪，所以先站到"确定有怪"的地方（见 standOutsideCamp）
+    standOutsideCamp(GAME, 6, 7);
     GAME.state.save.settings.autoBattle = true;
     var sawEffect = false;
     var i;
@@ -8519,6 +10386,62 @@ G.SELFTEST = (function () {
     // 传送与治疗都会存档（重开游戏冷却不会被刷掉）
     var reloaded = G.SAVE.load(BAL.season.worldSeed, 1);
     ok('营地冷却标记写进了存档', reloaded.camp.used === true, JSON.stringify(reloaded.camp));
+
+    /* ---------------------------------------------- A6：营地不刷怪（真正的安全区） */
+
+    // ① 生成层照旧有"落在营地里的怪" —— 说明下面那道过滤真的在做事（不是本来就空）
+    var genInCamp = 0;
+    var genTotal = 0;
+    var gx;
+    var gy;
+    var m;
+    for (gx = -2; gx <= 2; gx += 1) {
+      for (gy = -2; gy <= 2; gy += 1) {
+        var generated = G.SPAWN.buildChunkMonsters(BAL.season.worldSeed, gx, gy);
+        genTotal += generated.length;
+        for (m = 0; m < generated.length; m += 1) {
+          if (T.isInCamp(generated[m].homeX, generated[m].homeY)) genInCamp += 1;
+        }
+      }
+    }
+    ok('生成层里确实有落在营地里的怪（过滤不是空转）', genInCamp > 0, genInCamp + ' / ' + genTotal);
+
+    // ② 装载之后：营地里一只怪都不能有；营地外照旧有怪
+    GAME.state.player.x = 0;
+    GAME.state.player.y = 0;
+    GAME.state.player.dead = false;
+    GAME.state.player.hp = GAME.state.stats.hpMax;
+    GAME.state.camera.x = 0;
+    GAME.state.camera.y = 0;
+    G.WORLD.ensureChunks(0, 0, 2);
+    var loadedMonsters = G.WORLD.allMonsters();
+    var loadedInCamp = 0;
+    for (m = 0; m < loadedMonsters.length; m += 1) {
+      if (T.isInCamp(loadedMonsters[m].homeX, loadedMonsters[m].homeY)) loadedInCamp += 1;
+    }
+    eq('装载后营地里一只怪都没有', loadedInCamp, 0);
+    ok('营地外照样有怪（不是把怪全禁了）', loadedMonsters.length > 0, String(loadedMonsters.length));
+
+    // ③ 屏障：把一只怪摆到营地边上让它"往里挤"，下一步必须被推回安全半径之外并转身回家
+    var intruder = loadedMonsters.length > 0 ? loadedMonsters[0] : null;
+    if (intruder) {
+      intruder.state = 'idle';
+      intruder.hp = intruder.hpMax;
+      intruder.x = 120;
+      intruder.y = 0;
+      intruder.knockX = 0;
+      intruder.knockY = 0;
+      G.WORLD.update(1000 / 60, GAME.state.player, GAME.state.stats, GAME.state.camera, G.SCREEN.width(), G.SCREEN.height());
+      var intruderDist = G.CHUNK.distanceToOrigin(intruder.x, intruder.y);
+      ok(
+        '闯进营地的怪被推回安全半径之外',
+        intruderDist >= BAL.world.camp.monsterFreeRadius - 0.001,
+        Math.round(intruderDist) + ' / ' + BAL.world.camp.monsterFreeRadius
+      );
+      eq('而且它转身回家（state = return）', intruder.state, 'return');
+    } else {
+      ok('闯进营地的怪被推回安全半径之外', false, '装载不到任何怪，跳过');
+    }
   }
 
   /**
@@ -8697,8 +10620,8 @@ G.SELFTEST = (function () {
     eq('等级不够时点锁着的技能 → locked', GAME.castSkillSlot(3).reason, 'locked');
     eq('解锁前不进冷却', GAME.state.skillCooldowns[3] || 0, 0);
 
-    // 3. 真放一次横扫：把一只怪搬到脚边（血拉高，免得被打死影响断言）
-    G.WORLD.ensureChunks(player.x, player.y, 2);
+    // 3. 真放一次横扫：先站到营地外有怪的地方（A6），再把怪搬到脚边（血拉高，免得被打死影响断言）
+    standOutsideCamp(GAME, 7, 7);
     var target = G.WORLD.pickTarget(player);
     ok('附近有怪可以打（技能要有对象）', !!target);
     if (target) {
@@ -9933,7 +11856,8 @@ G.GAME = (function () {
     save.stats.opened += 1;
 
     var worn = save.loadout[item.slotId];
-    if (CONFIG.autoEquipBetter && (!worn || item.power > worn.power)) {
+    // A6：自动穿上也要过等级门槛 —— 不够就只进背包，等练上去再穿
+    if (CONFIG.autoEquipBetter && EQUIP.canWear(item, save.level) && (!worn || item.power > worn.power)) {
       save.loadout[item.slotId] = item;
       if (worn) save.gold += LOOT.salvageGold(worn.tier);
       state.stats = PLAYER.statsOf(save.level, save.loadout);
@@ -9986,8 +11910,12 @@ G.GAME = (function () {
       flash('这件装备不在背包里', 1200);
       return;
     }
-    if (save.level < item.reqLevel) {
-      flash('等级不够：需要 Lv.' + item.reqLevel, 1400);
+    // A6：等级门槛 —— 每件装备有自己的 reqLevel（09-equipment 的 requirementForItem）
+    if (!EQUIP.canWear(item, save.level)) {
+      flash(
+        '等级不够：' + EQUIP.labelOf(item) + ' 需要 Lv.' + item.reqLevel + '（现在 ' + save.level + ' 级）',
+        1800
+      );
       return;
     }
     var worn = save.loadout[item.slotId];
@@ -9995,7 +11923,25 @@ G.GAME = (function () {
     removeItem(save, item.id);
     if (worn) save.items.push(worn);
     state.stats = PLAYER.statsOf(save.level, save.loadout);
-    flash('已穿上 ' + EQUIP.tierById(item.tier).name + ' ' + item.slotName + '（战力 ' + state.stats.power + '）', 1800);
+    flash('已穿上 ' + EQUIP.labelOf(item) + '（战力 ' + state.stats.power + '）', 1800);
+  }
+
+  /**
+   * 脱下某个部位（A6）：装备回到背包，人物外观立刻变回"没穿"的样子。
+   * 与穿上走同一套：只改 save.loadout，然后重算属性快照（战力随之变化）。
+   */
+  function unequipSlot(slotId) {
+    var save = state.save;
+    if (!EQUIP.hasSlot(slotId)) return;
+    var item = save.loadout[slotId];
+    if (!item) {
+      flash('这个部位本来就没穿东西', 1200);
+      return;
+    }
+    save.loadout[slotId] = null;
+    SAVE.pushItem(save, item);
+    state.stats = PLAYER.statsOf(save.level, save.loadout);
+    flash('已脱下 ' + EQUIP.labelOf(item) + '（战力 ' + state.stats.power + '）', 1600);
   }
 
   /** 一键分解：每个部位只留最强的一件，其余换成金币 */
@@ -10271,6 +12217,7 @@ G.GAME = (function () {
     else if (type === 'toggleVibrate') toggleSetting('vibrate');
     else if (type === 'openChest') openChests(action.count || 1);
     else if (type === 'equip') equipFromBag(action.itemId);
+    else if (type === 'unequip') unequipSlot(action.slotId);
     else if (type === 'salvageAll') salvageAll();
     else if (type === 'buyHorn') buyHorn();
     else if (type === 'createGuild') createGuild();
@@ -10365,6 +12312,8 @@ G.GAME = (function () {
 
     // 震屏：只偏渲染用的相机（state.camera 本身不动 → 逻辑层拿到的永远是干净坐标）
     var camera = shakeCamera(view.now);
+    // A6：世界层整体缩放一次（视角倍率）。HUD / 面板在 endWorld 之后画，尺寸不受影响。
+    RENDER.beginWorld(ctx);
     RENDER.drawGround(ctx, camera);
     RENDER.drawDecor(ctx, camera, WORLD.decorInView());
     RENDER.drawRoads(ctx, camera);
@@ -10373,7 +12322,8 @@ G.GAME = (function () {
     RENDER.drawProjectiles(ctx, camera, WORLD.projectiles());
     RENDER.drawMonsters(ctx, camera, WORLD.monstersInView(), state.player.targetId, view.now);
     RENDER.drawTargetRing(ctx, camera, view.target);
-    RENDER.drawPlayer(ctx, camera, state.player, state.stats, view.now);
+    // 装备外观：四件装备由 09-equipment 汇总成一份 look，渲染层照着画（穿什么就像什么）
+    RENDER.drawPlayer(ctx, camera, state.player, state.stats, view.now, EQUIP.lookOf(state.save.loadout));
     // 头顶名牌：角色名 + 血条（用户要求；玩家和精英怪共用同一份画法）
     RENDER.drawNameplate(ctx, camera, {
       x: state.player.x,
@@ -10389,6 +12339,7 @@ G.GAME = (function () {
     // 斩击特效画在实体之上、飘字之下：刀光要盖住怪，伤害数字又要最清楚
     RENDER.drawEffects(ctx, camera, WORLD.effects(), view.now);
     RENDER.drawDamageNumbers(ctx, camera, WORLD.damageNumbers(), WORLD.now());
+    RENDER.endWorld(ctx);
 
     INPUT.setButtons(view.buttons);
     INPUT.draw(ctx);

@@ -98,7 +98,15 @@ G.SAVE = (function () {
     save.pity.epic = numberOr(raw.pity && raw.pity.epic, 0, 0, 100000);
     save.pity.mythic = numberOr(raw.pity && raw.pity.mythic, 0, 0, 100000);
     save.loadout = G.PLAYER.normalizeLoadout(raw.loadout);
-    save.items = raw.items && raw.items.length ? raw.items.slice(0, BAL.chests.bagCap) : [];
+    // A6：部位从 6 个（含头盔 / 手套）收敛成 4 个 —— 老存档里那两件的部位已经不存在了，
+    // 直接丢掉：留着也穿不上，还会在背包里占一行看不懂的格子。
+    save.items = [];
+    if (raw.items && raw.items.length) {
+      for (var k = 0; k < raw.items.length && save.items.length < BAL.chests.bagCap; k += 1) {
+        var rawItem = raw.items[k];
+        if (rawItem && G.EQUIP.hasSlot(rawItem.slotId) && rawItem.main && rawItem.affixes) save.items.push(rawItem);
+      }
+    }
     save.nextItemId = numberOr(raw.nextItemId, 1, 1, Infinity);
     save.horns = numberOr(raw.horns, 0, 0, 9999);
     save.guild = raw.guild && raw.guild.name ? raw.guild : null;

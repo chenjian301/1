@@ -2,9 +2,11 @@
  * 16-render.js —— 世界渲染（纯 Canvas 2D，**没有引擎**，决策 #7 + 02-architecture §1）
  *
  * 阶段 A3：实体从"圆"升级成**简单自绘角色**，地图从"色块 + 圆点"升级成**有设计感的地图**。
+ * 阶段 A6（本轮）：**Q版** 角色（大头 + 大眼 + 腮红）+ **装备外观**（穿的什么就像什么）+
+ * **视角倍率**（`view.cameraZoom` 把世界层整体拉远，UI 不变）+ **更细的地表**（5×5 色块与细纹）。
  * 一帧的顺序（20-main.renderTo 调用）：
  *   地表色块 + 营地石砖 → 小径路网 → 装饰（按主题换造型）→ 地标（废墟 / 石碑）→ 营地道具
- *   → 弹道 → 怪（4 种造型 + 朝向 + 走路）→ 目标环 → 玩家（小人 + 八方向 + 挥砍）→ 飘字
+ *   → 弹道 → 怪（4 种造型 + 朝向 + 走路）→ 目标环 → 玩家（小人 + 八方向 + 挥砍 + 装备外观）→ 飘字
  *
  * 为什么仍然**不贴图**：包体与图集是阶段 E 的事（01-game-design §12），而"简单角色"用
  * 十几个基本图元就能画出来 —— 先把辨识度与手感做出来，以后换图集只动这一层。
@@ -18,6 +20,8 @@
  * 相机与坐标：世界坐标 → 屏幕（设计单位）：
  *   sx = x - camera.x + SCREEN.width() / 2
  *   sy = y - camera.y + SCREEN.height() / 2
+ * 视角倍率不改变这条公式 —— 它由 `beginWorld` 绕屏幕中心缩一次画布来完成，
+ * 于是半径 / 线宽 / 字体一起缩放，视觉上是"镜头拉远"而不是"UI 变小"。
  */
 
 G.RENDER = (function () {
@@ -122,10 +126,40 @@ G.RENDER = (function () {
     return { x: x - camera.x + SCREEN.width() / 2, y: y - camera.y + SCREEN.height() / 2 };
   }
 
-  /** 视野矩形（世界坐标）：渲染各处共用一份，别各算一套 */
+  /**
+   * 视角倍率（A6，`balance.view.cameraZoom`）：< 1 = 镜头拉远、看得更广。
+   * 0.8 时每边多看 25%，而且**只缩放世界层** —— HUD / 面板 / 按钮保持原尺寸。
+   */
+  function zoom() {
+    var value = BAL.view.cameraZoom;
+    return value > 0 ? value : 1;
+  }
+
+  /**
+   * 世界层开始 / 结束：绕屏幕中心缩放一次。
+   * 好处是 `toScreen` 的公式一个字都不用改，而且**半径、线宽、字体都跟着缩放** ——
+   * 于是"视野变大"不会变成"UI 变大"。
+   */
+  function beginWorld(ctx) {
+    var k = zoom();
+    ctx.save();
+    if (k !== 1) {
+      ctx.translate(SCREEN.width() / 2, SCREEN.height() / 2);
+      ctx.scale(k, k);
+      ctx.translate(-SCREEN.width() / 2, -SCREEN.height() / 2);
+    }
+    return k;
+  }
+
+  function endWorld(ctx) {
+    ctx.restore();
+  }
+
+  /** 视野矩形（世界坐标）：渲染各处共用一份，别各算一套（含视角倍率） */
   function viewRect(camera) {
-    var width = SCREEN.width();
-    var height = SCREEN.height();
+    var k = zoom();
+    var width = SCREEN.width() / k;
+    var height = SCREEN.height() / k;
     return {
       minX: camera.x - width / 2,
       minY: camera.y - height / 2,
@@ -220,15 +254,23 @@ G.RENDER = (function () {
     ctx.globalAlpha = 1;
   }
 
+  /** 地表细度（A6）：每个 chunk 切 5×5 色块 + 一撮细纹（细纹攒成一条路径，一次 fill 画完） */
+  var GROUND_BLOCKS = 5;
+  var GROUND_SPECKS = 12;
+
   /**
-   * 地表：每 chunk 一块主题底色 + 4×4 色块（颜色来自 groundVariant，位置与主题都由哈希决定），
+   * 地表：每 chunk 一块主题底色 + 5×5 色块（颜色来自 groundVariant，位置与主题都由哈希决定），
    * 最后在原点盖上营地的石砖地。
+   *
+   * A6 的做法差别：同色的色块**攒进一条路径**再一次性 fill —— 一个 chunk 从最多 16 次落笔降到 3 次，
+   * 省下来的预算换成"更细的网格 + 每 chunk 一撮土斑"，于是画面更细而帧上的落笔更少。
    */
   function drawGround(ctx, camera) {
     var rect = viewRect(camera);
     var chunks = CHUNK.chunksInRect(rect.minX, rect.minY, rect.maxX, rect.maxY, 0);
     var seed = BAL.season.worldSeed;
-    var block = CHUNK.CHUNK_SIZE / 4;
+    var blocks = GROUND_BLOCKS;
+    var block = CHUNK.CHUNK_SIZE / blocks;
 
     for (var i = 0; i < chunks.length; i += 1) {
       var cx = chunks[i].cx;
@@ -243,15 +285,44 @@ G.RENDER = (function () {
       ctx.fillStyle = TERRAIN.mixHex(ground[0], '#000010', tint);
       ctx.fillRect(origin.x, origin.y, CHUNK.CHUNK_SIZE, CHUNK.CHUNK_SIZE);
 
-      for (var by = 0; by < 4; by += 1) {
-        for (var bx = 0; bx < 4; bx += 1) {
-          // 取 8×8 噪声网格上的偶数格当代表，视觉效果一样但少画一大半
-          var variant = TERRAIN.groundVariant(seed, cx, cy, bx * 2, by * 2);
-          if (variant === 0) continue;
-          ctx.fillStyle = TERRAIN.mixHex(ground[variant], '#000010', tint);
-          ctx.fillRect(origin.x + bx * block, origin.y + by * block, block + 1, block + 1);
+      var v;
+      for (v = 1; v < 3; v += 1) {
+        var any = false;
+        ctx.beginPath();
+        for (var by = 0; by < blocks; by += 1) {
+          for (var bx = 0; bx < blocks; bx += 1) {
+            if (TERRAIN.groundVariant(seed, cx, cy, bx, by) !== v) continue;
+            var bx0 = origin.x + bx * block;
+            var by0 = origin.y + by * block;
+            ctx.moveTo(bx0, by0);
+            ctx.lineTo(bx0 + block, by0);
+            ctx.lineTo(bx0 + block, by0 + block);
+            ctx.lineTo(bx0, by0 + block);
+            ctx.closePath();
+            any = true;
+          }
         }
+        if (!any) continue;
+        ctx.fillStyle = TERRAIN.mixHex(ground[v], '#000010', tint);
+        ctx.fill();
       }
+
+      // 细纹：土斑 / 草籽（位置是纯哈希 → 同一块地永远同一撮，不会闪）
+      ctx.beginPath();
+      for (var s = 0; s < GROUND_SPECKS; s += 1) {
+        var hx = G.RNG.hashInt([seed, cx, cy, s, 0x5b], 4096) / 4096;
+        var hy = G.RNG.hashInt([seed, cx, cy, s, 0x7c], 4096) / 4096;
+        var sx = origin.x + hx * CHUNK.CHUNK_SIZE;
+        var sy = origin.y + hy * CHUNK.CHUNK_SIZE;
+        var len = 3 + G.RNG.hashInt([seed, cx, cy, s, 0x11], 4);
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sx + len, sy);
+        ctx.lineTo(sx + len, sy - len * 0.5);
+        ctx.lineTo(sx, sy - len * 0.5);
+        ctx.closePath();
+      }
+      ctx.fillStyle = TERRAIN.mixHex(theme.decor, '#000010', 0.3 + tint);
+      ctx.fill();
     }
 
     drawCampPlaza(ctx, camera, rect);
@@ -286,18 +357,49 @@ G.RENDER = (function () {
     var clampMinY = rect.minY > campRect.minY ? rect.minY : campRect.minY;
     var clampMaxY = rect.maxY < campRect.maxY ? rect.maxY : campRect.maxY;
     var radiusSq = camp.radius * camp.radius;
+    var tone;
+    var any;
 
-    for (var py = Math.floor(clampMinY / plate) * plate; py <= clampMaxY; py += plate) {
-      for (var px = Math.floor(clampMinX / plate) * plate; px <= clampMaxX; px += plate) {
-        var dx = px + plate / 2 - camp.x;
-        var dy = py + plate / 2 - camp.y;
-        if (dx * dx + dy * dy > radiusSq) continue;
-        var tone = G.RNG.hashInt([seed, Math.round(px / plate), Math.round(py / plate)], CAMP_COLORS.plate.length);
-        var point = toScreen(camera, px, py);
-        ctx.fillStyle = CAMP_COLORS.plate[tone];
-        ctx.fillRect(point.x + inset, point.y + inset, plate - inset * 2, plate - inset * 2);
+    // A6：同一色调的石板攒进一条路径（站在广场上原本要 200 次落笔，现在 3 次）
+    for (tone = 0; tone < CAMP_COLORS.plate.length; tone += 1) {
+      any = false;
+      ctx.beginPath();
+      for (var py = Math.floor(clampMinY / plate) * plate; py <= clampMaxY; py += plate) {
+        for (var px = Math.floor(clampMinX / plate) * plate; px <= clampMaxX; px += plate) {
+          var dx = px + plate / 2 - camp.x;
+          var dy = py + plate / 2 - camp.y;
+          if (dx * dx + dy * dy > radiusSq) continue;
+          if (G.RNG.hashInt([seed, Math.round(px / plate), Math.round(py / plate)], CAMP_COLORS.plate.length) !== tone) continue;
+          var stone = toScreen(camera, px, py);
+          ctx.moveTo(stone.x + inset, stone.y + inset);
+          ctx.lineTo(stone.x + plate - inset, stone.y + inset);
+          ctx.lineTo(stone.x + plate - inset, stone.y + plate - inset);
+          ctx.lineTo(stone.x + inset, stone.y + plate - inset);
+          ctx.closePath();
+          any = true;
+        }
       }
+      if (!any) continue;
+      ctx.fillStyle = CAMP_COLORS.plate[tone];
+      ctx.fill();
     }
+
+    // 广场纹章（A6 加的细节）：中心一圈石环 + 一枚菱形刻纹，站在原点一眼就知道这是营地中心
+    var centerStone = toScreen(camera, camp.x, camp.y);
+    ctx.strokeStyle = CAMP_COLORS.plateEdge;
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.arc(centerStone.x, centerStone.y, 168, 0, TAU);
+    ctx.stroke();
+    var mark = 30;
+    ctx.fillStyle = CAMP_COLORS.banner;
+    ctx.beginPath();
+    ctx.moveTo(centerStone.x, centerStone.y - mark);
+    ctx.lineTo(centerStone.x + mark, centerStone.y);
+    ctx.lineTo(centerStone.x, centerStone.y + mark);
+    ctx.lineTo(centerStone.x - mark, centerStone.y);
+    ctx.closePath();
+    ctx.fill();
   }
 
   /**
@@ -993,9 +1095,18 @@ G.RENDER = (function () {
     ctx.closePath();
     ctx.fill();
     if (!facesAway(index)) {
+      // A6：眼睛放大 + 一点高光（Q版的脸一半靠眼睛）
       ctx.fillStyle = '#ffef9f';
       ctx.beginPath();
-      ctx.arc(headX + r * 0.14 * flip, headY - r * 0.04, r * 0.09, 0, TAU);
+      ctx.arc(headX + r * 0.16 * flip, headY - r * 0.04, r * 0.15, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = '#20242c';
+      ctx.beginPath();
+      ctx.arc(headX + r * 0.21 * flip, headY - r * 0.02, r * 0.08, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath();
+      ctx.arc(headX + r * 0.1 * flip, headY - r * 0.11, r * 0.045, 0, TAU);
       ctx.fill();
     }
   }
@@ -1035,13 +1146,7 @@ G.RENDER = (function () {
     ctx.fill();
 
     if (!facesAway(index)) {
-      ctx.fillStyle = '#ff8a8a';
-      ctx.beginPath();
-      ctx.arc(point.x - r * 0.14, y - r * 0.62, r * 0.08, 0, TAU);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(point.x + r * 0.14, y - r * 0.62, r * 0.08, 0, TAU);
-      ctx.fill();
+      drawEyes(ctx, point.x, y - r * 0.62, r * 0.14, r * 0.17, 0, '#b8352f');
     }
   }
 
@@ -1065,10 +1170,7 @@ G.RENDER = (function () {
     ctx.arc(point.x, baseY - r * 1.6, r * 0.5, 0, TAU);
     ctx.fill();
     if (!facesAway(index)) {
-      ctx.fillStyle = '#d9e8ff';
-      ctx.beginPath();
-      ctx.arc(point.x + r * 0.14 * flip, baseY - r * 1.6, r * 0.12, 0, TAU);
-      ctx.fill();
+      drawEyes(ctx, point.x, baseY - r * 1.6, r * 0.12, r * 0.17, r * 0.03 * flip, '#6fd0ff');
     }
 
     ctx.strokeStyle = '#6a4a2c';
@@ -1111,8 +1213,10 @@ G.RENDER = (function () {
     ctx.fillStyle = '#20242c';
     ctx.fillRect(point.x - r * 0.42, point.y - r * 2.06, r * 0.84, r * 0.16);
     if (!facesAway(index)) {
+      // A6：面甲里两道发光的眼（宽一点、成对，比原来那条缝更"有表情"）
       ctx.fillStyle = '#ff9b5a';
-      ctx.fillRect(point.x - r * 0.26 + r * 0.14 * flip, point.y - r * 2.05, r * 0.16, r * 0.1);
+      ctx.fillRect(point.x - r * 0.32 + r * 0.12 * flip, point.y - r * 2.1, r * 0.2, r * 0.14);
+      ctx.fillRect(point.x + r * 0.12 + r * 0.12 * flip, point.y - r * 2.1, r * 0.2, r * 0.14);
     }
 
     ctx.strokeStyle = '#5a4630';
@@ -1152,11 +1256,41 @@ G.RENDER = (function () {
     ctx.stroke();
   }
 
+  /** 空外观（没穿装备）：渲染层不读玩法数据，四件装备都由 20-main 传进来 */
+  var EMPTY_LOOK = { weapon: null, armor: null, boots: null, trinket: null };
+
+  /** 颜色压暗：TERRAIN.mixHex 是工程里唯一一份调色实现，这里只是给它一个短名字 */
+  function shade(hex, t) {
+    if (!hex || hex.indexOf('#') !== 0) return hex || '#000000';
+    return TERRAIN.mixHex(hex, '#000010', t);
+  }
+
+  /** Q版大眼睛：白眼球 + 黑瞳 + 一点高光（玩家与怪共用，眼神才统一） */
+  function drawEyes(ctx, x, y, size, gap, pupilDx, pupilColor) {
+    for (var i = -1; i <= 1; i += 2) {
+      var ex = x + i * gap;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(ex, y, size, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = pupilColor || '#20242c';
+      ctx.beginPath();
+      ctx.arc(ex + pupilDx, y + size * 0.12, size * 0.58, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath();
+      ctx.arc(ex - size * 0.32 + pupilDx, y - size * 0.3, size * 0.2, 0, TAU);
+      ctx.fill();
+    }
+  }
+
   /**
-   * 玩家：自绘小人（八方向朝向 + 走路摆腿摆臂 + 出手挥砍 + 受击闪红 + 倒地躺平）。
+   * 玩家：自绘 Q版小人（八方向朝向 + 走路摆腿摆臂 + 出手挥砍 + 受击闪红 + 倒地躺平）。
    * `stats` 只用来推出手间隔，好让"挥砍"跟得上真正的攻速；`nowMs` 缺省取逻辑时间。
+   * `look` = 身上四件装备的外观（09-equipment 的 lookOf，20-main 每帧传进来）：
+   * 衣服改配色与款式、鞋子改脚、饰品多一笔、武器换造型 —— 穿什么就像什么。
    */
-  function drawPlayer(ctx, camera, player, stats, nowMs) {
+  function drawPlayer(ctx, camera, player, stats, nowMs, look) {
     var now = typeof nowMs === 'number' ? nowMs : G.WORLD.now();
     var point = toScreen(camera, player.x, player.y);
     var index = facingIndex(player.facing);
@@ -1185,87 +1319,409 @@ G.RENDER = (function () {
       ctx.rotate(-Math.PI / 2);
       ctx.translate(-point.x, -point.y);
     }
-    drawHumanoid(ctx, point, BAL.player.radius, index, walkPhase(now, moving), palette, swing);
+    drawHumanoid(ctx, point, BAL.player.radius, index, walkPhase(now, moving), palette, swing, look || EMPTY_LOOK);
     ctx.restore();
   }
 
   /**
-   * 简单小人：腿 → 身体 → 腰带 → 手臂 → 头 → 武器。
-   * 造型一律按"朝右"画，朝左时 flip = -1 镜像；朝上（背对镜头）不画脸。
+   * Q版小人（A6 重画）：大头 + 短身 + 短腿，眼睛占掉小半张脸。
+   * 画法顺序：披风 → 腿 / 鞋 → 躯干 → 衣服款式 → 腰带 → 手臂 → 头 / 脸 / 饰品 → 武器。
+   * 造型一律按"朝右"画，朝左时 flip = -1 镜像；背对镜头不画脸。
    */
-  function drawHumanoid(ctx, point, r, index, phase, palette, swing) {
+  function drawHumanoid(ctx, point, r, index, phase, palette, swing, look) {
     var flip = facesLeft(index) ? -1 : 1;
     var away = facesAway(index);
-    var legSwing = Math.sin(phase * TAU) * r * 0.5;
-    var bob = Math.abs(Math.sin(phase * TAU)) * r * 0.14;
+    var armor = look.armor;
+    var boots = look.boots;
+    var cloth = armor ? armor.a : palette.tunic;
+    var clothDark = armor ? shade(armor.a, 0.34) : palette.tunicDark;
+    var trim = armor ? armor.b : palette.belt;
+    var bootColor = boots ? boots.a : palette.boot;
+    var soleColor = boots ? boots.b : palette.boot;
+    var legSwing = Math.sin(phase * TAU) * r * 0.42;
+    var bob = Math.abs(Math.sin(phase * TAU)) * r * 0.12;
     var baseY = point.y - bob;
+    var leg;
 
-    ctx.fillStyle = palette.boot;
-    roundRectPath(ctx, point.x - r * 0.4 + legSwing * 0.5, baseY - r * 0.9, r * 0.34, r * 0.9, r * 0.17);
+    // 披风：画在身体后面（只有 cloak 款式有）
+    if (armor && armor.style === 'cloak') {
+      ctx.fillStyle = clothDark;
+      ctx.beginPath();
+      ctx.moveTo(point.x - r * 0.6, baseY - r * 1.95);
+      ctx.lineTo(point.x + r * 0.6, baseY - r * 1.95);
+      ctx.lineTo(point.x + r * 0.8, baseY - r * 0.4);
+      ctx.lineTo(point.x - r * 0.8, baseY - r * 0.4);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // 腿 + 鞋（Q版：腿短、鞋大）
+    for (leg = -1; leg <= 1; leg += 2) {
+      var legX = point.x + leg * r * 0.22 + leg * legSwing * 0.35;
+      ctx.fillStyle = palette.skin;
+      roundRectPath(ctx, legX - r * 0.15, baseY - r * 0.96, r * 0.3, r * 0.7, r * 0.14);
+      ctx.fill();
+      ctx.fillStyle = bootColor;
+      roundRectPath(ctx, legX - r * 0.2, baseY - r * 0.44, r * 0.4, r * 0.44, r * 0.14);
+      ctx.fill();
+      ctx.fillStyle = soleColor;
+      ctx.fillRect(legX - r * 0.2, baseY - r * 0.12, r * 0.42, r * 0.12);
+      if (boots && boots.style === 'sandal') {
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.fillRect(legX - r * 0.2, baseY - r * 0.3, r * 0.4, r * 0.06);
+      } else if (boots && (boots.style === 'greave' || boots.style === 'plateboot')) {
+        ctx.fillStyle = soleColor;
+        ctx.fillRect(legX - r * 0.22, baseY - r * 0.68, r * 0.44, r * 0.1);
+      }
+    }
+
+    // 躯干（短而圆）
+    ctx.fillStyle = cloth;
+    roundRectPath(ctx, point.x - r * 0.58, baseY - r * 2.0, r * 1.16, r * 1.2, r * 0.32);
     ctx.fill();
-    roundRectPath(ctx, point.x + r * 0.06 - legSwing * 0.5, baseY - r * 0.9, r * 0.34, r * 0.9, r * 0.17);
+    drawArmorDetail(ctx, point, baseY, r, armor, clothDark, trim);
+
+    // 腰带
+    ctx.fillStyle = trim;
+    ctx.fillRect(point.x - r * 0.58, baseY - r * 1.02, r * 1.16, r * 0.16);
+
+    // 后手（与腿反向摆）
+    ctx.fillStyle = clothDark;
+    roundRectPath(ctx, point.x - r * 0.82 - legSwing * 0.4, baseY - r * 1.92, r * 0.3, r * 0.9, r * 0.15);
     ctx.fill();
 
-    ctx.fillStyle = palette.tunic;
-    roundRectPath(ctx, point.x - r * 0.5, baseY - r * 1.95, r, r * 1.15, r * 0.28);
-    ctx.fill();
-    ctx.fillStyle = palette.tunicDark;
-    ctx.fillRect(point.x + (flip > 0 ? r * 0.14 : -r * 0.48), baseY - r * 1.92, r * 0.34, r * 1.08);
-    ctx.fillStyle = palette.belt;
-    ctx.fillRect(point.x - r * 0.5, baseY - r * 1.0, r, r * 0.16);
-
-    // 空着的那只手（与腿反向摆）
-    ctx.fillStyle = palette.tunicDark;
-    roundRectPath(ctx, point.x - r * 0.8 - legSwing * 0.5, baseY - r * 1.9, r * 0.3, r * 0.95, r * 0.15);
-    ctx.fill();
-
-    // 持剑手：位置固定，出手靠手腕旋转表现
-    var handX = point.x + r * 0.66 * flip;
-    var handY = baseY - r * 1.5;
+    // 持械手：位置固定，出手靠手腕旋转表现
+    var handX = point.x + r * 0.7 * flip;
+    var handY = baseY - r * 1.55;
     ctx.fillStyle = palette.skin;
-    roundRectPath(ctx, handX - r * 0.15, handY - r * 0.1, r * 0.3, r * 0.85, r * 0.15);
+    roundRectPath(ctx, handX - r * 0.16, handY - r * 0.1, r * 0.32, r * 0.82, r * 0.15);
     ctx.fill();
-    drawWeapon(ctx, handX, handY, r, flip, -ACTOR_STYLE.swingArc * 0.55 + (1 - swing) * ACTOR_STYLE.swingArc, palette);
+    drawWeapon(ctx, handX, handY, r, flip, -ACTOR_STYLE.swingArc * 0.55 + (1 - swing) * ACTOR_STYLE.swingArc, palette, look.weapon);
 
-    var headY = baseY - r * 2.45;
+    // 大头（Q版的关键：头几乎和躯干一样大）
+    var headY = baseY - r * 2.72;
+    var headR = r * 0.74;
+    var headX = point.x + r * 0.06 * flip;
     ctx.fillStyle = palette.skin;
     ctx.beginPath();
-    ctx.arc(point.x + r * 0.06 * flip, headY, r * 0.5, 0, TAU);
+    ctx.arc(headX, headY, headR, 0, TAU);
     ctx.fill();
+
     ctx.fillStyle = palette.hair;
     ctx.beginPath();
     if (away) {
       // 背对镜头：整颗头都是头发（一眼看出"我在往上走"）
-      ctx.arc(point.x, headY, r * 0.5, 0, TAU);
+      ctx.arc(point.x, headY, headR, 0, TAU);
     } else {
-      ctx.arc(point.x + r * 0.06 * flip, headY - r * 0.1, r * 0.5, Math.PI * 1.02, Math.PI * 2 - 0.02);
+      ctx.arc(headX, headY - headR * 0.14, headR * 1.02, Math.PI * 1.02, Math.PI * 2 - 0.02);
     }
     ctx.fill();
+
     if (!away) {
-      ctx.fillStyle = '#20242c';
+      // 两撮呆毛（Q版的可爱税只花一次落笔）
       ctx.beginPath();
-      ctx.arc(point.x + r * 0.3 * flip, headY + r * 0.06, r * 0.09, 0, TAU);
+      ctx.arc(headX - headR * 0.58, headY - headR * 0.78, headR * 0.26, 0, TAU);
+      ctx.arc(headX + headR * 0.62, headY - headR * 0.7, headR * 0.22, 0, TAU);
+      ctx.fill();
+
+      drawEyes(ctx, headX, headY + headR * 0.12, headR * 0.24, headR * 0.42, r * 0.04 * flip, '#20242c');
+
+      // 腮红
+      ctx.fillStyle = 'rgba(255,155,155,0.55)';
+      ctx.beginPath();
+      ctx.arc(headX - headR * 0.62, headY + headR * 0.44, headR * 0.17, 0, TAU);
+      ctx.arc(headX + headR * 0.66, headY + headR * 0.42, headR * 0.17, 0, TAU);
       ctx.fill();
     }
+
+    drawTrinket(ctx, point, headX, headY, headR, r, flip, look.trinket);
   }
 
-  /** 武器：一把短剑，绕手旋转（出手瞬间扫到最前，然后收回肩上） */
-  function drawWeapon(ctx, handX, handY, r, flip, angle, palette) {
-    var length = r * 1.5;
-    var dx = Math.cos(angle) * length * flip;
-    var dy = Math.sin(angle) * length;
-    ctx.lineCap = 'round';
-    ctx.strokeStyle = palette.weapon;
-    ctx.lineWidth = r * 0.18;
+  /** 衣服款式细节：肩甲 / 锁环 / 长摆 / 交叉皮带 / 领口（底色由躯干铺好，这里只加"款式"） */
+  function drawArmorDetail(ctx, point, baseY, r, armor, clothDark, trim) {
+    var style = armor ? armor.style : 'tunic';
+    var i;
+    var y;
+    if (style === 'plate') {
+      ctx.fillStyle = trim;
+      ctx.beginPath();
+      ctx.arc(point.x - r * 0.62, baseY - r * 1.76, r * 0.3, 0, TAU);
+      ctx.arc(point.x + r * 0.62, baseY - r * 1.76, r * 0.3, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.22)';
+      ctx.fillRect(point.x - r * 0.4, baseY - r * 1.7, r * 0.8, r * 0.12);
+      return;
+    }
+    if (style === 'mail') {
+      ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+      ctx.lineWidth = r * 0.07;
+      ctx.beginPath();
+      for (i = 0; i < 3; i += 1) {
+        y = baseY - r * 1.74 + i * r * 0.22;
+        ctx.moveTo(point.x - r * 0.4, y);
+        ctx.lineTo(point.x + r * 0.4, y);
+      }
+      ctx.stroke();
+      return;
+    }
+    if (style === 'robe') {
+      ctx.fillStyle = clothDark;
+      ctx.beginPath();
+      ctx.moveTo(point.x - r * 0.52, baseY - r * 1.0);
+      ctx.lineTo(point.x + r * 0.52, baseY - r * 1.0);
+      ctx.lineTo(point.x + r * 0.66, baseY - r * 0.46);
+      ctx.lineTo(point.x - r * 0.66, baseY - r * 0.46);
+      ctx.closePath();
+      ctx.fill();
+      return;
+    }
+    if (style === 'leather') {
+      ctx.strokeStyle = trim;
+      ctx.lineWidth = r * 0.09;
+      ctx.beginPath();
+      ctx.moveTo(point.x - r * 0.4, baseY - r * 1.9);
+      ctx.lineTo(point.x + r * 0.34, baseY - r * 1.2);
+      ctx.moveTo(point.x + r * 0.4, baseY - r * 1.9);
+      ctx.lineTo(point.x - r * 0.34, baseY - r * 1.2);
+      ctx.stroke();
+      return;
+    }
+    // tunic / cloak：领口（一个倒三角）
+    ctx.fillStyle = trim;
     ctx.beginPath();
-    ctx.moveTo(handX, handY);
-    ctx.lineTo(handX + dx, handY + dy);
+    ctx.moveTo(point.x - r * 0.2, baseY - r * 2.0);
+    ctx.lineTo(point.x + r * 0.2, baseY - r * 2.0);
+    ctx.lineTo(point.x, baseY - r * 1.66);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  /**
+   * 饰品外观：项链 / 指环 / 宝珠 / 头冠各画"多出来的那一笔"，不改角色本体 ——
+   * 于是戴什么都还是同一个角色，只是身上多了一点东西。
+   */
+  function drawTrinket(ctx, point, headX, headY, headR, r, flip, trinket) {
+    if (!trinket) return;
+    var style = trinket.style || 'amulet';
+    var orbX;
+    var orbY;
+    var w;
+    if (style === 'ring') {
+      ctx.strokeStyle = trinket.b;
+      ctx.lineWidth = r * 0.09;
+      ctx.beginPath();
+      ctx.arc(point.x + r * 0.82 * flip, headY + r * 0.62, r * 0.14, 0, TAU);
+      ctx.stroke();
+      ctx.fillStyle = trinket.a;
+      ctx.beginPath();
+      ctx.arc(point.x + r * 0.82 * flip, headY + r * 0.48, r * 0.08, 0, TAU);
+      ctx.fill();
+      return;
+    }
+    if (style === 'orb') {
+      orbX = point.x - r * 0.9 * flip;
+      orbY = headY - r * 0.1;
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = trinket.a;
+      ctx.beginPath();
+      ctx.arc(orbX, orbY, r * 0.28, 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = trinket.a;
+      ctx.beginPath();
+      ctx.arc(orbX, orbY, r * 0.16, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = trinket.b;
+      ctx.lineWidth = r * 0.05;
+      ctx.beginPath();
+      ctx.arc(orbX, orbY, r * 0.24, 0, TAU);
+      ctx.stroke();
+      return;
+    }
+    if (style === 'crown') {
+      w = headR * 0.72;
+      ctx.fillStyle = trinket.b;
+      ctx.beginPath();
+      ctx.moveTo(headX - w, headY - headR * 0.58);
+      ctx.lineTo(headX - w, headY - headR * 0.98);
+      ctx.lineTo(headX - w * 0.4, headY - headR * 0.72);
+      ctx.lineTo(headX, headY - headR * 1.1);
+      ctx.lineTo(headX + w * 0.4, headY - headR * 0.72);
+      ctx.lineTo(headX + w, headY - headR * 0.98);
+      ctx.lineTo(headX + w, headY - headR * 0.58);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = trinket.a;
+      ctx.beginPath();
+      ctx.arc(headX, headY - headR * 0.84, headR * 0.12, 0, TAU);
+      ctx.fill();
+      return;
+    }
+    // 项链（默认）：颈前一线 + 一颗宝石
+    ctx.strokeStyle = trinket.b;
+    ctx.lineWidth = r * 0.07;
+    ctx.beginPath();
+    ctx.moveTo(point.x - r * 0.3, headY + r * 0.66);
+    ctx.lineTo(point.x, headY + r * 1.0);
+    ctx.lineTo(point.x + r * 0.3, headY + r * 0.66);
     ctx.stroke();
-    ctx.strokeStyle = palette.guard;
-    ctx.lineWidth = r * 0.16;
+    ctx.fillStyle = trinket.a;
     ctx.beginPath();
-    ctx.moveTo(handX - dy * 0.18, handY + dx * 0.18);
-    ctx.lineTo(handX + dy * 0.18, handY - dx * 0.18);
+    ctx.arc(point.x, headY + r * 1.06, r * 0.13, 0, TAU);
+    ctx.fill();
+  }
+
+  /**
+   * 武器（A6 按造型画）：剑 / 巨剑 / 短刃 / 枪 / 斧 / 锤 / 法杖 / 镰，绕手腕旋转。
+   *
+   * 方向单位向量 (ux, uy) 与它的垂直向量 (px, py) 是两根"轴"，所有造型都用它们搭：
+   * 沿轴摆长度、沿垂轴摆宽度 —— 于是加武器只需要加一个分支，旋转逻辑一个字都不用动。
+   */
+  function drawWeapon(ctx, handX, handY, r, flip, angle, palette, weapon) {
+    var style = (weapon && weapon.style) || 'sword';
+    var bladeColor = (weapon && weapon.a) || palette.weapon;
+    var gripColor = (weapon && weapon.b) || '#7a5a38';
+    var guardColor = (weapon && weapon.c) || palette.guard;
+    var reach = style === 'spear' ? 2.0 : style === 'staff' ? 1.9 : style === 'greatsword' ? 1.75 : style === 'dagger' ? 1.0 : 1.5;
+    var dx = Math.cos(angle) * r * reach * flip;
+    var dy = Math.sin(angle) * r * reach;
+    var len = Math.sqrt(dx * dx + dy * dy);
+    if (!(len > 0.0001)) return;
+
+    var ux = dx / len;
+    var uy = dy / len;
+    var px = -uy;
+    var py = ux;
+    var tipX = handX + ux * len;
+    var tipY = handY + uy * len;
+    var half = style === 'greatsword' ? 0.34 : 0.26;
+
+    ctx.lineCap = 'round';
+
+    // 柄：所有武器都有（法杖与枪另画长杆）
+    ctx.strokeStyle = gripColor;
+    ctx.lineWidth = r * 0.14;
+    ctx.beginPath();
+    ctx.moveTo(handX - ux * r * 0.2, handY - uy * r * 0.2);
+    ctx.lineTo(handX + ux * r * 0.34, handY + uy * r * 0.34);
+    ctx.stroke();
+
+    if (style === 'staff') {
+      ctx.strokeStyle = gripColor;
+      ctx.lineWidth = r * 0.12;
+      ctx.beginPath();
+      ctx.moveTo(handX, handY);
+      ctx.lineTo(handX + ux * len * 0.86, handY + uy * len * 0.86);
+      ctx.stroke();
+      ctx.fillStyle = bladeColor;
+      ctx.beginPath();
+      ctx.arc(tipX, tipY, r * 0.2, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = guardColor;
+      ctx.lineWidth = r * 0.06;
+      ctx.beginPath();
+      ctx.arc(tipX, tipY, r * 0.3, 0, TAU);
+      ctx.stroke();
+      return;
+    }
+
+    if (style === 'spear') {
+      ctx.strokeStyle = gripColor;
+      ctx.lineWidth = r * 0.1;
+      ctx.beginPath();
+      ctx.moveTo(handX - ux * r * 0.6, handY - uy * r * 0.6);
+      ctx.lineTo(handX + ux * len * 0.86, handY + uy * len * 0.86);
+      ctx.stroke();
+      ctx.fillStyle = bladeColor;
+      ctx.beginPath();
+      ctx.moveTo(tipX, tipY);
+      ctx.lineTo(handX + ux * len * 0.7 + px * r * 0.2, handY + uy * len * 0.7 + py * r * 0.2);
+      ctx.lineTo(handX + ux * len * 0.7 - px * r * 0.2, handY + uy * len * 0.7 - py * r * 0.2);
+      ctx.closePath();
+      ctx.fill();
+      return;
+    }
+
+    if (style === 'axe') {
+      ctx.strokeStyle = gripColor;
+      ctx.lineWidth = r * 0.12;
+      ctx.beginPath();
+      ctx.moveTo(handX - ux * r * 0.4, handY - uy * r * 0.4);
+      ctx.lineTo(handX + ux * len * 0.78, handY + uy * len * 0.78);
+      ctx.stroke();
+      ctx.fillStyle = bladeColor;
+      ctx.beginPath();
+      ctx.moveTo(tipX, tipY);
+      ctx.lineTo(handX + ux * len * 0.6 + px * r * 0.5, handY + uy * len * 0.6 + py * r * 0.5);
+      ctx.lineTo(handX + ux * len * 0.6, handY + uy * len * 0.6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = guardColor;
+      ctx.beginPath();
+      ctx.moveTo(tipX, tipY);
+      ctx.lineTo(handX + ux * len * 0.6 - px * r * 0.5, handY + uy * len * 0.6 - py * r * 0.5);
+      ctx.lineTo(handX + ux * len * 0.6, handY + uy * len * 0.6);
+      ctx.closePath();
+      ctx.fill();
+      return;
+    }
+
+    if (style === 'hammer') {
+      ctx.strokeStyle = gripColor;
+      ctx.lineWidth = r * 0.12;
+      ctx.beginPath();
+      ctx.moveTo(handX - ux * r * 0.4, handY - uy * r * 0.4);
+      ctx.lineTo(handX + ux * len * 0.72, handY + uy * len * 0.72);
+      ctx.stroke();
+      ctx.fillStyle = bladeColor;
+      ctx.beginPath();
+      ctx.moveTo(handX + ux * len * 0.72 + px * r * 0.3, handY + uy * len * 0.72 + py * r * 0.3);
+      ctx.lineTo(tipX + px * r * 0.3, tipY + py * r * 0.3);
+      ctx.lineTo(tipX - px * r * 0.3, tipY - py * r * 0.3);
+      ctx.lineTo(handX + ux * len * 0.72 - px * r * 0.3, handY + uy * len * 0.72 - py * r * 0.3);
+      ctx.closePath();
+      ctx.fill();
+      return;
+    }
+
+    if (style === 'scythe') {
+      ctx.strokeStyle = gripColor;
+      ctx.lineWidth = r * 0.11;
+      ctx.beginPath();
+      ctx.moveTo(handX - ux * r * 0.4, handY - uy * r * 0.4);
+      ctx.lineTo(handX + ux * len * 0.9, handY + uy * len * 0.9);
+      ctx.stroke();
+      ctx.fillStyle = bladeColor;
+      ctx.beginPath();
+      ctx.moveTo(tipX, tipY);
+      ctx.lineTo(handX + ux * len * 0.6 + px * r * 0.62, handY + uy * len * 0.6 + py * r * 0.62);
+      ctx.lineTo(handX + ux * len * 0.45 + px * r * 0.66, handY + uy * len * 0.45 + py * r * 0.66);
+      ctx.lineTo(handX + ux * len * 0.72, handY + uy * len * 0.72);
+      ctx.closePath();
+      ctx.fill();
+      return;
+    }
+
+    // 剑 / 巨剑 / 短刃：护手 + 刃 + 一道高光
+    ctx.strokeStyle = guardColor;
+    ctx.lineWidth = r * 0.14;
+    ctx.beginPath();
+    ctx.moveTo(handX + ux * r * 0.34 - px * r * half, handY + uy * r * 0.34 - py * r * half);
+    ctx.lineTo(handX + ux * r * 0.34 + px * r * half, handY + uy * r * 0.34 + py * r * half);
+    ctx.stroke();
+
+    ctx.strokeStyle = bladeColor;
+    ctx.lineWidth = r * (style === 'greatsword' ? 0.3 : style === 'dagger' ? 0.14 : 0.2);
+    ctx.beginPath();
+    ctx.moveTo(handX + ux * r * 0.4, handY + uy * r * 0.4);
+    ctx.lineTo(tipX, tipY);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = r * 0.05;
+    ctx.beginPath();
+    ctx.moveTo(handX + ux * r * 0.5 - px * r * 0.05, handY + uy * r * 0.5 - py * r * 0.05);
+    ctx.lineTo(handX + ux * len * 0.9 - px * r * 0.05, handY + uy * len * 0.9 - py * r * 0.05);
     ctx.stroke();
   }
 
@@ -1510,6 +1966,9 @@ G.RENDER = (function () {
     ellipsePath: ellipsePath,
     toScreen: toScreen,
     viewRect: viewRect,
+    zoom: zoom,
+    beginWorld: beginWorld,
+    endWorld: endWorld,
     facingIndex: facingIndex,
     facesLeft: facesLeft,
     facesAway: facesAway,

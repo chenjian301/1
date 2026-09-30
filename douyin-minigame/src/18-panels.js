@@ -163,9 +163,30 @@ G.PANELS = (function () {
     return current;
   }
 
+  /** 阶色只有一份：16-icons 的 TIER_COLORS（这里只转发，免得两处各写一套颜色） */
   function tierColor(tier) {
-    var colors = ['#c7c7c7', '#8ce99a', '#a9d5ff', '#d0a9ff', '#ff9b5a', '#ffd479'];
-    return colors[tier - 1] || '#c7c7c7';
+    return G.ICONS.tierColor(tier);
+  }
+
+  /**
+   * 行左侧的图标盒（A6）：阶色边框 + 装备内观 / 部位剪影 / 功能图形。
+   * 返回文字应该从哪个 x 开始 —— 于是"有图标就右移"只用一处代码管住所有面板。
+   */
+  function iconBox(ctx, area, row) {
+    var size = row.icon.size || G.ICONS.size('rowSize');
+    var x = area.x + 16;
+    var y = row.y + ((row.h - 10) - size) / 2;
+    var icon = row.icon;
+    var gear = icon.kind === 'gear';
+    var dim = gear && !icon.look;
+    G.ICONS.frame(ctx, x, y, size, icon.tier, dim);
+    if (gear) {
+      if (icon.look) G.ICONS.item(ctx, icon.look, x + size / 2, y + size / 2, size * 0.92);
+      else G.ICONS.slotPlaceholder(ctx, icon.slot, x + size / 2, y + size / 2, size * 0.92);
+    } else {
+      G.ICONS.button(ctx, icon.key, x + size / 2, y + size / 2, size * 0.8, '#dce6ff');
+    }
+    return x + size;
   }
 
   /** 面板里唯一的圆按钮：卡片右上角的关闭键。返回数组是为了和 HUD 的按钮同构 */
@@ -192,6 +213,7 @@ G.PANELS = (function () {
         id: 'chest:open1',
         y: top,
         h: rowH,
+        icon: { kind: 'ui', key: 'chest' },
         text: '开 1 个宝箱',
         sub: '保底计数：史诗 ' + view.save.pity.epic + '/' + BAL.chests.pity.epic + ' · 神话 ' + view.save.pity.mythic + '/' + BAL.chests.pity.mythic,
         color: '#ffd479',
@@ -201,6 +223,7 @@ G.PANELS = (function () {
         id: 'chest:open10',
         y: top + rowH,
         h: rowH,
+        icon: { kind: 'ui', key: 'chest' },
         text: '开 10 个宝箱',
         sub: '背包 ' + view.save.chests.length + ' / ' + BAL.chests.bagCap + '（满了自动分解成金币）',
         color: '#ffd479',
@@ -213,6 +236,7 @@ G.PANELS = (function () {
           id: 'chest:bag:' + i,
           y: top + i * 62,
           h: 62,
+          icon: { kind: 'ui', key: 'chest', tier: chest.tier },
           text: LOOT.tierName(chest.tier) + '（掉落等级 ' + chest.level + '）',
           sub: '',
           color: tierColor(chest.tier),
@@ -226,33 +250,86 @@ G.PANELS = (function () {
     }
 
     if (current === 'bag') {
+      // A6：四个部位（武器 / 衣服 / 鞋子 / 饰品）—— 穿了什么一眼可见，点一下脱下来
+      for (i = 0; i < EQUIP.SLOT_IDS.length; i += 1) {
+        var slotId = EQUIP.SLOT_IDS[i];
+        var slotDef = EQUIP.slotById(slotId);
+        var equipped = view.save.loadout ? view.save.loadout[slotId] : null;
+        list.push({
+          id: 'bag:slot:' + slotId,
+          y: top + i * 80,
+          h: 76,
+          icon: {
+            kind: 'gear',
+            slot: slotId,
+            look: equipped ? equipped.look : null,
+            tier: equipped ? equipped.tier : 0,
+            size: G.ICONS.size('slotSize')
+          },
+          text: slotDef.name + '：' + (equipped ? equipped.name : '（空）'),
+          sub: equipped
+            ? EQUIP.tierById(equipped.tier).name + ' · 战力 ' + equipped.power + ' · 需求 Lv.' + equipped.reqLevel + ' · 点一下脱下'
+            : '还没穿：开箱开出更好的会自动穿上（等级够的话）',
+          color: equipped ? tierColor(equipped.tier) : '#8d9bb5',
+          action: equipped ? { type: 'unequip', slotId: slotId } : null
+        });
+      }
+      top += EQUIP.SLOT_IDS.length * 80 + 8;
       list.push({
-        id: 'bag:salvageAll',
+        id: 'bag:stat',
         y: top,
         h: rowH,
+        icon: { kind: 'ui', key: 'stat' },
+        text: '角色属性',
+        sub: '等级基础与装备加成逐项对照（当前战力 ' + view.stats.power + '）',
+        color: '#a9d5ff',
+        action: { type: 'open', panel: 'stat' }
+      });
+      list.push({
+        id: 'bag:salvageAll',
+        y: top + rowH,
+        h: rowH,
+        icon: { kind: 'ui', key: 'bag' },
         text: '一键分解（每件都留最强的）',
         sub: '换金币 · 背包 ' + view.save.items.length + ' 件',
         color: '#ffd479',
         action: { type: 'salvageAll' }
       });
-      top += rowH + 24;
+      top += rowH * 2 + 16;
       for (i = 0; i < view.save.items.length && i < 9; i += 1) {
         var item = view.save.items[i];
         var worn = view.save.loadout[item.slotId];
         var better = !worn || item.power > worn.power;
+        var wearable = EQUIP.canWear(item, view.save.level);
         list.push({
           id: 'bag:item:' + item.id,
-          y: top + i * 62,
-          h: 62,
-          text: EQUIP.tierById(item.tier).name + ' ' + item.slotName + '（战力 ' + item.power + '）',
-          sub: (better ? '↑ 更强' : '↓ 更弱') + ' · 需求 Lv.' + item.reqLevel + ' · 点一下穿上',
-          color: better ? '#8ce99a' : '#c7c7c7',
+          y: top + i * 74,
+          h: 70,
+          icon: { kind: 'gear', slot: item.slotId, look: item.look, tier: item.tier },
+          text: item.name + '（战力 ' + item.power + '）',
+          sub:
+            (wearable ? (better ? '↑ 更强' : '↓ 更弱') : '等级不够') +
+            ' · ' +
+            EQUIP.tierById(item.tier).name +
+            ' · 需求 Lv.' +
+            item.reqLevel +
+            (wearable ? ' · 点一下穿上' : ''),
+          color: wearable ? (better ? '#8ce99a' : '#c7c7c7') : '#8d8d8d',
           action: { type: 'equip', itemId: item.id }
         });
       }
       if (view.save.items.length === 0) {
-        list.push({ id: 'bag:empty', y: top, h: 62, text: '背包是空的', sub: '开箱会自动穿上更强的装备，不要的在这里分解', color: '#c7c7c7', action: null });
+        list.push({
+          id: 'bag:empty',
+          y: top,
+          h: 62,
+          text: '背包是空的',
+          sub: '开箱会自动穿上更强的装备（等级够的话），不要的在这里分解',
+          color: '#c7c7c7',
+          action: null
+        });
       }
+      return list;
     }
 
     if (current === 'shop') {
@@ -393,8 +470,8 @@ G.PANELS = (function () {
         id: 'camp:note',
         y: top + rowH * 4,
         h: rowH,
-        text: '营地是"外观"安全区：怪照样刷新',
-        sub: '阶段 A 的取舍（04-decisions #9）；真正的不刷怪半径要和公会锚点 safeRadius 一起定',
+        text: '营地是安全区：怪不在这里刷新',
+        sub: 'A6 起：巢穴落在营地半径 ' + BAL.world.camp.monsterFreeRadius + ' 内的怪不装载，走进来的会被推回边界并回家',
         color: '#c7c7c7',
         action: null
       });
@@ -404,10 +481,22 @@ G.PANELS = (function () {
     if (current === 'menu') {
       var settings = view.save.settings || { autoBattle: false, sfx: true, bgm: true, vibrate: true };
       var audio = view.audio || null;
+      // A6：属性面板的入口（与背包里的「角色属性」是同一个面板）
       list.push({
-        id: 'menu:selftest',
+        id: 'menu:stat',
         y: top,
         h: rowH,
+        icon: { kind: 'ui', key: 'stat' },
+        text: '角色属性',
+        sub: '等级基础与装备加成逐项对照（攻击 / 生命 / 攻速 / 暴击 / 减伤…）',
+        color: '#a9d5ff',
+        action: { type: 'open', panel: 'stat' }
+      });
+      list.push({
+        id: 'menu:selftest',
+        y: top + rowH,
+        h: rowH,
+        icon: { kind: 'ui', key: 'menu' },
         text: '立即跑自检',
         sub: '地图确定性 / 伤害 / 掉箱 / 装备 / 升级曲线 / 账号与界面 / 技能栏，四百多项断言当场出结果',
         color: '#8ce99a',
@@ -415,7 +504,7 @@ G.PANELS = (function () {
       });
       list.push({
         id: 'menu:cloud',
-        y: top + rowH,
+        y: top + rowH * 2,
         h: rowH,
         text: '云后端连通性自测',
         sub: '部署抖音云后把域名填进 00-config.js 的 cloudBase，这里会调一次 /api/health',
@@ -424,7 +513,7 @@ G.PANELS = (function () {
       });
       list.push({
         id: 'menu:debug',
-        y: top + rowH * 2,
+        y: top + rowH * 3,
         h: rowH,
         text: (view.debug ? '关闭' : '打开') + '调试面板',
         sub: 'FPS / chunk 数 / 活跃怪 / 当前目标 / 世界种子',
@@ -433,7 +522,7 @@ G.PANELS = (function () {
       });
       list.push({
         id: 'menu:sfx',
-        y: top + rowH * 3,
+        y: top + rowH * 4,
         h: rowH,
         text: '音效：' + (settings.sfx ? '开' : '关'),
         sub: '命中 / 暴击 / 击杀 / 受伤 / 升级 / 开箱（音量在 balance.audio，声音文件由工具生成）',
@@ -442,7 +531,7 @@ G.PANELS = (function () {
       });
       list.push({
         id: 'menu:bgm',
-        y: top + rowH * 4,
+        y: top + rowH * 5,
         h: rowH,
         text: '背景音乐：' + (settings.bgm ? '开' : '关'),
         sub: audio && audio.supported ? '首次触摸后才会响（平台要求）' : '当前环境没有音频接口（模拟器里可能如此）',
@@ -451,7 +540,7 @@ G.PANELS = (function () {
       });
       list.push({
         id: 'menu:vibrate',
-        y: top + rowH * 5,
+        y: top + rowH * 6,
         h: rowH,
         text: '震动：' + (settings.vibrate ? '开' : '关'),
         sub: '暴击与挨打时短震一下（暴击的手感一半在手上）',
@@ -460,13 +549,29 @@ G.PANELS = (function () {
       });
       list.push({
         id: 'menu:reset',
-        y: top + rowH * 6,
+        y: top + rowH * 7,
         h: rowH,
         text: '重置本地存档',
         sub: view.resetArmed ? '再点一次真的删（等级 / 装备 / 宝箱全清，角色名保留）' : '点一下先确认',
         color: view.resetArmed ? '#ff8a8a' : '#c7c7c7',
         action: { type: 'resetSave' }
       });
+    }
+
+    if (current === 'stat') {
+      // A6：属性面板 —— 一行一项，副行写"等级基础 vs 装备加成"，玩家才知道该练级还是该换装备
+      var statRows = G.PLAYER.breakdown(view.save.level, view.save.loadout);
+      for (i = 0; i < statRows.length; i += 1) {
+        list.push({
+          id: 'stat:' + i,
+          y: top + i * 58,
+          h: 54,
+          text: statRows[i].label + '：' + statRows[i].value,
+          sub: statRows[i].sub,
+          color: statRows[i].color || '#e8f1ff',
+          action: null
+        });
+      }
     }
 
     return list;
@@ -611,8 +716,10 @@ G.PANELS = (function () {
       var pressed = pressedRowId === row.id;
       ctx.fillStyle = pressed ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.05)';
       ctx.fillRect(area.x + 10, row.y, area.w - 20, row.h - 10);
-      G.HUD.text(ctx, row.text, area.x + 24, row.y + (row.sub ? 22 : (row.h - 10) / 2), 26, row.color, 'left');
-      if (row.sub) G.HUD.text(ctx, row.sub, area.x + 24, row.y + 44, 17, '#9fb4d8', 'left');
+      // A6：行左侧的图标（装备 = 内观，功能 = 对应图形）；有没有图标决定文字从哪开始
+      var textX = row.icon ? iconBox(ctx, area, row) + 14 : area.x + 24;
+      G.HUD.text(ctx, row.text, textX, row.y + (row.sub ? 22 : (row.h - 10) / 2), 26, row.color, 'left');
+      if (row.sub) G.HUD.text(ctx, row.sub, textX, row.y + 44, 17, '#9fb4d8', 'left');
       if (!row.action) {
         // 不可点的行给个视觉标记，免得玩家一直点它
         ctx.globalAlpha = 0.5;
@@ -684,6 +791,7 @@ G.PANELS = (function () {
   function titlesOf(panel) {
     if (panel === 'chest') return '开箱';
     if (panel === 'bag') return '背包 / 装备';
+    if (panel === 'stat') return '角色属性';
     if (panel === 'shop') return '商城';
     if (panel === 'guild') return '公会';
     if (panel === 'camp') return '营地';
@@ -822,6 +930,7 @@ G.LOGIN = (function () {
     if (stage === 'welcome') {
       list.push({
         id: 'login',
+        icon: 'login',
         label: hasAccount ? '继续游戏（登录）' : '登录 / 开始游戏',
         x: left,
         y: card.y + 196,
@@ -830,6 +939,7 @@ G.LOGIN = (function () {
       });
       list.push({
         id: 'newAccount',
+        icon: 'trash',
         label: armed ? '再点一次：清掉本机账号' : '清掉本机账号（调试）',
         x: left,
         y: card.y + 292,
@@ -838,9 +948,18 @@ G.LOGIN = (function () {
       });
       return list;
     }
-    list.push({ id: 'typeName', label: '输入昵称', x: left, y: card.y + 196, w: wide, h: 64 });
-    list.push({ id: 'randomName', label: '换一个随机昵称', x: left, y: card.y + 270, w: wide, h: 58 });
-    list.push({ id: 'createRole', label: '创建角色并进入游戏', x: left, y: card.y + 342, w: wide, h: 70 });
+    list.push({ id: 'typeName', icon: 'keyboard', label: '输入昵称', x: left, y: card.y + 196, w: wide, h: 64 });
+    list.push({ id: 'randomName', icon: 'dice', label: '换一个随机昵称', x: left, y: card.y + 270, w: wide, h: 58 });
+    list.push({
+      id: 'createRole',
+      icon: 'user',
+      label: draft ? '创建角色并进入游戏' : '先输入昵称',
+      enabled: draft.length > 0,
+      x: left,
+      y: card.y + 342,
+      w: wide,
+      h: 70
+    });
     return list;
   }
 
@@ -885,13 +1004,41 @@ G.LOGIN = (function () {
     return { type: id };
   }
 
-  /** 画一个矩形按钮（菜单语义：比圆形更好放长文案） */
+  /**
+   * 画一个矩形按钮：底 + 描边 + **左侧图标** + 文案。
+   *
+   * A6 修的 bug：以前这里只画底与边框，文案靠别处补 —— 而补字那一步漏了
+   * （2026-09-30 真机验收："登录 / 注册页面的按钮上没有显示对应操作的文字"）。
+   * 现在**按钮自己负责自己的字**：画按钮的地方就是唯一一处，不会再出现"按钮画了、字没画"。
+   * 19-selftest 里加了一条断言盯着它（假 canvas 会记下 fillText 的每一段文案）。
+   */
   function painted(ctx, button, pressed) {
-    ctx.fillStyle = pressed ? '#ffd479' : '#1b2438';
+    var enabled = button.enabled !== false;
+    ctx.fillStyle = pressed ? '#ffd479' : enabled ? '#1b2438' : '#141a26';
     ctx.fillRect(button.x, button.y, button.w, button.h);
-    ctx.strokeStyle = pressed ? '#fff3d0' : '#4d5f86';
+    ctx.strokeStyle = pressed ? '#fff3d0' : enabled ? '#4d5f86' : '#38415a';
     ctx.lineWidth = 3;
     ctx.strokeRect(button.x, button.y, button.w, button.h);
+
+    var iconSize = Math.min(button.h * 0.62, 44);
+    var centerY = button.y + button.h / 2;
+    var textLeft = button.x + 16;
+    if (button.icon) {
+      var iconX = textLeft + iconSize / 2;
+      G.ICONS.button(ctx, button.icon, iconX, centerY, iconSize, pressed ? '#241a05' : enabled ? '#ffd479' : '#5c6b8a');
+      textLeft = iconX + iconSize / 2 + 12;
+    }
+    var size = Math.min(28, button.h * 0.36);
+    if (button.label.length > 12) size = Math.min(size, 23);
+    G.HUD.text(
+      ctx,
+      button.label,
+      textLeft + (button.x + button.w - 16 - textLeft) / 2,
+      centerY,
+      size,
+      pressed ? '#241a05' : enabled ? '#e8f1ff' : '#7d8aa3',
+      'center'
+    );
   }
 
   /** 一屏的字：标题 / 账号态 / 昵称 / 提示 / 按钮 */

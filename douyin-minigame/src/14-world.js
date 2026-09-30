@@ -82,6 +82,44 @@ G.WORLD = (function () {
 
   /* ---------------------------------------------------------------- chunk 装载 */
 
+  /**
+   * 营地的安全半径（A6，`world.camp.monsterFreeRadius`）：巢穴落在这里面的怪**不装载**。
+   *
+   * 关键取舍：过滤发生在**装载层**，`05-spawn` 的生成流一个字都没动 ——
+   * 于是"同一坐标永远同一份内容"与**世界指纹**都不受影响（跨端确定性建立在生成层）。
+   * 已经在外面的怪走进来会被 `keepOutOfCamp` 推回边界并回家。
+   */
+  function campSafeRadius() {
+    var value = BAL.world.camp.monsterFreeRadius;
+    return value > 0 ? value : 0;
+  }
+
+  /** 这个巢穴在营地安全区里吗（在的话这只怪根本不会出现在世界里） */
+  function isHomeInCamp(x, y) {
+    var safe = campSafeRadius();
+    return safe > 0 && CHUNK.distanceToOrigin(x, y) <= safe;
+  }
+
+  /**
+   * 营地屏障：怪一旦落进安全半径就被沿半径推回边界，返回 true（= "它闯进来了"）。
+   * 纯距离判断，无随机、无三角函数；正好压在原点时推向一个固定方向，保证可重放。
+   */
+  function keepOutOfCamp(monster) {
+    var safe = campSafeRadius();
+    if (safe <= 0) return false;
+    var dist = CHUNK.distanceToOrigin(monster.x, monster.y);
+    if (dist >= safe) return false;
+    if (dist < 0.0001) {
+      monster.x = safe;
+      monster.y = 0;
+      return true;
+    }
+    var k = safe / dist;
+    monster.x *= k;
+    monster.y *= k;
+    return true;
+  }
+
   function loadChunk(cx, cy) {
     var key = CHUNK.chunkKeyOf(cx, cy);
     var band = SPAWN.chunkCenterBand(cx, cy);
@@ -89,6 +127,8 @@ G.WORLD = (function () {
     var monsters = [];
     for (var i = 0; i < spawned.length; i += 1) {
       var source = spawned[i];
+      // A6：营地不刷怪 —— 过滤的是"装载"，不是"生成"（所以指纹与跨端确定性都不动）
+      if (isHomeInCamp(source.homeX, source.homeY)) continue;
       monsters.push({
         id: source.id,
         cx: source.cx,
@@ -314,6 +354,13 @@ G.WORLD = (function () {
 
     if (player.dead) {
       monster.state = 'idle';
+      return;
+    }
+
+    // 营地是安全区（A6）：闯进安全半径的怪被推到边上，并立刻转身回家
+    if (keepOutOfCamp(monster)) {
+      monster.state = 'return';
+      moveToward(monster, monster.homeX, monster.homeY, monster.speed * dtSec);
       return;
     }
 
@@ -678,6 +725,8 @@ G.WORLD = (function () {
         continue;
       }
       updateMonster(monster, player, stats, events, dtSec);
+      // A6：所有移动结算之后再夹一次营地屏障 —— 怪"往家走"时路线穿过营地也挡得住
+      if (keepOutOfCamp(monster)) monster.state = 'return';
     }
 
     if (!player.dead) playerAttack(player, stats, monsters, events);

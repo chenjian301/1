@@ -764,7 +764,8 @@ G.GAME = (function () {
     save.stats.opened += 1;
 
     var worn = save.loadout[item.slotId];
-    if (CONFIG.autoEquipBetter && (!worn || item.power > worn.power)) {
+    // A6：自动穿上也要过等级门槛 —— 不够就只进背包，等练上去再穿
+    if (CONFIG.autoEquipBetter && EQUIP.canWear(item, save.level) && (!worn || item.power > worn.power)) {
       save.loadout[item.slotId] = item;
       if (worn) save.gold += LOOT.salvageGold(worn.tier);
       state.stats = PLAYER.statsOf(save.level, save.loadout);
@@ -817,8 +818,12 @@ G.GAME = (function () {
       flash('这件装备不在背包里', 1200);
       return;
     }
-    if (save.level < item.reqLevel) {
-      flash('等级不够：需要 Lv.' + item.reqLevel, 1400);
+    // A6：等级门槛 —— 每件装备有自己的 reqLevel（09-equipment 的 requirementForItem）
+    if (!EQUIP.canWear(item, save.level)) {
+      flash(
+        '等级不够：' + EQUIP.labelOf(item) + ' 需要 Lv.' + item.reqLevel + '（现在 ' + save.level + ' 级）',
+        1800
+      );
       return;
     }
     var worn = save.loadout[item.slotId];
@@ -826,7 +831,25 @@ G.GAME = (function () {
     removeItem(save, item.id);
     if (worn) save.items.push(worn);
     state.stats = PLAYER.statsOf(save.level, save.loadout);
-    flash('已穿上 ' + EQUIP.tierById(item.tier).name + ' ' + item.slotName + '（战力 ' + state.stats.power + '）', 1800);
+    flash('已穿上 ' + EQUIP.labelOf(item) + '（战力 ' + state.stats.power + '）', 1800);
+  }
+
+  /**
+   * 脱下某个部位（A6）：装备回到背包，人物外观立刻变回"没穿"的样子。
+   * 与穿上走同一套：只改 save.loadout，然后重算属性快照（战力随之变化）。
+   */
+  function unequipSlot(slotId) {
+    var save = state.save;
+    if (!EQUIP.hasSlot(slotId)) return;
+    var item = save.loadout[slotId];
+    if (!item) {
+      flash('这个部位本来就没穿东西', 1200);
+      return;
+    }
+    save.loadout[slotId] = null;
+    SAVE.pushItem(save, item);
+    state.stats = PLAYER.statsOf(save.level, save.loadout);
+    flash('已脱下 ' + EQUIP.labelOf(item) + '（战力 ' + state.stats.power + '）', 1600);
   }
 
   /** 一键分解：每个部位只留最强的一件，其余换成金币 */
@@ -1102,6 +1125,7 @@ G.GAME = (function () {
     else if (type === 'toggleVibrate') toggleSetting('vibrate');
     else if (type === 'openChest') openChests(action.count || 1);
     else if (type === 'equip') equipFromBag(action.itemId);
+    else if (type === 'unequip') unequipSlot(action.slotId);
     else if (type === 'salvageAll') salvageAll();
     else if (type === 'buyHorn') buyHorn();
     else if (type === 'createGuild') createGuild();
@@ -1196,6 +1220,8 @@ G.GAME = (function () {
 
     // 震屏：只偏渲染用的相机（state.camera 本身不动 → 逻辑层拿到的永远是干净坐标）
     var camera = shakeCamera(view.now);
+    // A6：世界层整体缩放一次（视角倍率）。HUD / 面板在 endWorld 之后画，尺寸不受影响。
+    RENDER.beginWorld(ctx);
     RENDER.drawGround(ctx, camera);
     RENDER.drawDecor(ctx, camera, WORLD.decorInView());
     RENDER.drawRoads(ctx, camera);
@@ -1204,7 +1230,8 @@ G.GAME = (function () {
     RENDER.drawProjectiles(ctx, camera, WORLD.projectiles());
     RENDER.drawMonsters(ctx, camera, WORLD.monstersInView(), state.player.targetId, view.now);
     RENDER.drawTargetRing(ctx, camera, view.target);
-    RENDER.drawPlayer(ctx, camera, state.player, state.stats, view.now);
+    // 装备外观：四件装备由 09-equipment 汇总成一份 look，渲染层照着画（穿什么就像什么）
+    RENDER.drawPlayer(ctx, camera, state.player, state.stats, view.now, EQUIP.lookOf(state.save.loadout));
     // 头顶名牌：角色名 + 血条（用户要求；玩家和精英怪共用同一份画法）
     RENDER.drawNameplate(ctx, camera, {
       x: state.player.x,
@@ -1220,6 +1247,7 @@ G.GAME = (function () {
     // 斩击特效画在实体之上、飘字之下：刀光要盖住怪，伤害数字又要最清楚
     RENDER.drawEffects(ctx, camera, WORLD.effects(), view.now);
     RENDER.drawDamageNumbers(ctx, camera, WORLD.damageNumbers(), WORLD.now());
+    RENDER.endWorld(ctx);
 
     INPUT.setButtons(view.buttons);
     INPUT.draw(ctx);

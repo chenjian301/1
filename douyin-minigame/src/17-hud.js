@@ -181,7 +181,17 @@ G.HUD = (function () {
       ctx.arc(button.x, button.y, button.r, 0, Math.PI * 2);
       ctx.stroke();
 
-      // 冷却：从正上方顺时针压一层暗扇形（"还剩四成"一眼可见），中间改成读秒
+      // A6：图标（每个键都有对应图形：箱 / 包 / 会 / 营 / 设 / 自动 + 斩 / 疗 / 刺 / 旋）
+      G.ICONS.button(
+        ctx,
+        button.id,
+        button.x,
+        button.y,
+        button.id.indexOf('skill') === 0 ? button.r * 1.5 : G.ICONS.size('buttonSize'),
+        locked ? '#38415a' : pressed ? '#241a05' : '#dce6ff'
+      );
+
+      // 冷却：从正上方顺时针压一层暗扇形（"还剩四成"一眼可见）—— 压在图标上，图标仍看得见
       if (cooling) {
         ctx.globalAlpha = 0.62;
         ctx.fillStyle = '#0b1020';
@@ -193,18 +203,29 @@ G.HUD = (function () {
         ctx.globalAlpha = 1;
       }
 
-      if (locked) text(ctx, '锁', button.x, button.y, 26, '#5c6b8a', 'center');
-      else if (button.remainSec > 0) text(ctx, String(button.remainSec), button.x, button.y, 26, '#ffffff', 'center');
-      else text(ctx, button.label, button.x, button.y, 30, pressed ? '#241a05' : '#dce6ff', 'center');
+      if (locked) text(ctx, '锁', button.x, button.y + button.r * 0.5, 22, '#5c6b8a', 'center');
+      else if (button.remainSec > 0) text(ctx, String(button.remainSec), button.x, button.y + button.r * 0.5, 24, '#ffffff', 'center');
 
-      // 技能键在圈下面写名字（锁着的写解锁等级）—— 功能键没有 name，不受影响
-      if (button.name) {
+      // 技能键：把「斩 / 疗 / 刺 / 旋」当左上角的小徽章（图标与键位字都要有）
+      if (button.id.indexOf('skill') === 0 && !locked) {
+        var chipX = button.x - button.r * 0.64;
+        var chipY = button.y - button.r * 0.64;
+        ctx.fillStyle = 'rgba(11,16,32,0.85)';
+        ctx.beginPath();
+        ctx.arc(chipX, chipY, 15, 0, Math.PI * 2);
+        ctx.fill();
+        text(ctx, button.label, chipX, chipY, 18, '#ffd479', 'center');
+      }
+
+      // 圈下面一行说明：技能键写技能名（锁着写解锁等级），功能键写「箱 / 包 / 会 / 营 / 设 / 自动」
+      var caption = button.name ? (locked ? 'Lv.' + button.unlockLevel : button.name) : button.label;
+      if (caption) {
         text(
           ctx,
-          locked ? 'Lv.' + button.unlockLevel : button.name,
+          caption,
           button.x,
           button.y + button.r + 14,
-          BAL.view.skillBar.nameSize,
+          button.name ? BAL.view.skillBar.nameSize : G.ICONS.size('captionSize'),
           locked ? '#8d8d8d' : cooling ? '#9fb4d8' : '#e8f1ff',
           'center'
         );

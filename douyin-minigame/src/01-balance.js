@@ -7,8 +7,8 @@
  *   powershell -ExecutionPolicy Bypass -File tools\build-minigame.ps1
  * (or simply run tools\minigame-now.cmd, which does both plus the checks)
  *
- * balance.json sha256, raw file format                  = 1b347ccc98af68a03445f34382ed13be086aeb8835adb509134f940f1efc118c
- * balance.json sha256, normalised (BOM stripped, CRLF -> LF) = db3bfb447dfa09e8866d58839da2cab470cdce32b0bfb8a60aa3766cf6e90dd5
+ * balance.json sha256, raw file format                  = d193b01d1e3eab6c92920866ed1ef04d71fc1a09e924944dfb1589ddf39d6941
+ * balance.json sha256, normalised (BOM stripped, CRLF -> LF) = 81f72e786085f7783f44d3f508d2c2ed28740101f4bc036eded8d7600d43d118
  * tools\check-minigame.ps1 fails if the normalised hash no longer matches balance.json.
  *
  * NOTE: this header is ASCII on purpose -- see tools\gen-minigame-balance.ps1.
@@ -16,7 +16,7 @@
  * the _readme line) is exactly what shared\balance.json contains.
  */
 
-G.BAL_SOURCE_SHA256 = 'db3bfb447dfa09e8866d58839da2cab470cdce32b0bfb8a60aa3766cf6e90dd5';
+G.BAL_SOURCE_SHA256 = '81f72e786085f7783f44d3f508d2c2ed28740101f4bc036eded8d7600d43d118';
 G.BAL ={
   "_readme": "唯一真相：玩法数值与掉落表（决策 #4）。客户端与服务端共读这一份，谁都不许在代码里另写一套数字。改完必须重跑 tools/test-logic.mjs。",
   "version": 1,
@@ -35,12 +35,14 @@ G.BAL ={
     "eliteMaxPerChunk": 1,
     "decorPerChunk": { "min": 8, "max": 24 },
     "landmarkChunkSpan": 5,
-    "_camp": "原点新手营地：玩家出生地 + 视觉安全区（阶段 A 只做外观，怪照样刷新）",
+    "_camp": "原点新手营地：玩家出生地 + 真正的安全区（A6 起怪物不在营地里刷新，也走不进来）",
     "camp": {
       "radius": 900,
       "plazaPlate": 96,
       "fenceRadius": 824,
       "gateWidth": 220,
+      "_monsterFree": "安全半径（A6）：装载 chunk 时跳过巢穴落在这里面的怪 —— 过滤发生在装载层，生成层的数据一个字都没动，所以世界指纹不变；已经在外面的怪走进来会被推到边上并回家",
+      "monsterFreeRadius": 900,
       "_interact": "营地交互入口（A4）：治疗按缺失血量收金币；回营地中心有短冷却 + 战斗中禁用",
       "heal": { "goldPerHp": 0.05, "minGold": 1 },
       "teleportCooldownMs": 10000
@@ -197,11 +199,9 @@ G.BAL ={
   "equipment": {
     "slots": [
       { "id": "weapon", "name": "武器", "mainStat": "attack" },
-      { "id": "helmet", "name": "头盔", "mainStat": "hp" },
-      { "id": "armor", "name": "护甲", "mainStat": "defense" },
-      { "id": "gloves", "name": "手套", "mainStat": "attack" },
-      { "id": "boots", "name": "鞋", "mainStat": "defense" },
-      { "id": "trinket", "name": "饰品", "mainStat": "hp" }
+      { "id": "armor", "name": "衣服", "mainStat": "hp" },
+      { "id": "boots", "name": "鞋子", "mainStat": "defense" },
+      { "id": "trinket", "name": "饰品", "mainStat": "critChance" }
     ],
     "tiers": [
       { "id": 1, "name": "普通", "affixes": 1, "multiplier": 1.0 },
@@ -211,9 +211,73 @@ G.BAL ={
       { "id": 5, "name": "神话", "affixes": 5, "multiplier": 3.7 },
       { "id": 6, "name": "天赐", "affixes": 5, "multiplier": 5.3, "uniqueAffix": true }
     ],
-    "mainStatBase": { "attack": 6, "hp": 40, "defense": 3 },
-    "mainStatPerLevel": { "attack": 0.9, "hp": 6.5, "defense": 0.45 },
-    "levelRequirement": { "perTier": 3, "base": 1 },
+    "_catalog": "六阶各 10 件（武器 3 / 衣服 3 / 鞋 2 / 饰品 2）共 60 件：宝箱开出来的装备就是从这里抽的。外观字段（weapon/armor/boots/trinket + 配色）由 16-render.js 画在角色身上、由 16-icons.js 画成背包内观（程序自绘，不贴图）。同一阶里越靠后越强（statMul = 1 + index*statMulPerIndex），等级门槛也越高。",
+    "mainStatBase": { "attack": 6, "hp": 40, "defense": 3, "critChance": 0.008 },
+    "mainStatPerLevel": { "attack": 0.9, "hp": 6.5, "defense": 0.45, "critChance": 0.0006 },
+    "levelRequirement": { "perTier": 3, "base": 1, "itemsPerStep": 4 },
+    "catalogStep": { "statMulPerIndex": 0.02 },
+    "catalog": [
+      { "id": "t1_woodsword", "name": "木剑", "tier": 1, "slot": "weapon", "weapon": "sword", "blade": "#c9a06a", "grip": "#7a5a38", "guard": "#b98b4e" },
+      { "id": "t1_knife", "name": "猎刀", "tier": 1, "slot": "weapon", "weapon": "dagger", "blade": "#d8dde6", "grip": "#6b4a2c", "guard": "#9aa0ad" },
+      { "id": "t1_stonehammer", "name": "石锤", "tier": 1, "slot": "weapon", "weapon": "hammer", "blade": "#9aa0ad", "grip": "#7a5a38", "guard": "#8d939c" },
+      { "id": "t1_clothrobe", "name": "粗布衣", "tier": 1, "slot": "armor", "armor": "robe", "cloth": "#8d7d63", "trim": "#c8b48c" },
+      { "id": "t1_leathera", "name": "皮革甲", "tier": 1, "slot": "armor", "armor": "leather", "cloth": "#8a5a34", "trim": "#c9a06a" },
+      { "id": "t1_hemptunic", "name": "麻布袍", "tier": 1, "slot": "armor", "armor": "tunic", "cloth": "#a99a7c", "trim": "#7d6a4a" },
+      { "id": "t1_strawsandals", "name": "草鞋", "tier": 1, "slot": "boots", "boots": "sandal", "color": "#b59a5e", "sole": "#6b5a36" },
+      { "id": "t1_clothboots", "name": "布靴", "tier": 1, "slot": "boots", "boots": "boot", "color": "#6d6a7a", "sole": "#3f3d4a" },
+      { "id": "t1_woodbeads", "name": "木珠串", "tier": 1, "slot": "trinket", "trinket": "amulet", "gem": "#c9a06a", "metal": "#7a5a38" },
+      { "id": "t1_copperring", "name": "铜指环", "tier": 1, "slot": "trinket", "trinket": "ring", "gem": "#e0a76a", "metal": "#b98b4e" },
+      { "id": "t2_ironsword", "name": "铁剑", "tier": 2, "slot": "weapon", "weapon": "sword", "blade": "#dbe4f2", "grip": "#5a3f28", "guard": "#c8ccd6" },
+      { "id": "t2_ironlance", "name": "铁枪", "tier": 2, "slot": "weapon", "weapon": "spear", "blade": "#dbe4f2", "grip": "#6b4a2c", "guard": "#c8ccd6" },
+      { "id": "t2_waraxe", "name": "战斧", "tier": 2, "slot": "weapon", "weapon": "axe", "blade": "#cfd6e2", "grip": "#5a3f28", "guard": "#8d939c" },
+      { "id": "t2_chainmail", "name": "锁子甲", "tier": 2, "slot": "armor", "armor": "mail", "cloth": "#8d939c", "trim": "#c8ccd6" },
+      { "id": "t2_ironplate", "name": "铁片胸甲", "tier": 2, "slot": "armor", "armor": "plate", "cloth": "#9aa0ad", "trim": "#dbe4f2" },
+      { "id": "t2_leathercloak", "name": "皮风衣", "tier": 2, "slot": "armor", "armor": "cloak", "cloth": "#7a5a38", "trim": "#c9a06a" },
+      { "id": "t2_irongreaves", "name": "铁靴", "tier": 2, "slot": "boots", "boots": "greave", "color": "#8d939c", "sole": "#4a4f5c" },
+      { "id": "t2_travelerboots", "name": "旅人靴", "tier": 2, "slot": "boots", "boots": "boot", "color": "#6b4a2c", "sole": "#3f2e1c" },
+      { "id": "t2_moonpendant", "name": "银月坠", "tier": 2, "slot": "trinket", "trinket": "amulet", "gem": "#dbe4f2", "metal": "#c8ccd6" },
+      { "id": "t2_ironring", "name": "铁镶戒", "tier": 2, "slot": "trinket", "trinket": "ring", "gem": "#9ad4ff", "metal": "#8d939c" },
+      { "id": "t3_fineblade", "name": "精铁长剑", "tier": 3, "slot": "weapon", "weapon": "sword", "blade": "#eaf2ff", "grip": "#3f2e1c", "guard": "#ffd479" },
+      { "id": "t3_mithrilknife", "name": "秘银短刃", "tier": 3, "slot": "weapon", "weapon": "dagger", "blade": "#cdd7ff", "grip": "#2f3a5c", "guard": "#9ad4ff" },
+      { "id": "t3_runewarhammer", "name": "符文战锤", "tier": 3, "slot": "weapon", "weapon": "hammer", "blade": "#c9a6ff", "grip": "#3f2e1c", "guard": "#ffd479" },
+      { "id": "t3_mithrilmail", "name": "秘银锁甲", "tier": 3, "slot": "armor", "armor": "mail", "cloth": "#6f8fd8", "trim": "#cdd7ff" },
+      { "id": "t3_runerobe", "name": "符文法袍", "tier": 3, "slot": "armor", "armor": "robe", "cloth": "#4f5fa8", "trim": "#c9a6ff" },
+      { "id": "t3_lionleather", "name": "狮纹皮甲", "tier": 3, "slot": "armor", "armor": "leather", "cloth": "#b57a3a", "trim": "#ffd479" },
+      { "id": "t3_galewindgreaves", "name": "疾风长靴", "tier": 3, "slot": "boots", "boots": "greave", "color": "#6f8fd8", "sole": "#2f3a5c" },
+      { "id": "t3_runegreaves", "name": "符文战靴", "tier": 3, "slot": "boots", "boots": "plateboot", "color": "#c9a6ff", "sole": "#4a3a6b" },
+      { "id": "t3_starpendant", "name": "星辉吊坠", "tier": 3, "slot": "trinket", "trinket": "amulet", "gem": "#9ad4ff", "metal": "#cdd7ff" },
+      { "id": "t3_bluering", "name": "蓝瞳指环", "tier": 3, "slot": "trinket", "trinket": "ring", "gem": "#6fd0ff", "metal": "#9aa0ad" },
+      { "id": "t4_dragonfang", "name": "龙牙巨剑", "tier": 4, "slot": "weapon", "weapon": "greatsword", "blade": "#ffd8a8", "grip": "#6b2f2f", "guard": "#ffd479" },
+      { "id": "t4_thunderlance", "name": "雷鸣长枪", "tier": 4, "slot": "weapon", "weapon": "spear", "blade": "#9ad4ff", "grip": "#2f3a5c", "guard": "#ffd479" },
+      { "id": "t4_flameaxe", "name": "烈焰战斧", "tier": 4, "slot": "weapon", "weapon": "axe", "blade": "#ff9b5a", "grip": "#5a2f1c", "guard": "#ffd479" },
+      { "id": "t4_dragonscale", "name": "龙鳞重铠", "tier": 4, "slot": "armor", "armor": "plate", "cloth": "#b8563f", "trim": "#ffd479" },
+      { "id": "t4_thunderrobe", "name": "雷霆法袍", "tier": 4, "slot": "armor", "armor": "robe", "cloth": "#3f5fa8", "trim": "#9ad4ff" },
+      { "id": "t4_shadowcloak", "name": "影袭斗篷", "tier": 4, "slot": "armor", "armor": "cloak", "cloth": "#2f2f4a", "trim": "#a9d5ff" },
+      { "id": "t4_skystepgreaves", "name": "踏空战靴", "tier": 4, "slot": "boots", "boots": "plateboot", "color": "#8d939c", "sole": "#3a2f2a" },
+      { "id": "t4_thunderboots", "name": "疾雷软靴", "tier": 4, "slot": "boots", "boots": "boot", "color": "#3f4f8c", "sole": "#2a2f4a" },
+      { "id": "t4_dragonheart", "name": "龙心坠饰", "tier": 4, "slot": "trinket", "trinket": "amulet", "gem": "#ff8a5a", "metal": "#ffd479" },
+      { "id": "t4_thundercrown", "name": "雷冠指环", "tier": 4, "slot": "trinket", "trinket": "crown", "gem": "#9ad4ff", "metal": "#ffd479" },
+      { "id": "t5_frostmoon", "name": "霜月神剑", "tier": 5, "slot": "weapon", "weapon": "greatsword", "blade": "#dff0ff", "grip": "#3a4a6b", "guard": "#9ad4ff" },
+      { "id": "t5_voidstaff", "name": "虚空法杖", "tier": 5, "slot": "weapon", "weapon": "staff", "blade": "#c9a6ff", "grip": "#33234a", "guard": "#6fd0ff" },
+      { "id": "t5_skyhammer", "name": "天陨战锤", "tier": 5, "slot": "weapon", "weapon": "hammer", "blade": "#c9a6ff", "grip": "#4a3a6b", "guard": "#ffd479" },
+      { "id": "t5_divineplate", "name": "神纹圣铠", "tier": 5, "slot": "armor", "armor": "plate", "cloth": "#e8e2c8", "trim": "#ffd479" },
+      { "id": "t5_moonrobe", "name": "月华仙袍", "tier": 5, "slot": "armor", "armor": "robe", "cloth": "#4a5fa8", "trim": "#dff0ff" },
+      { "id": "t5_stararmor", "name": "星辰战衣", "tier": 5, "slot": "armor", "armor": "mail", "cloth": "#3f4f8c", "trim": "#c9a6ff" },
+      { "id": "t5_divinegreaves", "name": "神行仙靴", "tier": 5, "slot": "boots", "boots": "greave", "color": "#dff0ff", "sole": "#4a5fa8" },
+      { "id": "t5_cloudboots", "name": "踏云靴", "tier": 5, "slot": "boots", "boots": "boot", "color": "#e8f1ff", "sole": "#8d9bb5" },
+      { "id": "t5_oracleeye", "name": "神谕之眼", "tier": 5, "slot": "trinket", "trinket": "orb", "gem": "#6fd0ff", "metal": "#dff0ff" },
+      { "id": "t5_zodiacring", "name": "星象戒", "tier": 5, "slot": "trinket", "trinket": "ring", "gem": "#c9a6ff", "metal": "#e8e2c8" },
+      { "id": "t6_destinyblade", "name": "天命之剑", "tier": 6, "slot": "weapon", "weapon": "greatsword", "blade": "#fff3d0", "grip": "#6b2f2f", "guard": "#ffd479" },
+      { "id": "t6_creationstaff", "name": "创世法杖", "tier": 6, "slot": "weapon", "weapon": "staff", "blade": "#ffe6a8", "grip": "#3a2f5c", "guard": "#ffffff" },
+      { "id": "t6_meteoraxe", "name": "星陨神斧", "tier": 6, "slot": "weapon", "weapon": "axe", "blade": "#ffd479", "grip": "#4a2f2f", "guard": "#fff3d0" },
+      { "id": "t6_blessedplate", "name": "天赐圣铠", "tier": 6, "slot": "armor", "armor": "plate", "cloth": "#ffd479", "trim": "#ffffff" },
+      { "id": "t6_apocalyprobe", "name": "天启圣袍", "tier": 6, "slot": "armor", "armor": "robe", "cloth": "#fff3d0", "trim": "#ffd479" },
+      { "id": "t6_eternalarmor", "name": "永恒战衣", "tier": 6, "slot": "armor", "armor": "mail", "cloth": "#e8e2c8", "trim": "#fff3d0" },
+      { "id": "t6_destinygreaves", "name": "天命战靴", "tier": 6, "slot": "boots", "boots": "plateboot", "color": "#ffd479", "sole": "#6b5a36" },
+      { "id": "t6_lightsteps", "name": "流光仙履", "tier": 6, "slot": "boots", "boots": "boot", "color": "#ffffff", "sole": "#ffd479" },
+      { "id": "t6_eternalheart", "name": "永恒之心", "tier": 6, "slot": "trinket", "trinket": "amulet", "gem": "#ffffff", "metal": "#ffd479" },
+      { "id": "t6_blessedring", "name": "天赐星环", "tier": 6, "slot": "trinket", "trinket": "ring", "gem": "#fff3d0", "metal": "#ffffff" }
+    ],
     "affixes": [
       { "id": "attack", "name": "攻击", "weight": 100, "min": 2, "max": 6, "percent": false },
       { "id": "hp", "name": "生命", "weight": 100, "min": 20, "max": 60, "percent": false },
@@ -303,6 +367,10 @@ G.BAL ={
 
   "view": {
     "designWidth": 720,
+    "_cameraZoom": "视角倍率（A6）：< 1 = 镜头拉远、看得更广（只缩放世界层，UI 尺寸不变）。0.8 ≈ 每边多看 25%",
+    "cameraZoom": 0.8,
+    "_icon": "程序自绘图标尺寸（A6）：功能键圆里一个、面板行左侧一个、部位格一个",
+    "icon": { "buttonSize": 42, "rowSize": 44, "captionSize": 15, "slotSize": 62 },
     "minimap": { "size": 190, "margin": 18, "chunkRadius": 3 },
     "_panel": "面板卡片：宽 = 屏宽 - leftMargin - rightReserve（rightReserve 给右下功能键让位），高 = 屏高 x heightRatio。0.79 x 0.38 约等于 1/3 屏面积",
     "panel": {
