@@ -1,0 +1,20 @@
+node_modules/
+dist/
+shots/
+logs/
+*.log
+*.local
+.DS_Store
+
+# ---------------------------------------------------------------
+# 凭据红线（2026-09-30 加）：以下任何文件都不允许进仓库。
+# 服务端凭据（DOUYIN_SECRET / SESSION_SECRET）只存在于抖音云控制台的
+# 环境变量里，代码里不写、文档里不写、聊天里不贴。见 docs/douyin-cloud-deploy.md §3.5。
+# ---------------------------------------------------------------
+.git-credentials
+.env
+.env.*
+*.pem
+*.key
+secrets.json
+*-secret*

@@ -1,0 +1,15 @@
+{
+  "name": "phaser-game-svr",
+  "version": "0.2.0",
+  "private": true,
+  "description": "抖音云后端服务（零依赖 Node HTTP）：健康检查 / 版本 / code2session 登录 + 会话令牌 / 云存档",
+  "main": "index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "smoke": "node smoke.mjs"
+  }
+}
