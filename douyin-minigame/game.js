@@ -2,7 +2,7 @@
  *
  * Assembled from douyin-minigame\src\*.js by tools\build-minigame.ps1.
  * Parts (in order): 00-config.js, 01-balance.js, 02-rng.js, 03-chunk.js, 04-terrain.js, 05-spawn.js, 06-progression.js, 07-combat.js, 07-skills.js, 08-loot.js, 09-equipment.js, 10-player.js, 11-save.js, 12-platform.js, 13-screen.js, 14-world.js, 15-input.js, 16-icons.js, 16-render.js, 17-hud.js, 18-panels.js, 19-selftest.js, 20-main.js
- * parts sha256 = caf8d7f7ade7b7210a44cda5ceb6db64dc2e130ff617f16b4235191218909b5e
+ * parts sha256 = 62b43902adc114b86ee45ddf1e940b29a17d0b65840556b7ceaffb0420222ff8
  *
  * Edit files under douyin-minigame\src\ and rebuild:
  *   powershell -ExecutionPolicy Bypass -File tools\build-minigame.ps1
@@ -73,8 +73,8 @@ G.CONFIG = {
  *   powershell -ExecutionPolicy Bypass -File tools\build-minigame.ps1
  * (or simply run tools\minigame-now.cmd, which does both plus the checks)
  *
- * balance.json sha256, raw file format                  = d193b01d1e3eab6c92920866ed1ef04d71fc1a09e924944dfb1589ddf39d6941
- * balance.json sha256, normalised (BOM stripped, CRLF -> LF) = 81f72e786085f7783f44d3f508d2c2ed28740101f4bc036eded8d7600d43d118
+ * balance.json sha256, raw file format                  = d29c8acbe5f197d10b0316e0a708ea844ea4ca1c8c446a3a1c764d032366d355
+ * balance.json sha256, normalised (BOM stripped, CRLF -> LF) = 6d240e9c7d8268988beb07c62b4310ed982f165a07f391a918fdff20686a991b
  * tools\check-minigame.ps1 fails if the normalised hash no longer matches balance.json.
  *
  * NOTE: this header is ASCII on purpose -- see tools\gen-minigame-balance.ps1.
@@ -82,7 +82,7 @@ G.CONFIG = {
  * the _readme line) is exactly what shared\balance.json contains.
  */
 
-G.BAL_SOURCE_SHA256 = '81f72e786085f7783f44d3f508d2c2ed28740101f4bc036eded8d7600d43d118';
+G.BAL_SOURCE_SHA256 = '6d240e9c7d8268988beb07c62b4310ed982f165a07f391a918fdff20686a991b';
 G.BAL ={
   "_readme": "唯一真相：玩法数值与掉落表（决策 #4）。客户端与服务端共读这一份，谁都不许在代码里另写一套数字。改完必须重跑 tools/test-logic.mjs。",
   "version": 1,
@@ -95,7 +95,8 @@ G.BAL ={
   "world": {
     "chunkSize": 512,
     "bandSize": 1000,
-    "tileSize": 64,
+    "_tileSize": "一张地表块的边长（世界单位）：chunk 内的地表网格 = chunkSize / tileSize。64 = 8×8、块边长 102 世界单位（手机上约 42 CSS px，肉眼就是\"方块\"）；32 = 16×16、块边长 51，配上 16-render 的亮暗档与细纹（土斑 / 草籽）就看不到像素块了。只影响渲染，不影响世界指纹。",
+    "tileSize": 32,
     "monstersPerChunk": { "min": 1, "max": 3 },
     "eliteChance": 0.08,
     "eliteMaxPerChunk": 1,
@@ -111,7 +112,9 @@ G.BAL ={
       "monsterFreeRadius": 900,
       "_interact": "营地交互入口（A4）：治疗按缺失血量收金币；回营地中心有短冷却 + 战斗中禁用",
       "heal": { "goldPerHp": 0.05, "minGold": 1 },
-      "teleportCooldownMs": 10000
+      "teleportCooldownMs": 10000,
+      "_smith": "营地铁匠（本次新增，用户要求「在公会营地里增加铁匠NPC，可以进行装备强化」）：他是营地里**一件手工摆位的道具**（kind = forge，坐标写在 04-terrain 的 CAMP_PROPS —— 和帐篷 / 篝火 / 木牌一样不消耗任何随机流，所以世界指纹不变），画法在 16-render 的 drawForge。走到他 talkRadius 以内时，20-main 按相机把这条线投影到屏幕上、多出一枚「锻」圆键（点它开强化面板）；营地面板里也有一行同样的入口 —— 两条路都进 18-panels 的 enhance 面板",
+      "smith": { "talkRadius": 260 }
     },
     "_road": "路网：每 spanChunks 个 chunk 一个节点，节点连成 L 形小径（确定性，纯哈希）",
     "road": { "spanChunks": 6, "width": 46, "jitterChunks": 0.35 },
@@ -239,8 +242,9 @@ G.BAL ={
     "targetIntervalMs": 100,
     "firstHitProtectionMs": 0,
     "damageShareGate": 0,
-    "visionRange": 540,
-"knockbackDecayPerTick": 0.18,
+    "_targetRange": "选目标的距离上限（设计像素）：**0 = 不限距离** —— 在已装载的全部怪里找最近的那只（用户要求：自动战斗盯\"全地图最近的怪\"，而不是只看视野内）。调成正数就退回\"只看眼前一圈\"，自动走位也只会在圈里找。",
+    "targetRange": 0,
+    "knockbackDecayPerTick": 0.18,
     "projectileMs": 220,
     "monsterKnockback": 60,
     "playerKnockback": 150,
@@ -259,7 +263,8 @@ G.BAL ={
     ],
     "drop": { "base": 0.08, "perBand": 0.01, "cap": 0.2, "elite": 0.25, "eliteMinTier": 2 },
     "pity": { "epic": 50, "mythic": 500 },
-    "bagCap": 200
+    "bagCap": 200,
+    "_autoOpen": "自动开启（A14，用户：\"宝箱可以设置是否自动开启——对应不同等阶不同的开启按钮\"）：**一阶一枚勾选**，勾上的那一阶一掉出来就当场开掉（`20-main.autoOpenChest`：照旧先出装备再结算，只是不经过背包 —— 于是也不吃 bagCap），没勾的照旧进背包等玩家点。开关表存在存档 `settings.chestAuto`（默认**全关**，写在 11-save 的 defaultSettings：不设的时候行为与 A13 一模一样），判定走 08-loot 的 `autoEnabled`。对应的**开启按钮也是一阶一枚**：宝箱清单每行右侧那枚「全开」，由 20-main 的 `openChestsOfTier` 把这**一阶**的箱子全开掉（颜色用该阶的阶色）"
   },
 
   "equipment": {
@@ -270,13 +275,14 @@ G.BAL ={
       { "id": "trinket", "name": "饰品", "mainStat": "critChance" }
     ],
     "tiers": [
-      { "id": 1, "name": "普通", "affixes": 1, "multiplier": 1.0 },
-      { "id": 2, "name": "专家", "affixes": 2, "multiplier": 1.35 },
-      { "id": 3, "name": "史诗", "affixes": 3, "multiplier": 1.85 },
-      { "id": 4, "name": "传说", "affixes": 4, "multiplier": 2.6 },
-      { "id": 5, "name": "神话", "affixes": 5, "multiplier": 3.7 },
-      { "id": 6, "name": "天赐", "affixes": 5, "multiplier": 5.3, "uniqueAffix": true }
+      { "id": 1, "name": "普通", "affixes": 1, "multiplier": 1.0, "glow": ["#ffffff"] },
+      { "id": 2, "name": "专家", "affixes": 2, "multiplier": 1.35, "glow": ["#3f8cff"] },
+      { "id": 3, "name": "史诗", "affixes": 3, "multiplier": 1.85, "glow": ["#a855f7"] },
+      { "id": 4, "name": "传说", "affixes": 4, "multiplier": 2.6, "glow": ["#ffd479"] },
+      { "id": 5, "name": "神话", "affixes": 5, "multiplier": 3.7, "glow": ["#ff4d4d"] },
+      { "id": 6, "name": "天赐", "affixes": 5, "multiplier": 5.3, "uniqueAffix": true, "glow": ["#ff4d4d", "#ffa64d", "#ffe066", "#5ce65c", "#4dc3ff", "#b06bff"] }
     ],
+    "_glow": "六阶**发光色**（用户：\"给不同等阶的装备添加发光颜色，分别为白色，蓝色，紫色，金色，红色，炫彩\"）：颜色挂在这一阶的 glow 上（一阶一个颜色，六阶天赐是一串 = **炫彩**），由 16-icons 的 frame / glowRing 给装备格 / 背包格 / 箱子格画外发光，背包面板的角色预览也取**身上最高那一阶**画一束光。画法规格在 view.iconGlow。**阶色**（16-icons 的 TIER_COLORS：框的描边与名字颜色）是另一件事 —— 框还是阶色，发光是后加的一层，两者不要混成一件",
     "_catalog": "六阶各 10 件（武器 3 / 衣服 3 / 鞋 2 / 饰品 2）共 60 件：宝箱开出来的装备就是从这里抽的。外观字段（weapon/armor/boots/trinket + 配色）由 16-render.js 画在角色身上、由 16-icons.js 画成背包内观（程序自绘，不贴图）。同一阶里越靠后越强（statMul = 1 + index*statMulPerIndex），等级门槛也越高。",
     "mainStatBase": { "attack": 6, "hp": 40, "defense": 3, "critChance": 0.008 },
     "mainStatPerLevel": { "attack": 0.9, "hp": 6.5, "defense": 0.45, "critChance": 0.0006 },
@@ -373,7 +379,9 @@ G.BAL ={
   },
 
   "shop": {
-    "horn": { "id": "guild_horn", "name": "公会号角", "priceGold": 500 }
+    "_readme": "商城（A4 起）：一件货一个价，买卖只在 20-main 里做（金币只在那里扣）。horn = 建公会用；stone = 铁匠强化用（本次新增，100 金币一颗）",
+    "horn": { "id": "guild_horn", "name": "公会号角", "priceGold": 500 },
+    "stone": { "id": "enhance_stone", "name": "强化石", "priceGold": 100 }
   },
 
   "guild": {
@@ -382,11 +390,26 @@ G.BAL ={
     "teleportCooldownMs": 300000,
     "teleportCombatLockMs": 3000,
     "unlockLevel": 20,
-    "shopUnlockLevel": 20
+    "shopUnlockLevel": 20,
+    "_readme": "公会（本次新增，用户要求「创建公会需要自己输入公会名，公会页面显示公会人员、公会等级、公会信息」）：名字与昵称**同一套字符规则**（nameMin/nameMax，上服务端时服务端再验一遍 —— 客户端那份管手感，服务端那份管权威）；memberCap = 人数上限（含会长）；levelDivisor / levelCap = 公会**等级**的唯一算法：level = 1 + floor(成员等级之和 / levelDivisor)，封顶 levelCap —— 用成员等级而不是另立一套公会经验，是因为服务端**本来就存着每个账号的存档**（saves 表里有 level），于是\"公会多强\"不需要任何新的上报接口，也不能被客户端伪造；onlineWindowMs = 多久没跟服务端说过话就算离线（服务端自己的 presence 窗口，两边用同一个数）；syncIntervalMs = 公会面板打开时自动刷新服务端成员的间隔",
+    "nameMin": 2,
+    "nameMax": 12,
+    "levelDivisor": 100,
+    "levelCap": 10,
+    "onlineWindowMs": 120000,
+    "syncIntervalMs": 15000
+  },
+
+  "enhance": {
+    "_readme": "铁匠强化（本次新增，用户要求「强化等级+1到+10，每次强化消耗强化石，强化石可以在商城购买（100金币一个），强化等级越高消耗的强化石越多，比如+1需要1个，+2需要2个，+3需要4个，依此类推」）：**每级翻倍**（baseStones x growth^当前等级），所以 +0 升到 +10 一共 1+2+4+...+512 = 1023 颗。每一级给这件装备的**主属性**再加 statPerLevel（0.1 = 每级 +10%，+10 正好翻倍），战力随主属性重算 —— 于是「强化」和「换装备」是同一把尺子（背包里的 ↑↓ 直接可读）。等级存在**装备自己身上**（item.enhance），所以它跟着这件装备走：卖了就没了、换一件就是另一套等级。规则本身只有 09-equipment 一处实现，20-main 的 enhanceItem 是唯一改存档的入口",
+    "maxLevel": 10,
+    "baseStones": 1,
+    "growth": 2,
+    "statPerLevel": 0.1
   },
 
   "auto": {
-    "_readme": "自动战斗按钮（A4）：开启后自动走向视野内最近的怪，进攻击距离就站住（出手仍由 14-world 的自动攻击负责）",
+    "_readme": "自动战斗按钮（A4）：开启后自动走向全地图最近的怪（combat.targetRange = 0 = 不限距离），进攻击距离就站住（出手仍由 14-world 的自动攻击负责）",
     "moveStopRatio": 0.82,
     "retargetMs": 500
   },
@@ -420,48 +443,117 @@ G.BAL ={
   },
 
   "input": {
-    "stickRadius": 72,
+    "stickRadius": 160,
     "knobDiameter": 34,
     "deadZone": 0.18,
     "pressFeedbackMs": 140,
-    "zoneWidthRatio": 0.42,
-    "zoneHeightRatio": 0.52,
+    "zoneWidthRatio": 1,
+    "zoneHeightRatio": 0.68,
     "attackButtonDiameter": 96,
-    "attackButtonMargin": 28,
     "autoButtonDiameter": 96
   },
 
   "view": {
     "designWidth": 720,
-    "_cameraZoom": "视角倍率（A6）：< 1 = 镜头拉远、看得更广（只缩放世界层，UI 尺寸不变）。0.8 ≈ 每边多看 25%",
-    "cameraZoom": 0.8,
+    "_cameraTiers": "视角档位（A11，用户：\"地图、相机视角还需要优化，需要让地图更加细节，玩家视角更加清晰\"）：每档由**一屏横向多少格**定义，zoom = designWidth / (tiles × world.tileSize)（自检逐档验这个等式）。lodBlockTiles = 这一档宏观地表的色格边长（**按 tile 数**，1 = 逐格）；每档的细节与代价见 lodBlockTiles / lodBlend 的说明。cameraTier 是启动档位（0 远 / 1 中 / 2 近）—— **A11 之三起默认改成近档**（默认一屏 22 格离它最近；换档同时把缩放轴放到那一档的格数上，两个入口因此永远指向同一个倍率），运行时由存档里的 settings.zoomTier 覆盖",
+    "cameraTiers": [
+      { "id": "far", "name": "远", "tiles": 128, "zoom": 0.17578125, "lodBlockTiles": 4, "loadRing": 1 },
+      { "id": "mid", "name": "中", "tiles": 64, "zoom": 0.3515625, "lodBlockTiles": 1, "loadRing": 2 },
+      { "id": "near", "name": "近", "tiles": 32, "zoom": 0.703125, "lodBlockTiles": 1, "loadRing": 2 }
+    ],
+    "cameraTier": 2,
+    "_zoomTiles": "视角缩放轴当前值（A11 之二，用户：\"玩家设置中添加视角缩放滚动轴，可以缩到16-64\"）：单位是**一屏横向多少格**，运行时倍率唯一的来源 —— zoom = designWidth / (zoomTiles × world.tileSize)。正落在某个预设档位上时（zoomTiles == 那一档的 tiles）直接返回表里的 zoom，所以 128 / 64 / 32 这三个标准值永远是精确数（自检逐档验这条等式）；拖到两档之间才现算。设置面板里的滚动轴写它，存档 settings.zoomTiles 记它。**A11 之三：默认值 = 用户指定的 22 格**（比近档 32 格再近一档：人物更大、脚下地表的斑驳看得更清；22 不是预设档位，档名因此如实显示「自定义」，而不是硬套一个「近」）",
+    "zoomTiles": 22,
+    "_zoomSlider": "视角缩放轴（设置面板里那一行可以拖的滑动条，A11 之二）：minTiles ~ maxTiles = 用户指定的 16 ~ 64 格（左 = 拉近看细节、右 = 拉远看范围），**按整格走**（一屏 16..64 格 = 49 个位置，界面上的数始终是整数）。trackHeight / knobRadius / endPad 是画法规格：endPad = 圆钮圆心离轨道两端的距离（>= knobRadius，保证滑到头时圆钮也不越出轨道）。minTiles 同时是**硬下限**（再近一屏就装不下 2x2 个 chunk，怪会贴到脸上）；maxTiles 只限制**滑块** —— 远档 128 格仍由 cameraTiers 的预设提供（本版没有界面入口，留给工具与自检）",
+    "zoomSlider": { "minTiles": 16, "maxTiles": 64, "trackHeight": 22, "knobRadius": 20, "endPad": 26 },
+    "_lodZoom": "地表 / 装饰的细节档（A8）：zoom 低于此值时一格已不足 ~9 CSS px，16×16 的逐格色档、土斑、一件一件的装饰全是亚像素噪点 —— 地表改成按本档的 lodBlocks 粗抽样 + 同色跨 chunk 批量落笔，装饰改成宏观斑（见 lodDecorBlobs）。**三个视角档位里只有远(0.176)与中(0.352)低于它**，近档(0.703)走真正的逐格档。没有这一档，128 格视野会把地表落笔从 62 顶到 ~700，直接把 900 的预算吃掉",
+    "lodZoom": 0.5,
+    "_actorMinZoom": "演员层最小观感倍率（A9，用户：\"还有人物的大小\"）：zoom 低于它时，**点状的东西**（角色 / 怪的身体与影子 / 身上的动画 / 选中与仇恨指示 / 弹道）按 actorMinZoom / zoom 反向放大，观感不再低于这个倍率。0.8 = 与 A6 时代的角色一样大（手机上直径 ~20 CSS px）—— **三个视角档位下角色都是这个大小**（远档放大 4.55 倍、中档 2.27 倍、近档 1.14 倍），所以换档只换\"看得到多少地\"，不换\"我看得清不清\"。**面状的东西一律不放大**：地表 / 路 / 营地 / 地标 / 攻击范围与 AoE 环仍是世界尺寸 —— 所以攻击范围环在宏观视角下会被放大的身体盖住，那时干脆不画它",
+    "actorMinZoom": 0.8,
+    "_lodBlockTiles": "宏观档色格的边长（**按 tile 数**算，A11）：远档 4 格（手机上 11.7 CSS px，再细就是亚像素噪点）、中档 **1 格**（= 逐格采样，手机上 5.9 CSS px —— 同样是\"一屏\"，地表的斑驳比远档细一倍）、近档 1 格（它其实走逐格档，见 lodZoom）。色格少了对比就会糊，所以每一档都往本主题的主色混 view.lodBlend 收一收（见 16-render 的 macroColors）",
+    "lodBlend": 0.45,
+    "_lodDecorBlobs": "宏观档的装饰斑（A9）：每 chunk 最多几个\"草甸 / 石滩 / 林地\"斑（由该 chunk **真实的**装饰流聚合而来，见 TERRAIN.decorBlobs）—— 装饰不再一件一件画（亚像素噪点），但植被结构在 128 格视野里看得出来。0 = 退回\"远距没有装饰\"",
+    "lodDecorBlobs": 2,
     "_icon": "程序自绘图标尺寸（A6）：功能键圆里一个、面板行左侧一个、部位格一个",
-    "icon": { "buttonSize": 42, "rowSize": 44, "captionSize": 15, "slotSize": 62 },
-    "minimap": { "size": 190, "margin": 18, "chunkRadius": 3 },
-    "_panel": "面板卡片：宽 = 屏宽 - leftMargin - rightReserve（rightReserve 给右下功能键让位），高 = 屏高 x heightRatio。0.79 x 0.38 约等于 1/3 屏面积",
+    "icon": { "buttonSize": 57, "rowSize": 80, "captionSize": 17, "slotSize": 60 },
+    "_iconGlow": "装备等阶发光的画法规格（用户：\"给不同等阶的装备添加发光颜色，分别为白色，蓝色，紫色，金色，红色，炫彩\"）：颜色本身在 equipment.tiers[].glow（那是装备的属性），这里只有\"怎么画\" —— enabled = 总开关（关掉就退回\"只有阶色描边\"，自检会验这一条）、layers = 往外画几层八角环（越外越淡）、spreadRatio = 最外一层的外扩量（= 框边长 × 它 —— 背包格 / 装备槽 / 行图标的尺寸不同，按比例才不会一大一小）、lineWidth = 每层描边的粗细、alpha = 最内一层的不透明度、pulseMs + pulseAmp = 呼吸的周期与幅度（**三角波**，16-icons 是 trig-free 的，不许用 sin）、spinMs = 炫彩阶每过这么久换一个颜色格（层与层再错开一位 = 看着像在流动）、haloRadiusMul + haloLayers + haloAlpha = 角色预览脚下那束光（半径 = 面板的 heroRadius × haloRadiusMul，颜色取身上最高那一阶）",
+    "iconGlow": {
+      "enabled": true,
+      "layers": 3,
+      "spreadRatio": 0.09,
+      "lineWidth": 2,
+      "alpha": 0.42,
+      "pulseMs": 1500,
+      "pulseAmp": 0.45,
+      "spinMs": 900,
+      "haloRadiusMul": 1.9,
+      "haloLayers": 3,
+      "haloAlpha": 0.22
+    },
+    "minimap": { "size": 252, "margin": 39, "chunkRadius": 3 },
+    "_panel": "面板卡片：宽 = 屏宽 - leftMargin - rightReserve（rightReserve 给右下功能键让位），高 = 屏高 x heightRatio。**2026-10-01 用户布局改动：heightRatio 0.42 -> 0.66**（卡片从「约 1/3 屏」变成「约 2/3 屏高」：0.90 宽 x 0.66 高 约等于 59% 屏面积）。目的很直白 —— 背包内容约 1492 设计 px，卡片里的视口从 ~580 变成 ~964，少滚一截；底边仍然压在整条吸底动作栏之上（实测 1284 <= 1304 设计单位，再高就要压到功能键了）。想回老样子就把 heightRatio 改回 0.42",
     "panel": {
-      "leftMargin": 24,
-      "rightReserve": 124,
-      "heightRatio": 0.38,
-      "headerHeight": 78,
-      "rowHeight": 62,
+      "leftMargin": 25,
+      "rightReserve": 48,
+      "_leftReserve": "卡片左边再让出的宽度（本次新增）：= 左侧边栏的整条宽度（圆心 62 + 半径 41 + 底板 pad 12 = 115，再留一点缝）。**为什么必须让**：20-main 的三层触摸路由是\"卡片优先于输入层\"，卡片盖住侧边栏就等于侧边栏点不到；让开之后侧边栏永远露在卡片外（自检有一条断言盯着这条缝）。改侧边栏的 left / radius / pad 时这个数要跟着改",
+      "leftReserve": 115,
+      "heightRatio": 0.66,
+      "headerHeight": 92,
+      "rowHeight": 120,
       "touchSlop": 12,
-      "dimAlpha": 0.32
+      "dimAlpha": 0.32,
+      "_layout": "面板内的版面尺寸（A10，用户要求\"背包 / 宝箱 / 属性做成参考图那样\"）：背包 = 角色预览（四角四个装备槽）+ 技能自动释放条 + gridRows × gridColumns 的背包格 + statColumns 列的属性网格；宝箱 = 两个大按钮 + 两条保底进度条 + **六阶宝箱清单**（A13，用户：\"宝箱背包不需要格子，直接放不同等阶宝箱×数量\"：一阶一行 = 阶色箱子 + 阶名 + × 数量 + 掉落占比，固定 chestTierHeight × 六行，**没有的阶也照样占一行**；箱子格与六阶图例在 A13 撤掉了 —— 清单一行就把\"哪一阶、几个、多少概率\"说完）；属性 = 头像抬头 + 一行一张的属性卡（图标 + 数值 + 基础/装备）；宝箱清单每行右侧还有**两枚按阶的控件**（A14，用户：\"宝箱可以设置是否自动开启——对应不同等阶不同的开启按钮\"）：一枚「全开」按钮（chestOpenWidth × chestOpenHeight，开掉**这一阶**的全部箱子）+ 一枚「自动」勾选（chestAutoSide 的方框，勾上 = 这一阶掉出来就当场开），两者之间留 chestControlGap，数量文字排在它们左边。**尺寸只在这里改**，18-panels 只负责按它排版",
+      "layout": {
+        "cellGap": 8,
+        "slotSize": 110,
+        "slotInset": 16,
+        "previewHeight": 340,
+        "heroRadius": 70,
+        "skillChipHeight": 84,
+        "titleHeight": 44,
+        "gridColumns": 5,
+        "gridRows": 3,
+        "gridCellHeight": 118,
+        "statColumns": 2,
+        "statCellHeight": 54,
+        "statCardHeight": 92,
+        "chestTierHeight": 92,
+        "chestOpenWidth": 104,
+        "chestOpenHeight": 62,
+        "chestAutoSide": 32,
+        "chestControlGap": 16,
+        "bigButtonHeight": 92,
+        "barHeight": 28,
+        "iconSize": 44
+      }
     },
     "nameplate": { "barWidth": 104, "barHeight": 10, "offsetY": 30 },
-    "hud": { "avatarRadius": 40, "expBarHeight": 20, "buttonLift": 46 },
-    "_skillBar": "技能栏（A5）：四个技能键排在右下功能键左侧、与最低那个功能键同一行；半径/间距都在这里",
-    "skillBar": { "radius": 34, "gap": 12, "nameSize": 17 },
+    "_hud": "吸底动作栏（A7）：经验条 —— barGap —— 技能栏 —— rowGap —— 功能图标栏，四层叠在一起；captionGap 是圆键旁边那行说明文字离圆的距离（算两行行距用的是同一个数）",
+    "hud": { "avatarRadius": 45, "expBarHeight": 23, "barGap": 31, "captionGap": 10, "rowGap": 4 },
+    "_skillBar": "技能栏（A7）：四个技能键**贴屏幕最底**（经验条正上方）、整排靠屏幕右边；margin 是整排右边离屏边的距离；技能名画在圆**上方**。A10 起每个键的右上角再挂一个「自动释放」勾选框（autoBox：side = 边长，offsetX / offsetY = 框心相对圆心的偏移，按半径的比例算 —— 0.7 × 0.7 的斜对角正好落在圆周上），勾上的那个才会被自动战斗放出去",
+    "skillBar": { "radius": 53, "gap": 60, "nameSize": 13, "margin": 59, "autoBox": { "side": 38, "offsetX": 0.7, "offsetY": 0.7 } },
+    "_functionBar": "功能图标栏（A7）：箱 / 包 / 会 / 设 / 自动，站在营地里再多一个「营」（占最左那个槽位）—— slots 是**固定**槽位数（整排按它居中），所以进出营地时其余键一个都不动。**2026-10-01 用户布局改动：slots 6 -> 7**：营地外那 5 个键因此正好居中（占槽位 1..5）。**A15 新增（商城键）：箱 / 包 / 会 / 设 / 自动 / 商 占槽位 1..6，gap 35 -> 20**（**本次改动：那枚「商」挪去了左边侧边栏**，所以这一行只剩 箱 / 包 / 会 / 设 / 自动 —— slot 6 空着，其余键的坐标一个都没动；侧边栏见 `_sideBar`） —— 新来的那枚「商」写死占槽位 6（与「营」写死占槽位 0 同一条纪律：进出营地 / 开关面板时其余键的坐标一个都不动），可是整排宽 = slots x 2 x radius + (slots-1) x gap = 7x82 + 6x35 = 784 设计单位 > 屏宽 720，槽位 6 的圆心会被推到屏外 32 单位（一小半按不到），于是整排收窄一档：7x82 + 6x20 = 694 设计单位 <= 720，营地外的 6 个键与营地里的「营」（槽位 0，圆心 x = 54）整套都在屏内 —— 上一版那个已知代价（「营」露在屏幕左边外 32 设计单位）也顺手消掉了",
+    "functionBar": { "slots": 7, "radius": 41, "gap": 20 },
+    "_sideBar": "左侧边栏（本次新增，用户要求「回到营地按钮设置在左边侧边栏，商城下面」）：贴左边缘**竖着排**的圆键 —— 上面那枚是「商」（商城），它下面那枚是「营」（回营地）。它与底部功能栏共用同一套画法与命中表（圆 + 圆下方说明），只是排成了一列。left = 圆心离左边屏幕的距离；top = 第一枚键的**上沿**离 `HUD.plateHeight()` 的距离（取 18 = 与面板卡片顶边齐平：卡片也是 plateHeight + 18 起画，于是侧边栏的第一枚键与卡片抬头在同一条水平线上）；gap = 两枚圆的间距 —— 它比功能栏的 20 大得多，因为这一列要**塞得下圆下方那行说明文字**（captionGap + captionSize ≈ 27），否则第二枚的圆会压到第一枚的字上；pad = 那条半透明底板的四周余量（`HUD.sideBarRect` 由第一枚与最后一枚键推出来）。**代价只有一处**：面板卡片要在左边让出这么宽（view.panel.leftReserve），否则卡片会盖住侧边栏（20-main 的三层路由先给卡片，盖住就等于点不到）",
+    "sideBar": { "radius": 41, "gap": 58, "left": 62, "top": 18, "pad": 12 },
     "damageNumberMs": 700,
-    "_feel": "打击感（A4）：斩击特效时长 / 受击顿帧 / 暴击震屏 —— 都是表现层，不进任何随机流",
+    "_feel": "打击感（A4）：斩击特效时长 / 受击顿帧 / 暴击震屏 —— 都是表现层，不进任何随机流。A7 修订 2（用户：去掉受伤震屏）：shake 只剩暴击那一档，挨打仍有 30ms 顿帧 + 音效 + 手机震动，但不再抖屏幕 —— 所以这里没有 hurtMs / hurtPower",
     "slashMs": 220,
     "slashCap": 24,
     "hitStopMs": { "normal": 45, "crit": 110, "hurt": 30 },
-    "shake": { "critMs": 240, "critPower": 26, "hurtMs": 150, "hurtPower": 12 },
-"cameraLerpPerTick": 0.22,
+    "shake": { "critMs": 240, "critPower": 26 },
+    "_cameraLerpPerTick": "相机跟随的插值比例（每逻辑帧）：1 = **锁定**，每帧直接把相机放到玩家位置上（角色恒在屏幕正中，A11 之三 用户：\"视角没有锁定以角色为中心\"）；小于 1 = 缓动跟随（镜头落后玩家一点点，换来坐标跳变时的顺滑）。**这个数只在\"缓动\"时才有意义** —— 传送 / 复活 / 读档 / 换档 / 拖缩放轴都走 snapCamera 直接贴合，所以缓动再小也不会把镜头丢在后面",
+    "cameraLerpPerTick": 1,
+    "_cameraLook": "相机前瞻（A11）：镜头往\"正在走的方向 / 正在打的目标\"前移 cameraLookAhead 世界单位（每逻辑帧按 cameraLookLerp 插值），屏幕正中因此是\"我 + 我要去的地方\"。**纯表现**：只动渲染用的相机，逻辑层读到的玩家坐标一个字节都不变（传送 / 复活 / 读档时前瞻归零）。**A11 之三：关掉了（= 0）** —— 用户原话\"视角没有锁定以角色为中心\"。原因：0.175 的远档里 240 单位只占半屏的 5.9%（看不出），但默认一屏 22 格时它占半屏的 **34%**、16 格时 47%，角色会被推到屏幕边上。锁定以角色为中心是硬要求，机制留着（改成非 0 就恢复），规则见 04-decisions #22",
+    "cameraLookAhead": 0,
+    "cameraLookLerp": 0.06,
+    "_playerMark": "玩家标记（A11）：脚下常亮的一圈细环 + 四个刻度，**屏幕尺寸恒定**（不随视角档位变）—— 任何档位都能一眼找到\"我\"。它是指示物不是范围，所以按屏幕尺寸画（与名牌 / 血条同一条纪律）",
+    "playerMarkRadius": 30,
+    "playerMarkWidth": 2.5,
     "autosaveMs": 5000,
-    "safeBottom": 120,
-    "safeTop": 96,
+    "safeBottom": 0,
+    "safeTop": 0,
+    "_loadRingChunks": "装载环的兜底半径（A11 起通常走档位里的 loadRing）：以玩家所在 chunk 为中心预载几圈 —— 跨 chunk 时画面才不会突然空一块。环越大，视野里\"有装饰有怪\"的范围越大，代价是同时装载的 chunk（与怪）更多",
     "loadRingChunks": 1,
     "chunkCacheLimit": 48,
     "hudDamageNumberCap": 40
@@ -810,7 +902,7 @@ G.TERRAIN = (function () {
   /** 每种用途一个盐值：同一 chunk 里"怪"和"装饰"的随机流互不干扰 */
   var TERRAIN_SALT = 0x7e11a1;
 
-  /** chunk 内每张地表块的噪声网格边长：512 / 64 = 8×8 块 */
+  /** chunk 内每张地表块的噪声网格边长：`chunkSize / world.tileSize`（A7 修订后 512 / 32 = 16×16 块） */
   function tileCountPerChunk() {
     return Math.max(1, Math.round(CHUNK.CHUNK_SIZE / BAL.world.tileSize));
   }
@@ -854,6 +946,102 @@ G.TERRAIN = (function () {
     return out;
   }
 
+  /**
+   * 宏观斑的取值口径（A9）：一个斑至少要 2 件装饰才画（1 件的"斑"只是噪点），
+   * 半径 48~150 世界单位（在 128 格视野下 = 8~26 设计 px = 4~14 CSS px 的可见圆点）。
+   */
+  var DECOR_BLOB_MIN_COUNT = 2;
+  var DECOR_BLOB_MIN_RADIUS = 48;
+  var DECOR_BLOB_MAX_RADIUS = 150;
+
+  /**
+   * 把一个 chunk 的装饰**聚合**成最多 `maxBlobs` 个宏观斑（A9，渲染层在远距档用它代替逐件装饰）。
+   *
+   * 为什么这么做：一屏 128 格时，一件装饰只有 1~2 CSS px（纯噪点），逐件画既看不见又贵；
+   * 但"这里是一片林子"这种事在宏观视角下**看得出来**。于是把同一个 chunk 的装饰按种类聚合：
+   * 每种算出质心（sumX/count）与散布（bbox），画成一个斑 —— 草甸 / 石滩 / 林地于是有了形状。
+   *
+   * 关键约束：本函数按 `buildChunkDecor` **完全相同的调用顺序**跑同一条随机流（只是不建对象、只累加），
+   * 所以"远看那片林子"就是"走过去看到的那片林子"的粗抽样，不是另画一套示意 —— 走进去不会"树没了"。
+   * 它只**读**装饰流，不产生任何新数据，因此不参与世界指纹。
+   *
+   * 返回 `[{ kind, x, y, r, count }]`，按数量从多到少（最多 maxBlobs 项；每种最多出现一次）。
+   */
+  function decorBlobs(seed, cx, cy, band, maxBlobs) {
+    var rng = RNG.chunkRng(seed, cx, cy, TERRAIN_SALT);
+    var theme = themeForBand(band);
+    var count = rng.int(BAL.world.decorPerChunk.min, BAL.world.decorPerChunk.max);
+    var originX = CHUNK.chunkOrigin(cx);
+    var originY = CHUNK.chunkOrigin(cy);
+    var margin = 24;
+    var kinds = DECOR_ORDER.length;
+    var sumX = [];
+    var sumY = [];
+    var seen = [];
+    var minX = [];
+    var maxX = [];
+    var minY = [];
+    var maxY = [];
+    var k;
+    for (k = 0; k < kinds; k += 1) {
+      sumX[k] = 0;
+      sumY[k] = 0;
+      seen[k] = 0;
+      minX[k] = 0;
+      maxX[k] = 0;
+      minY[k] = 0;
+      maxY[k] = 0;
+    }
+
+    for (var i = 0; i < count; i += 1) {
+      var index = rng.weightedIndex(theme.decorWeights);
+      var x = originX + rng.float(margin, CHUNK.CHUNK_SIZE - margin);
+      var y = originY + rng.float(margin, CHUNK.CHUNK_SIZE - margin);
+      // size / flip 是 buildChunkDecor 也会取的数：聚合用不到，但必须照样消费，否则流会错位
+      rng.rounded(0.8, 1.4, 2);
+      rng.chance(0.5);
+
+      if (seen[index] === 0) {
+        minX[index] = x;
+        maxX[index] = x;
+        minY[index] = y;
+        maxY[index] = y;
+      } else {
+        if (x < minX[index]) minX[index] = x;
+        if (x > maxX[index]) maxX[index] = x;
+        if (y < minY[index]) minY[index] = y;
+        if (y > maxY[index]) maxY[index] = y;
+      }
+      sumX[index] += x;
+      sumY[index] += y;
+      seen[index] += 1;
+    }
+
+    var limit = Math.max(1, Math.round(maxBlobs || 1));
+    var out = [];
+    while (out.length < limit) {
+      var best = -1;
+      for (k = 0; k < kinds; k += 1) {
+        if (seen[k] < DECOR_BLOB_MIN_COUNT) continue;
+        if (best < 0 || seen[k] > seen[best]) best = k;
+      }
+      if (best < 0) break;
+      var spread = ((maxX[best] - minX[best]) + (maxY[best] - minY[best])) / 2;
+      var radius = 0.3 * spread + 9 * seen[best];
+      if (radius < DECOR_BLOB_MIN_RADIUS) radius = DECOR_BLOB_MIN_RADIUS;
+      if (radius > DECOR_BLOB_MAX_RADIUS) radius = DECOR_BLOB_MAX_RADIUS;
+      out.push({
+        kind: DECOR_ORDER[best],
+        x: sumX[best] / seen[best],
+        y: sumY[best] / seen[best],
+        r: radius,
+        count: seen[best]
+      });
+      seen[best] = 0; // 已用掉，避免下一轮又选中它
+    }
+    return out;
+  }
+
   /* ---------------------------------------------------------------- 新手营地（原点） */
 
   /**
@@ -887,12 +1075,30 @@ G.TERRAIN = (function () {
     { kind: 'crate', x: 248, y: 302, scale: 0.95 },
     { kind: 'crate', x: 300, y: 246, scale: 0.8 },
     { kind: 'stump', x: -246, y: 384, scale: 1 },
-    { kind: 'stump', x: -302, y: 318, scale: 0.85 }
+    { kind: 'stump', x: -302, y: 318, scale: 0.85 },
+    /**
+     * 铁匠（本次新增）：营地里唯一的 NPC —— 一件**手工摆位的道具**（与帐篷 / 篝火一样，
+     * 不消耗任何随机流，所以世界指纹一个字节都不变）。画法在 16-render 的 drawForge，
+     * 交互（走到 talkRadius 内屏幕上多一枚「锻」键）在 20-main 的 smithButton / enhanceItem。
+     * 摆位不与别的道具重叠：左边是箱子（248, 302），后面是帐篷（336, -216）。
+     */
+    { kind: 'forge', x: 392, y: 104, scale: 1 }
   ];
 
   /** 营地道具（返回副本：渲染层只读，改了也不会污染地图形状） */
   function campProps() {
     return CAMP_PROPS.slice();
+  }
+
+  /**
+   * 营地铁匠的位置（本次新增）：从摆位表里**找出来**，而不是在 20-main 里再写一遍坐标 ——
+   * 移动他只需要改上面那一行。找不到（有人把他删了）返回 null，调用方据此不画那枚键。
+   */
+  function smithSpot() {
+    for (var i = 0; i < CAMP_PROPS.length; i += 1) {
+      if (CAMP_PROPS[i].kind === 'forge') return CAMP_PROPS[i];
+    }
+    return null;
   }
 
   /* ---------------------------------------------------------------- 路网（小径） */
@@ -1045,9 +1251,11 @@ G.TERRAIN = (function () {
     tileCountPerChunk: tileCountPerChunk,
     groundVariant: groundVariant,
     buildChunkDecor: buildChunkDecor,
+    decorBlobs: decorBlobs,
     campCenter: campCenter,
     isInCamp: isInCamp,
     campProps: campProps,
+    smithSpot: smithSpot,
     roadSpanChunks: roadSpanChunks,
     roadNodeFor: roadNodeFor,
     roadGroupOf: roadGroupOf,
@@ -1430,7 +1638,8 @@ G.PROG = (function () {
  * 07-combat.js —— 自动战斗的纯计算部分（阶段 A2 新增）
  *
  * 只做四件事，都不碰画布、不碰 tt，所以能在 node 里直接断言（决策 #7 的替代验证通道）：
- *   1. 选目标：**视野内最近**的可攻击怪；同距取 **ID 小**的（确定性，不然帧率一变目标就跳）；
+ *   1. 选目标：**距离最近**的可攻击怪（默认全地图，见 `combat.targetRange`）；
+ *      同距取 **ID 小**的（确定性，不然帧率一变目标就跳）；
  *   2. 伤害：`max(1, 攻击 × (1 + 增伤) − 目标防御 × 0.6)`，暴击再 ×暴击伤害；
  *   3. 伤害归属：累计到怪身上（决策 #1 —— 奖励归**累计伤害最高**的玩家）；
  *   4. 抢怪缓解的两个**预留开关**：`combat.firstHitProtectionMs`（首击保护）与
@@ -1445,9 +1654,13 @@ G.COMBAT = (function () {
 
   var BAL = G.BAL;
 
-  /** 选目标的视野半径（设计像素）：比怪的最大仇恨半径（380）大一截，够"自动战斗看得见" */
-  function visionRange() {
-    return BAL.combat.visionRange;
+  /**
+   * 选目标的距离上限（设计像素）。
+   * `0` = **不限距离**：在**已装载的全部怪**里找最近的那只（A7 修订，用户要求"找全地图最近的怪"）。
+   * 只有真的想限制"只看眼前一圈"时才把它调成正数。
+   */
+  function targetRange() {
+    return BAL.combat.targetRange;
   }
 
   /** 出手间隔（毫秒）= 1000 / 攻速 */
@@ -1480,12 +1693,14 @@ G.COMBAT = (function () {
   }
 
   /**
-   * 选目标：视野内距离最近的活着的怪；同距取 ID 小的。
+   * 选目标：**距离最近**的活着的怪；同距取 ID 小的。
+   * `range <= 0` = 不限距离（默认）：在传进来的**全部怪**（= 已装载的怪）里找最近的 ——
+   * A7 修订，用户要求"自动战斗找全地图最近的怪"（之前写死视野 540，屏幕外一格的怪就当看不见）。
    * 用平方距离比较（省一次开方，也让比较保持整数）。
    */
   function pickTarget(x, y, monsters, range) {
     var best = null;
-    var bestSq = range * range;
+    var bestSq = range > 0 ? range * range : Infinity;
     for (var i = 0; i < monsters.length; i += 1) {
       var monster = monsters[i];
       if (!monster || monster.state === 'dead') continue;
@@ -1557,7 +1772,7 @@ G.COMBAT = (function () {
   }
 
   return {
-    visionRange: visionRange,
+    targetRange: targetRange,
     attackIntervalMs: attackIntervalMs,
     rollDamage: rollDamage,
     monsterDamage: monsterDamage,
@@ -1580,7 +1795,9 @@ G.COMBAT = (function () {
  *   4. 伤害：**不另写公式** —— 还是 COMBAT.rollDamage，只是把攻击乘上 `damageMul`
  *      （决策 #4：数字只有一处，公式也只有一处）；
  *   5. 自动释放：自动战斗开着时从左到右挑第一个"能用"的技能 —— 伤害技要有怪在打击范围内
- *      （免得空放），治疗只在血量低于 `skills.autoHealRatio` 时放。
+ *      （免得空放），治疗只在血量低于 `skills.autoHealRatio` 时放；
+ *      **A10 起还要勾上那个键右上角的"自动释放"勾选框**（勾选表在存档 `settings.skillAuto`，
+ *      见 `autoEnabled` / `autoCount`）——关掉的技能只不会被自动放，手动点照样能放。
  *
  * 为什么冷却不进存档：冷却记在 20-main 的**运行时**（`state.skillCooldowns`）。
  * 它是"这一刻能不能放"的手感数据，不是资产；写进存档反而会留下"改表刷冷却"的口子。
@@ -1725,13 +1942,34 @@ G.SKILLS = (function () {
   }
 
   /**
+   * 这个技能的「自动释放」勾上了吗（A10，用户要求"给四个技能位置做一个是否自动释放的勾选位置"）。
+   * 纯函数：勾选表是存档里的 `settings.skillAuto`（长度跟技能表走），
+   * **缺项 / 坏值一律当"勾上"** —— 老存档与坏数据都不该悄悄改掉玩家的自动释放行为。
+   */
+  function autoEnabled(flags, index) {
+    if (!flags || flags[index] === undefined) return true;
+    return flags[index] !== false;
+  }
+
+  /** 勾了几个（界面上一眼看出"4 / 4"还是"2 / 4"；调试面板与自检也读它） */
+  function autoCount(flags) {
+    var total = 0;
+    for (var i = 0; i < count(); i += 1) {
+      if (autoEnabled(flags, i)) total += 1;
+    }
+    return total;
+  }
+
+  /**
    * 自动释放挑哪个（-1 = 都不放）。喂进来的是一份**视角数据**而不是函数，方便自检直接构造：
-   *   { cooldowns, globalAt, nowMs, level, hpRatio, x, y, monsters }
+   *   { cooldowns, globalAt, nowMs, level, auto, hpRatio, x, y, monsters }
    * 规则（用户在阶段 A4 说过"自动战斗时不仅自动出手，还自动释放技能"）：
    *   - 全局冷却没好 → 一个都不放；
-   *   - 从左到右：没解锁 / 自己在冷却里 → 跳过；
+   *   - 从左到右：**没勾自动释放的**（A10）/ 没解锁 / 自己在冷却里 → 跳过；
    *   - 治疗技：只有 hpRatio ≤ skills.autoHealRatio 才放（满血时别把治疗浪费掉）；
    *   - 伤害技：打击范围内得有活怪，否则跳过（空放既没伤害又白等冷却）。
+   *
+   * 注意：没勾自动释放**只影响自动战斗**，手动点那个键照样能放（见 20-main 的 castSkillSlot）。
    */
   function autoChoice(view) {
     var data = view || {};
@@ -1739,6 +1977,7 @@ G.SKILLS = (function () {
     if (!globalReady(data.globalAt, nowMs)) return -1;
     for (var i = 0; i < count(); i += 1) {
       var slot = slotAt(i);
+      if (!autoEnabled(data.auto, i)) continue;
       if (!unlocked(i, data.level)) continue;
       if (!isReady(data.cooldowns, i, nowMs)) continue;
       if (slot.type === 'heal') {
@@ -1766,6 +2005,8 @@ G.SKILLS = (function () {
     globalReady: globalReady,
     canCast: canCast,
     markCast: markCast,
+    autoEnabled: autoEnabled,
+    autoCount: autoCount,
     autoChoice: autoChoice
   };
 })();
@@ -1779,6 +2020,12 @@ G.SKILLS = (function () {
  *     精英至少给**专家箱**（balance.chests.drop.eliteMinTier）—— 兑现文档里"精英必出 ≥ 专家箱"；
  *   - **保底**：连续 50 箱未出「史诗」→ 下一箱强制 ≥ 史诗；连续 500 箱未出「神话」→ 强制 ≥ 神话。
  *     计数器存在存档里（chest_stat.pity_epic / pity_mythic，压到服务端时同一套语义）。
+ *   - 面板只读这里：`countByTier(chests)` 按阶数出背包里有几口箱（A13 的宝箱清单读它，**不看袋子顺序**）。
+ *
+ * A14（用户："宝箱可以设置是否自动开启——对应不同等阶不同的开启按钮"）：本文件末尾挂着那一套
+ * `defaultAutoFlags / autoEnabled / autoCount` —— 一阶一枚的**自动开启**开关（默认全关）。
+ * 勾上的那一阶掉出来就当场开掉（真正开箱的 `autoOpenChest` 在 20-main），判定集中在这里，
+ * 于是"开关表坏了 / 老存档没有这个字段怎么办"只有一个答案：当关。
  *
  * 归属（决策 #1）：宝箱与经验一样，只给**对该怪累计伤害最高**的玩家 —— 这里只负责"抽"，谁抽由
  * 07-combat 的 rewardWinnerId() 决定，两者拼起来才是完整规则。
@@ -1890,6 +2137,54 @@ G.LOOT = (function () {
     return BAL.chests.bagCap;
   }
 
+  /**
+   * 宝箱背包**按阶计数**（A13 的宝箱清单只读它）：返回长度 = 阶数的一串数，`[0]` 是一阶箱的个数。
+   * 只数**合法阶号**的箱子（坏数据既不会多占一行，也不会把清单撑破），也不看袋子里的先后顺序 ——
+   * 面板要的是"普通 × 12 / 天赐 × 1"，不是"第 8 口是什么"。
+   */
+  function countByTier(chests) {
+    var counts = [];
+    var i;
+    for (i = 0; i < BAL.chests.tiers.length; i += 1) counts.push(0);
+    for (i = 0; i < chests.length; i += 1) {
+      var tier = chests[i] ? chests[i].tier : 0;
+      if (tier >= 1 && tier <= counts.length) counts[tier - 1] += 1;
+    }
+    return counts;
+  }
+
+  /* ------------------------------------------------ A14：按阶的「自动开启」开关 */
+
+  /**
+   * 自动开启开关表的默认值（A14）：**一阶一枚、默认全关**。
+   * 它是\"玩家勾的偏好\"而不是数值平衡，所以真正的家在存档 `settings.chestAuto`（11-save 的
+   * `defaultSettings` 直接调这个函数）—— 两边永远同一份，改阶数也不会让开关表长度对不上。
+   */
+  function defaultAutoFlags() {
+    var flags = [];
+    for (var i = 0; i < BAL.chests.tiers.length; i += 1) flags.push(false);
+    return flags;
+  }
+
+  /**
+   * 这一阶勾了\"自动开启\"没有（A14）：就是 `flags[tier - 1] === true`。
+   * 老存档没有这个字段 / 坏值 / 长度对不上 / 阶号离谱 —— 一律当**关**：宁可不开，也别替玩家花掉箱子。
+   */
+  function autoEnabled(flags, tierId) {
+    if (!flags || typeof flags !== 'object') return false;
+    if (!(tierId >= 1) || tierId > BAL.chests.tiers.length) return false;
+    return flags[tierId - 1] === true;
+  }
+
+  /** 勾了几阶（0 = 全关）：宝箱面板小标题里那句\"自动 N 阶\"用的就是它 */
+  function autoCount(flags) {
+    var total = 0;
+    for (var i = 0; i < BAL.chests.tiers.length; i += 1) {
+      if (autoEnabled(flags, i + 1)) total += 1;
+    }
+    return total;
+  }
+
   return {
     tiers: tiers,
     tierById: tierById,
@@ -1899,7 +2194,11 @@ G.LOOT = (function () {
     rollChestTier: rollChestTier,
     salvageGold: salvageGold,
     bagFull: bagFull,
-    bagCap: bagCap
+    bagCap: bagCap,
+    countByTier: countByTier,
+    defaultAutoFlags: defaultAutoFlags,
+    autoEnabled: autoEnabled,
+    autoCount: autoCount
   };
 })();
 
@@ -2154,12 +2453,92 @@ G.EQUIP = (function () {
   /** 把主属性 + 词条折算成战力（同一条词条再次出现时叠加，天赐专属就是靠这个翻倍） */
   function powerOf(item) {
     var weights = BAL.equipment.powerWeights;
-    var power = (weights[item.main.stat] || 0) * item.main.value;
+    // 强化只放大**主属性**那一项（与 applyTo 用的是同一个倍率函数，两处不会各算一套）
+    var power = (weights[item.main.stat] || 0) * item.main.value * enhanceMul(item);
     for (var i = 0; i < item.affixes.length; i += 1) {
       var affix = item.affixes[i];
       power += (weights[affix.id] || 0) * affix.value;
     }
     return Math.round(power);
+  }
+
+  /* ------------------------------------------------------- 强化（营地铁匠，本次新增） */
+
+  /**
+   * 铁匠那一套规则（`balance.enhance`）：等级上限 / 每级成本 / 每级加成只有这一份来源。
+   *
+   * 等级挂在**装备自己身上**（`item.enhance`）—— 于是它跟着这件装备走：卖了就没了、
+   * 换一件就是另一套等级、背包里那件的等级也不会因为你换人就跑。
+   * 这里全是纯函数：改存档只发生在 20-main 的 `enhanceItem`（扣石头 + 调 `applyEnhance`）。
+   */
+  function enhanceRule() {
+    return BAL.enhance;
+  }
+
+  /** 强化等级上限（+10） */
+  function maxEnhance() {
+    return BAL.enhance.maxLevel;
+  }
+
+  /**
+   * 这件装备的强化等级：整数、夹在 [0, maxLevel]。
+   * 坏数据（缺字段 / 字符串 / NaN / 负数 / +999）一律当 0 或上限 —— 改包 / 坏存档不该白送等级。
+   */
+  function enhanceLevel(item) {
+    if (!item || typeof item.enhance !== 'number' || !isFinite(item.enhance)) return 0;
+    var level = Math.floor(item.enhance);
+    if (level < 0) return 0;
+    if (level > maxEnhance()) return maxEnhance();
+    return level;
+  }
+
+  /** 强化对**主属性**的倍率：0 级 = 1（与没强化过逐位相同），10 级 = 1 + 10 x statPerLevel */
+  function enhanceMul(item) {
+    return 1 + enhanceLevel(item) * BAL.enhance.statPerLevel;
+  }
+
+  /** 从 `level` 升到 `level + 1` 要几颗强化石（每级翻倍：1 / 2 / 4 / ... / 512；满级返回 0） */
+  function enhanceCost(level) {
+    var rule = BAL.enhance;
+    var step = Math.floor(level);
+    if (!(step > 0)) step = 0;
+    if (step >= rule.maxLevel) return 0;
+    return rule.baseStones * Math.pow(rule.growth, step);
+  }
+
+  /** 这件装备再升一级要几颗（满级返回 0 = 没得升了） */
+  function nextEnhanceCost(item) {
+    return enhanceCost(enhanceLevel(item));
+  }
+
+  /** 还能不能再强（没穿 / 已满级 = false） */
+  function canEnhance(item) {
+    return !!item && enhanceLevel(item) < maxEnhance();
+  }
+
+  /**
+   * 升一级：**改 `item.enhance` 与 `item.power` 的唯一一处**。
+   * 返回新的等级；已满级 / 坏数据时原样返回（不抛异常、也不加等级）。
+   */
+  function applyEnhance(item) {
+    var level = enhanceLevel(item);
+    if (!item || level >= maxEnhance()) return level;
+    item.enhance = level + 1;
+    item.power = powerOf(item);
+    return item.enhance;
+  }
+
+  /** 显示用的强化标记：` +3`；0 级是**空串** —— 于是所有拼接都不用先判断（labelOf 就是靠它） */
+  function enhanceTag(item) {
+    var level = enhanceLevel(item);
+    return level > 0 ? ' +' + level : '';
+  }
+
+  /** 存档迁移用：把一件装备的强化等级修成合法值（老存档没有这个字段 = 0 级） */
+  function normalizeEnhance(item) {
+    if (!item) return item;
+    item.enhance = enhanceLevel(item);
+    return item;
   }
 
   /**
@@ -2189,6 +2568,8 @@ G.EQUIP = (function () {
       slotName: slot.name,
       level: level,
       reqLevel: requirementForItem(def),
+      /** 强化等级（0 = 没强化过）：掉落时一律 0，之后由营地铁匠的 applyEnhance 往上加 */
+      enhance: 0,
       statMul: Math.round(mul * 1000) / 1000,
       main: {
         stat: slot.mainStat,
@@ -2205,7 +2586,8 @@ G.EQUIP = (function () {
   /** 一件装备的属性折成战斗加成（10-player.js 汇总 4 件时用） */
   function applyTo(totals, item) {
     if (!item) return totals;
-    totals[item.main.stat] = (totals[item.main.stat] || 0) + item.main.value;
+    // 强化等级加在**主属性**上（词条是掉落那一刻抽死的，铁匠不动它们）
+    totals[item.main.stat] = (totals[item.main.stat] || 0) + item.main.value * enhanceMul(item);
     for (var i = 0; i < item.affixes.length; i += 1) {
       var affix = item.affixes[i];
       totals[affix.id] = (totals[affix.id] || 0) + affix.value;
@@ -2247,10 +2629,10 @@ G.EQUIP = (function () {
     return '+' + (Math.round(value * 10) / 10) + ' ' + statName(stat);
   }
 
-  /** 界面文案：`天赐 天命之剑`（阶名 + 装备名；卡面与提示共用一份） */
+  /** 界面文案：`天赐 天命之剑 +3`（阶名 + 装备名 + 强化标记；卡面与提示共用一份） */
   function labelOf(item) {
     if (!item) return '空';
-    return (item.tierName || tierById(item.tier).name) + ' ' + (item.name || item.slotName);
+    return (item.tierName || tierById(item.tier).name) + ' ' + (item.name || item.slotName) + enhanceTag(item);
   }
 
   return {
@@ -2278,6 +2660,16 @@ G.EQUIP = (function () {
     rollAffixes: rollAffixes,
     rollUniqueAffix: rollUniqueAffix,
     powerOf: powerOf,
+    enhanceRule: enhanceRule,
+    maxEnhance: maxEnhance,
+    enhanceLevel: enhanceLevel,
+    enhanceMul: enhanceMul,
+    enhanceCost: enhanceCost,
+    nextEnhanceCost: nextEnhanceCost,
+    canEnhance: canEnhance,
+    applyEnhance: applyEnhance,
+    enhanceTag: enhanceTag,
+    normalizeEnhance: normalizeEnhance,
     generate: generate,
     applyTo: applyTo,
     totalsOf: totalsOf,
@@ -2322,7 +2714,8 @@ G.PLAYER = (function () {
     if (!loadout) return result;
     for (var i = 0; i < BAL.equipment.slots.length; i += 1) {
       var id = BAL.equipment.slots[i].id;
-      if (loadout[id] && loadout[id].main && loadout[id].affixes) result[id] = loadout[id];
+      // 强化等级（本次新增）：老存档没有这个字段 = 0 级；坏值夹回 [0, 上限]
+      if (loadout[id] && loadout[id].main && loadout[id].affixes) result[id] = EQUIP.normalizeEnhance(loadout[id]);
     }
     return result;
   }
@@ -2459,8 +2852,10 @@ G.PLAYER = (function () {
   }
 
   /**
-   * 属性面板的行数据（A6）：一行一项，副行把"等级基础"与"装备加成"分开写 ——
-   * 玩家一眼就知道该练级还是该去开箱。
+   * 属性面板 / 背包属性网格的行数据（A6；A10 每一行多了 `icon`）。
+   * 一行一项，副行把"等级基础"与"装备加成"分开写 —— 玩家一眼就知道该练级还是该去开箱。
+   * `icon` 是 16-icons 的图标名（'attack' / 'hp' / …）：**图标名跟着属性定义走**，
+   * 于是加一项属性时不会出现"面板里有数值但没图标"的漏网项。
    *
    * 放在这里而不是 18-panels 的原因与 statsOf 一样：属性公式只能有一份，
    * 面板只负责排版（界面层不读玩法公式，决策 #4）。
@@ -2474,49 +2869,56 @@ G.PLAYER = (function () {
       return (value * 100).toFixed(1) + '%';
     };
     return [
-      { label: '等级', value: 'Lv.' + level, sub: '升到下一级还需 ' + Math.round(PROG.xpToNext(level)) + ' 经验' },
+      { icon: 'level', label: '等级', value: 'Lv.' + level, sub: '升到下一级还需 ' + Math.round(PROG.xpToNext(level)) + ' 经验' },
       {
+        icon: 'power',
         label: '战力',
         value: String(stats.power),
         sub: '四件装备战力之和（只用来一眼比较强弱，不参与战斗结算）',
         color: '#ffd479'
       },
       {
+        icon: 'attack',
         label: '攻击',
         value: String(stats.attack),
         sub: '等级基础 ' + Math.round((base.baseAttack + grow.attack) * 10) / 10 + ' ＋ 装备 ' + (totals.attack || 0)
       },
       {
+        icon: 'hp',
         label: '生命上限',
         value: String(stats.hpMax),
         sub: '等级基础 ' + Math.round(base.baseHp * (1 + grow.hpPct)) + ' ＋ 装备 ' + (totals.hp || 0)
       },
-      { label: '防御', value: String(stats.defense), sub: '基础 ' + base.baseDefense + ' ＋ 装备 ' + (totals.defense || 0) },
+      { icon: 'defense', label: '防御', value: String(stats.defense), sub: '基础 ' + base.baseDefense + ' ＋ 装备 ' + (totals.defense || 0) },
       {
+        icon: 'attackSpeed',
         label: '攻速',
         value: stats.attackSpeed.toFixed(2) + ' 次/秒',
         sub: '基础 ' + base.attackSpeed + ' ×（1 ＋ 装备攻速 ' + pct(totals.attackSpeed || 0) + '）'
       },
       {
+        icon: 'crit',
         label: '暴击率',
         value: pct(stats.critChance),
         sub: '基础 ' + pct(base.critChance) + ' ＋ 装备 ' + pct(totals.critChance || 0) + '（上限 100%）'
       },
       {
+        icon: 'critDamage',
         label: '暴击伤害',
         value: Math.round(stats.critDamage * 100) + '%',
         sub: '基础 ' + Math.round(base.critDamage * 100) + '% ＋ 装备 ' + Math.round((totals.critDamage || 0) * 100) + '%'
       },
-      { label: '增伤', value: pct(stats.damageBonus), sub: '装备词条合计（乘算在攻击上）' },
-      { label: '减伤', value: pct(stats.damageReduction), sub: '装备词条合计（上限 75%，防止无敌套）' },
-      { label: '移动速度', value: String(stats.moveSpeed), sub: '固定值：装备不影响走位手感' },
+      { icon: 'damage', label: '增伤', value: pct(stats.damageBonus), sub: '装备词条合计（乘算在攻击上）' },
+      { icon: 'reduce', label: '减伤', value: pct(stats.damageReduction), sub: '装备词条合计（上限 75%，防止无敌套）' },
+      { icon: 'move', label: '移动速度', value: String(stats.moveSpeed), sub: '固定值：装备不影响走位手感' },
       {
+        icon: 'pickup',
         label: '拾取范围',
         value: String(stats.pickupRange),
         sub: '基础 ' + base.pickupRange + ' ＋ 装备 ' + (totals.pickupRange || 0)
       },
-      { label: '经验加成', value: pct(stats.xpBonus), sub: '装备词条合计' },
-      { label: '金币加成', value: pct(stats.goldBonus), sub: '装备词条合计' }
+      { icon: 'xp', label: '经验加成', value: pct(stats.xpBonus), sub: '装备词条合计' },
+      { icon: 'gold', label: '金币加成', value: pct(stats.goldBonus), sub: '装备词条合计' }
     ];
   }
 
@@ -2544,14 +2946,20 @@ G.PLAYER = (function () {
  *   - 读写全部走 `G.PLAT.storageGet / storageSet / storageRemove`（`tt.setStorageSync` 的一层薄封装），
  *     所以本文件**不出现 tt 字样**，照样能在 node 里断言（红线见 00-config.js）。
  *
- * 另外本文件还挂了一个模块：`G.ACCOUNT`（注册 / 登录 / 昵称唯一性，A4 新增）。
- * 放在这里的原因：它和存档一样，是"本机持久化数据"，共用同一层存储封装；
- * 而**唯一性校验的网络那一半**仍在 20-main（这里只管规则与本地注册表，方便 node 断言）。
+ * 另外本文件还挂了两个模块：`G.ACCOUNT`（注册 / 登录 / 昵称唯一性，A4 新增）与
+ * `G.GUILD`（公会规则与本地记录，本次新增）。
+ * 放在这里的原因：它们和存档一样，是"本机持久化数据"，共用同一层存储封装；
+ * 而**唯一性校验 / 成员表同步的网络那一半**仍在 20-main（这里只管规则与本地记录，方便 node 断言）。
  *
  * 为什么存档要带 `v`（版本号）：小游戏更新后老存档必须能被读（或者干脆安全地丢弃），
  * 不能让玩家一升级就白屏。读档失败一律回落到"新号"，并把原始文本留在内存里便于排查。
  *   v1 → v2（A4）：多了 `name`（角色名）与 `settings`（自动战斗 / 音效开关），
  *   迁移是**就地补齐默认值**，不丢等级金币装备（见 normalize）。
+ *   v2 保持不变（本次新增）：`stones`（强化石）与装备上的 `enhance`（强化等级）都是
+ *   **可选字段 + 明确的默认值**（0），老存档读进来就是"没买过石头、没强化过"，
+ *   和 A10 的 skillAuto / A14 的 chestAuto 是同一类改动，所以不升版本号 ——
+ *   升版本号意味着老存档会被**整份丢掉**（normalize 里 v 不认识就当新号），
+ *   那才是真的丢数据。两条默认值都在 normalize / normalizeEnhance 里补齐。
  */
 
 G.SAVE = (function () {
@@ -2560,6 +2968,8 @@ G.SAVE = (function () {
   var BAL = G.BAL;
   var EQUIP = G.EQUIP;
   var SPAWN = G.SPAWN;
+  /** 08-loot 在 11-save 之前装载（bundle 顺序），自动开启开关表的默认形状由它出 */
+  var LOOT = G.LOOT;
 
   /** 存档格式版本（改结构就必须 +1，并在这里写迁移） */
   var SCHEMA_VERSION = 2;
@@ -2567,9 +2977,54 @@ G.SAVE = (function () {
   /** 能被 normalize 接受的旧版本：v1（A3 及以前）就地升级到 v2，不丢数据 */
   var MIN_READABLE_VERSION = 1;
 
-  /** 设置项的默认值：自动战斗默认**关**（用户要求"点击开启"），音效/震动默认开 */
+  /**
+   * 设置项的默认值：自动战斗默认**关**（用户要求"点击开启"），音效 / BGM / 震动默认开；
+   * A10 新增的 `skillAuto`（四个技能键右上角的"自动释放"勾选）默认**全开** ——
+   * 于是 A5 的行为一个字都不变，玩家想关哪个就关哪个。
+   */
   function defaultSettings() {
-    return { autoBattle: false, sfx: true, bgm: true, vibrate: true };
+    var skillAuto = [];
+    for (var i = 0; i < BAL.skills.slots.length; i += 1) skillAuto.push(true);
+    return {
+      autoBattle: false,
+      sfx: true,
+      bgm: true,
+      vibrate: true,
+      skillAuto: skillAuto,
+      /**
+       * A14：按阶的「自动开启」宝箱勾选（一阶一枚，默认**全关**）—— 勾上的那一阶掉出来就当场开掉
+       * （开箱在 20-main 的 `autoOpenChest`），没勾的照旧进背包等玩家点。
+       * 形状（长度 = 阶数、全 false）由 08-loot 的 `defaultAutoFlags` 出，别在两处各写一份。
+       */
+      chestAuto: LOOT.defaultAutoFlags(),
+      /** A11：视角档位（0 远 / 1 中 / 2 近）—— 默认取 `balance.view.cameraTier`（中档） */
+      zoomTier: numberOr(BAL.view.cameraTier, 0, 0, BAL.view.cameraTiers.length - 1),
+      /** A11 之二：视角缩放轴（一屏横向多少格）—— 默认取 `balance.view.zoomTiles`（中档 = 64 格） */
+      zoomTiles: clampZoomTiles(BAL.view.zoomTiles)
+    };
+  }
+
+  /**
+   * 视角缩放轴的合法范围（格，A11 之二）：下限取 `view.zoomSlider.minTiles`（16）——
+   * 再近一屏就装不下 2×2 个 chunk，怪会贴到脸上；上限取**表里最远那一档**（128），
+   * 于是滑块虽然只画到 64 格，远档那个"一屏 128 格"的标准值仍然能被存档表达。
+   */
+  function zoomTilesMin() {
+    return Math.max(1, Math.round(BAL.view.zoomSlider.minTiles));
+  }
+
+  function zoomTilesMax() {
+    var tiers = BAL.view.cameraTiers;
+    var max = Math.round(BAL.view.zoomSlider.maxTiles);
+    for (var i = 0; i < tiers.length; i += 1) {
+      if (tiers[i].tiles > max) max = tiers[i].tiles;
+    }
+    return max >= zoomTilesMin() ? max : zoomTilesMin();
+  }
+
+  /** 把任意输入夹成合法格数（非数字 → 取 balance 里的当前值；一律取整 —— 界面上的数是整的） */
+  function clampZoomTiles(value) {
+    return Math.round(numberOr(value, BAL.view.zoomTiles, zoomTilesMin(), zoomTilesMax()));
   }
 
   /** 开一个新号（首次进入：随机出生点，决策 #5） */
@@ -2597,7 +3052,14 @@ G.SAVE = (function () {
       nextItemId: 1,
       /** 号角数量（20 级后可在商城买；建公会消耗一个） */
       horns: 0,
-      /** 公会（本地版：只有自己的会，成员列表是占位；阶段 D 才上服务端） */
+      /** 强化石（本次新增：商城 100 金币一颗，营地铁匠强化装备时消耗） */
+      stones: 0,
+      /**
+       * 公会（本次新增的形状）：
+       *   { id, name, level, exp, expForNext, levelCap, memberCap, members[], role, anchor, createdAt, syncAt, remote, teleportAt }
+       * —— 服务端有这条公会时，本地这份是它的**镜像**；连不上云时它就是唯一真相
+       * （规则与归一化见文件末的 `G.GUILD`）。新号还没有公会，所以是 null。
+       */
       guild: null,
       /** 营地传送冷却（A4）：`used` 而不是"时间 > 0"—— 世界时间 0 也是合法时刻，别让第一帧传送漏掉冷却 */
       camp: { teleportAt: 0, used: false },
@@ -2641,12 +3103,18 @@ G.SAVE = (function () {
     if (raw.items && raw.items.length) {
       for (var k = 0; k < raw.items.length && save.items.length < BAL.chests.bagCap; k += 1) {
         var rawItem = raw.items[k];
-        if (rawItem && G.EQUIP.hasSlot(rawItem.slotId) && rawItem.main && rawItem.affixes) save.items.push(rawItem);
+        // 强化等级（本次新增）：缺字段 = 0 级；坏值（+999）被夹回上限 —— 见 09-equipment 的 normalizeEnhance
+        if (rawItem && G.EQUIP.hasSlot(rawItem.slotId) && rawItem.main && rawItem.affixes) {
+          save.items.push(G.EQUIP.normalizeEnhance(rawItem));
+        }
       }
     }
     save.nextItemId = numberOr(raw.nextItemId, 1, 1, Infinity);
     save.horns = numberOr(raw.horns, 0, 0, 9999);
-    save.guild = raw.guild && raw.guild.name ? raw.guild : null;
+    // 强化石（本次新增）：v2 的老存档没有这个字段，缺省 0 —— 不补这一行的话读档后它是 undefined，
+    // 商城里买第一颗会变成 NaN（"NaN 颗强化石"在真机上就是这么出现的）
+    save.stones = numberOr(raw.stones, 0, 0, 999999);
+    save.guild = G.GUILD.normalizeRecord(raw.guild, { name: save.name, level: save.level });
     save.camp = {
       teleportAt: numberOr(raw.camp && raw.camp.teleportAt, 0, 0, Infinity),
       used: !!(raw.camp && raw.camp.used === true)
@@ -2686,6 +3154,29 @@ G.SAVE = (function () {
     if (raw.sfx === false) settings.sfx = false;
     if (raw.bgm === false) settings.bgm = false;
     if (raw.vibrate === false) settings.vibrate = false;
+    // A10：技能自动释放的勾选。长度按技能表取（多出来的截掉、少了的补 true），
+    // 只有明确写了 false 才关 —— 老存档没有这个字段，于是升级后四个技能照样会自动放。
+    if (raw.skillAuto && typeof raw.skillAuto === 'object') {
+      for (var i = 0; i < settings.skillAuto.length; i += 1) {
+        if (raw.skillAuto[i] === false) settings.skillAuto[i] = false;
+      }
+    }
+    // A11：视角档位（老存档没有这个字段 → 用默认档；坏值 / 越界夹到合法范围）
+    settings.zoomTier = numberOr(raw.zoomTier, settings.zoomTier, 0, BAL.view.cameraTiers.length - 1);
+    // A11 之二：视角缩放轴（一屏几格）。老存档没有这个字段 → 跟着档位走（中档 64 / 近档 32…），
+    // 于是升级上来的号视角与升级前一模一样；坏值 / 越界（甚至 NaN）一律夹回 16 ~ 128。
+    var tierTiles = BAL.view.cameraTiers[settings.zoomTier]
+      ? BAL.view.cameraTiers[settings.zoomTier].tiles
+      : BAL.view.zoomTiles;
+    settings.zoomTiles = clampZoomTiles(raw.zoomTiles === undefined ? tierTiles : raw.zoomTiles);
+    // A14：按阶的「自动开启」勾选（一阶一枚）。长度按阶数取，**只有明确写了 true 才开** ——
+    // 老存档没有这个字段，于是升级后行为与 A13 一模一样（全关：箱子照旧进背包等玩家点）。
+    settings.chestAuto = LOOT.defaultAutoFlags();
+    if (raw.chestAuto && typeof raw.chestAuto === 'object') {
+      for (var k = 0; k < settings.chestAuto.length; k += 1) {
+        if (raw.chestAuto[k] === true) settings.chestAuto[k] = true;
+      }
+    }
     return settings;
   }
 
@@ -2751,6 +3242,7 @@ G.SAVE = (function () {
     pushChest: pushChest,
     pushItem: pushItem,
     bagFull: bagFull,
+    clampZoomTiles: clampZoomTiles,
     defaultSettings: defaultSettings,
     normalizeSettings: normalizeSettings
   };
@@ -3013,6 +3505,276 @@ G.ACCOUNT = (function () {
     remember: remember,
     takenLocally: takenLocally,
     localNameCount: localNameCount
+  };
+})();
+
+/**
+ * G.GUILD —— 公会的**规则与本地记录**（本次新增）
+ *
+ * 用户要求："创建公会需要自己输入公会名，公会页面显示公会人员，公会等级，公会信息。"
+ *
+ * 为什么规则落在这个文件（而不是 18-panels）：面板只该负责排版，真正要能断言的是**数据形状** ——
+ *   1. `validate`：公会名与昵称**同一套字符规则**（直接复用 G.ACCOUNT.validate）；
+ *   2. `levelFrom`：公会等级的唯一算法 —— `level = 1 + floor(成员等级之和 / levelDivisor)`，封顶 levelCap；
+ *      服务端 `douyin-cloud\svr\index.js` 用**同一道式子重算一遍**（客户端这份管手感，服务端那份管权威）；
+ *   3. `normalizeRecord` / `fromServer`：把"存档里可能缺字段的老记录"和"服务端回的那一份"都收拾成
+ *      同一个形状 —— 于是 18-panels / 20-main 只认一种公会对象，不会出现"某个字段这处有那处没有"。
+ *
+ * 记录形状（存在 `save.guild`）：
+ *   { id, name, level, exp, expForNext, levelCap, memberCap, members[], role, anchor, createdAt, syncAt, remote, teleportAt }
+ *   - `members` 每人 `{ name, level, online, role: 'leader'|'member', at }`（`at` = 入会时刻，0 = 不知道）；
+ *   - `remote: true` = 服务端真有这条公会（本地这份是**镜像**）；false = 离线自建（连不上云时的唯一真相，
+ *     单人玩法照旧成立 —— 决策 #10"单机永远能玩"）；
+ *   - `teleportAt` = **本机**的回城冷却，刻意不减不传不上服务端：它是防滥用闸门，跟着存档走。
+ *
+ * 老存档（A15 以前的 `{ name, anchor, teleportAt }`）走 `normalizeRecord` 原地升级：补一名"我"当会长、
+ * 等级按 1 级重算，下一次与服务端同步就会被真实数据覆盖 —— 所以不需要动 SCHEMA_VERSION。
+ */
+G.GUILD = (function () {
+  'use strict';
+
+  var BAL = G.BAL;
+
+  /** 规则数字只有一份出处：`balance.guild`（改数值不用改代码） */
+  function limits() {
+    var config = BAL.guild;
+    return {
+      nameMin: config.nameMin,
+      nameMax: config.nameMax,
+      levelDivisor: config.levelDivisor,
+      levelCap: config.levelCap,
+      memberCap: config.memberCap,
+      onlineWindowMs: config.onlineWindowMs
+    };
+  }
+
+  function numberOr(value, fallback, min, max) {
+    if (typeof value !== 'number' || !isFinite(value)) return fallback;
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
+  }
+
+  /**
+   * 公会名校验 → `{ ok, name, reason }`。
+   *
+   * 直接借 `G.ACCOUNT.validate`：字符集（中文 / 字母 / 数字 / 下划线）、长度、保留名全是同一套，
+   * 连"先看非法字符再看长度"的顺序也一起继承（否则超长的脏串会被截断成一个合法名字）。
+   * 只有一点不同：**本机昵称注册表不参与** —— 昵称去重是"这台设备上没人用过"，
+   * 而公会名的唯一性是**全服**的，只有服务端说了算（`POST /api/guild/create` 的 409 name_taken）。
+   */
+  function validate(raw) {
+    var check = G.ACCOUNT.validate(raw);
+    if (!check.ok && check.reason === 'taken') return { ok: true, name: check.name, reason: '' };
+    return check;
+  }
+
+  /** 校验失败的原因 → 给玩家看的一句话（把昵称那套文案里的"昵称"换成"公会名"） */
+  function reasonText(reason) {
+    var config = limits();
+    if (reason === 'empty') return '公会名不能为空，点「输入公会名」打字';
+    if (reason === 'illegal') return '公会名只能有中文、字母、数字和下划线';
+    if (reason === 'tooShort') return '公会名至少 ' + config.nameMin + ' 个字符';
+    if (reason === 'tooLong') return '公会名最多 ' + config.nameMax + ' 个字符';
+    if (reason === 'reserved') return '这个公会名是保留名，换一个';
+    if (reason === 'taken') return '这个公会名全服已有人用，换一个';
+    return '公会名不可用';
+  }
+
+  /**
+   * 公会等级（用户要求"公会页面显示公会等级"）：`level = 1 + floor(成员等级之和 / levelDivisor)`，封顶 levelCap。
+   *
+   * 为什么用"成员等级之和"而不是另立一套公会经验：服务端**本来就存着每个账号的存档**（`saves` 表里有 level），
+   * 所以"公会多强"是现成的、不需要任何新的上报接口，客户端也伪造不了。
+   * 返回 `{ level, exp, expForNext, into, pct }` —— `pct` 是升级进度条要的比例（满级恒 1）。
+   */
+  function levelFrom(totalMemberLevel) {
+    var config = limits();
+    var exp = 0;
+    if (typeof totalMemberLevel === 'number' && isFinite(totalMemberLevel) && totalMemberLevel > 0) {
+      exp = Math.floor(totalMemberLevel);
+    }
+    var level = 1 + Math.floor(exp / config.levelDivisor);
+    if (level > config.levelCap) level = config.levelCap;
+    var into = exp - (level - 1) * config.levelDivisor;
+    if (into < 0) into = 0;
+    // 满级之后进度条钉在满格：再涨也不会"溢出到下一级"（levelCap 是硬上限）
+    if (level >= config.levelCap) into = config.levelDivisor;
+    return {
+      level: level,
+      exp: exp,
+      expForNext: config.levelDivisor,
+      into: into,
+      pct: into / config.levelDivisor
+    };
+  }
+
+  /** 成员等级之和（levelFrom 的输入；坏成员一律当 1 级） */
+  function sumLevels(members) {
+    var total = 0;
+    if (!members) return 0;
+    for (var i = 0; i < members.length; i += 1) {
+      total += numberOr(members[i] && members[i].level, 1, 1, 9999);
+    }
+    return total;
+  }
+
+  /** 一条成员记录收拾干净（名字走昵称清洗；role 只认会长 / 成员两档） */
+  function normalizeMember(raw) {
+    if (!raw) return null;
+    var name = G.ACCOUNT.sanitizeName(raw.name);
+    if (!name) return null;
+    return {
+      name: name,
+      level: numberOr(raw.level, 1, 1, 9999),
+      online: raw.online === true,
+      role: raw.role === 'leader' ? 'leader' : 'member',
+      at: numberOr(raw.at, 0, 0, Infinity)
+    };
+  }
+
+  /**
+   * 公会记录归一化：任何缺字段 / 坏值 / 老版本形状都修成可用的（**名字都没有就当"没有公会"**）。
+   * `self` 是"我"（`{ name, level }`）—— 老存档里没有成员表，得用我来补第一位会长；
+   * 等级优先读记录里的（服务端同步过的就是权威值），没有才按成员等级之和现算。
+   */
+  function normalizeRecord(raw, self) {
+    if (!raw || typeof raw !== 'object') return null;
+    var name = G.ACCOUNT.sanitizeName(raw.name);
+    if (!name) return null;
+    var config = limits();
+    var me = self || {};
+    var members = [];
+    if (raw.members && raw.members.length) {
+      for (var i = 0; i < raw.members.length && members.length < config.memberCap; i += 1) {
+        var member = normalizeMember(raw.members[i]);
+        if (member) members.push(member);
+      }
+    }
+    if (!members.length) {
+      members.push({
+        name: G.ACCOUNT.sanitizeName(me.name) || name,
+        level: numberOr(me.level, 1, 1, 9999),
+        online: true,
+        role: 'leader',
+        at: 0
+      });
+    }
+    var anchor =
+      raw.anchor && isFinite(raw.anchor.x) && isFinite(raw.anchor.y)
+        ? { x: raw.anchor.x, y: raw.anchor.y }
+        : { x: 0, y: 0 };
+    var stats = levelFrom(sumLevels(members));
+    return {
+      id: typeof raw.id === 'string' ? raw.id : '',
+      name: name,
+      // 等级 / 经验都夹在合法区间里：服务端回什么就是什么，但坏值不许把界面搞乱
+      level: numberOr(raw.level, stats.level, 1, config.levelCap),
+      exp: numberOr(raw.exp, stats.exp, 0, Infinity),
+      expForNext: numberOr(raw.expForNext, stats.expForNext, 1, Infinity),
+      levelCap: config.levelCap,
+      memberCap: config.memberCap,
+      members: members,
+      role: raw.role === 'member' ? 'member' : 'leader',
+      anchor: anchor,
+      createdAt: numberOr(raw.createdAt, 0, 0, Infinity),
+      syncAt: numberOr(raw.syncAt, 0, 0, Infinity),
+      remote: raw.remote === true,
+      // 回城冷却（本机闸门）：**不跟着服务端走**，缺字段 = 从没传送过
+      teleportAt: numberOr(raw.teleportAt, 0, 0, Infinity)
+    };
+  }
+
+  /** 离线自建公会：会长就是"我"，锚点取创建时脚下，`remote:false` */
+  function create(name, self, anchor, at) {
+    var me = self || {};
+    return normalizeRecord(
+      {
+        name: name,
+        anchor: anchor || { x: 0, y: 0 },
+        createdAt: at || 0,
+        role: 'leader',
+        members: [{ name: me.name, level: me.level, online: true, role: 'leader', at: at || 0 }]
+      },
+      me
+    );
+  }
+
+  /**
+   * 服务端的公会对象 → 本地镜像（`POST /api/guild/*` 与 `GET /api/guild/mine` 的响应都走这里）。
+   * 约定：`body.guild` 里带的就是权威数据（名字 / 成员 / 等级 / 锚点），`body.role` 是"我的身份"。
+   * 返回 null = 这份响应不能用（调用方保留本机那份，绝不拿半截数据覆盖存档）。
+   */
+  function fromServer(body, self, now) {
+    if (!body || body.ok !== true || !body.guild) return null;
+    var record = normalizeRecord(body.guild, self);
+    if (!record) return null;
+    record.id = typeof body.guild.id === 'string' ? body.guild.id : record.id;
+    record.remote = true;
+    record.syncAt = numberOr(now, 0, 0, Infinity);
+    record.role = body.role === 'member' ? 'member' : record.role;
+    return record;
+  }
+
+  /** 会长的成员记录（成员列表第一行永远是它） */
+  function leaderOf(record) {
+    if (!record || !record.members) return null;
+    for (var i = 0; i < record.members.length; i += 1) {
+      if (record.members[i].role === 'leader') return record.members[i];
+    }
+    return record.members.length ? record.members[0] : null;
+  }
+
+  function isLeader(record) {
+    return !!record && record.role === 'leader';
+  }
+
+  function countOnline(record) {
+    if (!record || !record.members) return 0;
+    var count = 0;
+    for (var i = 0; i < record.members.length; i += 1) {
+      if (record.members[i].online === true) count += 1;
+    }
+    return count;
+  }
+
+  /**
+   * 成员列表的显示顺序：**会长第一**，其余"在线的排前面、同级按名字稳排"。
+   * 排序必须给定序（`localeCompare` 在真机与 node 上可能不同）：这里按 code point 比，结果可复现。
+   */
+  function sortedMembers(record) {
+    if (!record || !record.members) return [];
+    var list = record.members.slice(0);
+    list.sort(function (a, b) {
+      if (a.role !== b.role) return a.role === 'leader' ? -1 : 1;
+      if (a.online !== b.online) return a.online ? -1 : 1;
+      if (a.level !== b.level) return b.level - a.level;
+      return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+    });
+    return list;
+  }
+
+  /** 一行摘要："成员 3 / 20 · 在线 2"（面板抬头、提示语都用它，措辞只有一处） */
+  function memberText(record) {
+    if (!record) return '没有公会';
+    return '成员 ' + record.members.length + ' / ' + record.memberCap + ' · 在线 ' + countOnline(record);
+  }
+
+  return {
+    limits: limits,
+    validate: validate,
+    reasonText: reasonText,
+    levelFrom: levelFrom,
+    sumLevels: sumLevels,
+    normalizeMember: normalizeMember,
+    normalizeRecord: normalizeRecord,
+    create: create,
+    fromServer: fromServer,
+    leaderOf: leaderOf,
+    isLeader: isLeader,
+    countOnline: countOnline,
+    sortedMembers: sortedMembers,
+    memberText: memberText
   };
 })();
 
@@ -3611,11 +4373,6 @@ G.SCREEN = (function () {
     return state.width / 2;
   }
 
-  /** 自动选目标的视野半径（世界单位）：沿用 balance.combat.visionRange */
-  function visionRadius() {
-    return BAL.combat.visionRange;
-  }
-
   return {
     DESIGN_WIDTH: DESIGN_WIDTH,
     resize: resize,
@@ -3627,7 +4384,6 @@ G.SCREEN = (function () {
     safeBottom: safeBottom,
     pointer: pointer,
     centerX: centerX,
-    visionRadius: visionRadius,
     state: state
   };
 })();
@@ -3829,8 +4585,21 @@ G.WORLD = (function () {
    * 保证玩家所在 chunk 周围 ring 圈已装载，并清理"太久没看"与超出上限的 chunk。
    * ring 默认 = `view.loadRingChunks`（预载一圈，跨 chunk 时画面才不空）。
    */
+  /**
+   * 装载环半径（A11）：**跟着视角档位走** —— 近档视野小，同样的环就能把整屏填满（环 2 = 5×5 chunk）；
+   * 中档视野大一倍，环 2 覆盖屏幕中间约六成；远档视野是 8×17 个 chunk，环保持 1（再大就装不下了，
+   * 那属于 03-roadmap 里记着的"远档要不要铺满屏幕"的取舍）。表里没写 loadRing 时退回 `view.loadRingChunks`。
+   */
+  function loadRing() {
+    var tiers = BAL.view.cameraTiers;
+    var index = Math.floor(BAL.view.cameraTier);
+    var tier = tiers && index >= 0 && index < tiers.length ? tiers[index] : null;
+    var ring = tier && tier.loadRing >= 0 ? Math.floor(tier.loadRing) : BAL.view.loadRingChunks;
+    return ring >= 0 ? ring : BAL.view.loadRingChunks;
+  }
+
   function ensureChunks(px, py, ring) {
-    if (!(ring >= 0)) ring = BAL.view.loadRingChunks;
+    if (!(ring >= 0)) ring = loadRing();
     var center = CHUNK.chunkOfWorld(px, py);
     var wanted = {};
     var dx;
@@ -4150,7 +4919,8 @@ G.WORLD = (function () {
 
   /**
    * 玩家出手（自动战斗的"出手"这一半）：
-   *   1. 当前目标还活着就继续打（不每帧跳目标，手感才稳）；否则按"视野内最近"重选；
+   *   1. 当前目标还活着就继续打（不每帧跳目标，手感才稳）；否则按"距离最近"重选
+   *      （默认全地图，见 `combat.targetRange` = 0）；
    *   2. 攻击距离 = `player.attackRange`，但按**中心距 − 怪半径**算（怪越大越好打，符合直觉）；
    *   3. 出手间隔 = `1000 / 攻速`（balance.player.attackSpeed，1.6 次/秒）；
    *   4. 伤害、暴击、归属全部走 07-combat，两个抢怪开关也是在那里读 balance 的。
@@ -4158,21 +4928,21 @@ G.WORLD = (function () {
   function playerAttack(player, stats, monsters, events) {
     var i;
     var target = null;
-    // 选目标（01-game-design §4）：每 `combat.targetIntervalMs`（0.1 秒）重算一次"**视野内最近**"；
+    // 选目标（01-game-design §4）：每 `combat.targetIntervalMs`（0.1 秒）重算一次"**距离最近**"；
     // 两次重算之间沿用当前目标（省 CPU，也免得目标每帧乱跳）——
     // ⚠️ 不能只在"目标死了"时重选：否则会锁着一只远处的怪，站在近怪堆里一直打不到。
+    // A7 修订：重选与沿用都**不再按视野距离过滤**（combat.targetRange = 0 = 全地图最近的怪）——
+    // 目标经常在屏幕外一格，按视野判会不断换目标，自动走位就走两步停一下。
     var due = nowMs - player.targetAt >= BAL.combat.targetIntervalMs;
     if (!due && player.targetId) {
       for (i = 0; i < monsters.length; i += 1) {
         var current = monsters[i];
         if (current.id !== player.targetId || current.state === 'dead') continue;
-        var cdx = current.x - player.x;
-        var cdy = current.y - player.y;
-        if (Math.sqrt(cdx * cdx + cdy * cdy) <= COMBAT.visionRange()) target = current;
+        target = current;
       }
     }
     if (!target) {
-      target = COMBAT.pickTarget(player.x, player.y, monsters, COMBAT.visionRange());
+      target = COMBAT.pickTarget(player.x, player.y, monsters, COMBAT.targetRange());
       player.targetId = target ? target.id : 0;
       player.targetAt = nowMs;
     }
@@ -4382,12 +5152,12 @@ G.WORLD = (function () {
   /* ------------------------------------------------ 自动战斗走位（A4 新增） */
 
   /**
-   * 视野内最近的可攻击怪。
+   * 距离最近的可攻击怪（默认**全地图**：`combat.targetRange` = 0 = 不限距离）。
    * 与 `playerAttack` 共用 07-combat 的同一份 pickTarget —— 走位与出手**必须**选同一只怪，
    * 否则会出现"走过去打另一只"的鬼畜现象。
    */
   function pickTarget(player) {
-    return COMBAT.pickTarget(player.x, player.y, allMonsters(), COMBAT.visionRange());
+    return COMBAT.pickTarget(player.x, player.y, allMonsters(), COMBAT.targetRange());
   }
 
   /** 按 id 取怪（走位每帧都要目标的实时坐标；死了 / 该 chunk 被卸掉就当没有） */
@@ -4403,6 +5173,7 @@ G.WORLD = (function () {
   return {
     reset: reset,
     setView: setView,
+    loadRing: loadRing,
     ensureChunks: ensureChunks,
     castSkill: castSkill,
     allMonsters: allMonsters,
@@ -4499,11 +5270,41 @@ G.INPUT = (function () {
     return null;
   }
 
-  /** 摇杆区（左下角的一块矩形，避开底部安全区）：只有落在这里才起摇杆 */
-  function inStickZone(x, y) {
-    var zoneW = SCREEN.width() * BAL.input.zoneWidthRatio;
+  /**
+   * 摇杆区下边：**底部动作栏的顶边** `HUD.bottomBarTop()`（A7 修订）。
+   *
+   * 拿不到 HUD 时退化成屏幕最底 —— 只有单测 15-input 这种"没有界面层"的场合会走到这里。
+   */
+  function zoneBottom() {
+    var hud = G.HUD;
+    if (hud && hud.bottomBarTop) {
+      var top = hud.bottomBarTop();
+      if (top > 0 && top <= SCREEN.height()) return top;
+    }
+    return SCREEN.height();
+  }
+
+  /**
+   * 摇杆触发区（A7 修订）：**左边缘起 `input.zoneWidthRatio` 宽，从底栏顶边往上 `input.zoneHeightRatio` 高**。
+   *
+   * 用户要求：摇杆区别压到按钮区域。所以下边不再是"屏幕最底"，而是吸底动作栏的顶边 ——
+   * 功能键 / 技能键那一整条从此不在触发区里，手指点偏了也只是"没反应"，
+   * 不会变成"想点技能，结果推了摇杆"（17-hud 的 `bottomBarTop()` 是这条线的唯一出处）。
+   *
+   * 几何只在这里算一次：自检与 tools\hud-preview.mjs 都读这个函数，画出来的框就是真判定。
+   */
+  function stickZone() {
+    var bottom = zoneBottom();
     var zoneH = SCREEN.height() * BAL.input.zoneHeightRatio;
-    return x >= 0 && x <= zoneW && y >= SCREEN.height() - SCREEN.safeBottom() - zoneH && y <= SCREEN.height();
+    var top = bottom - zoneH;
+    if (top < 0) top = 0;
+    return { left: 0, right: SCREEN.width() * BAL.input.zoneWidthRatio, top: top, bottom: bottom };
+  }
+
+  /** 落点是否在摇杆区里（矩形命中测试） */
+  function inStickZone(x, y) {
+    var zone = stickZone();
+    return x >= zone.left && x <= zone.right && y >= zone.top && y <= zone.bottom;
   }
 
   function reset() {
@@ -4639,6 +5440,7 @@ G.INPUT = (function () {
     setButtons: setButtons,
     buttons: buttons,
     buttonAt: buttonAt,
+    stickZone: stickZone,
     inStickZone: inStickZone,
     reset: reset,
     begin: begin,
@@ -4668,6 +5470,12 @@ G.INPUT = (function () {
  *      人物身上由 16-render.js 画，背包里由这里画；
  *   3. **部位占位**（`slotPlaceholder`）与**阶色边框**（`frame`）：空部位也要看得出是哪个部位。
  *
+ * **A12 的第四组：阶的发光**（用户：给不同等阶的装备添加发光颜色，分别为白色，蓝色，紫色，金色，红色，炫彩）：
+ * 颜色挂在 `balance.equipment.tiers[].glow` 上（六阶是一串颜色 = 炫彩），画法规格在 `balance.view.iconGlow`。
+ * `frame` 给「有货」的格子描完阶色后再往外画 `layers` 层发光环（越外越淡 + 呼吸），
+ * `heroGlow` 给背包面板的角色预览加一束「身上最高那一阶」的光。
+ * 发光 = **多层描边 / 多层圆**（假 canvas 没有 shadowBlur），时间基准由调用方（18-panels 的 glowPhase）传进来。
+ *
  * 注意：本文件**不引入三角函数**（齿轮的斜齿用显式坐标的菱形），
  * 于是 check-minigame.ps1 的三角函数白名单一个字都不用改。
  */
@@ -4681,11 +5489,159 @@ G.ICONS = (function () {
   /** 六阶阶色（唯一一份：18-panels 的 tierColor 也读它，免得两处各写一套颜色） */
   var TIER_COLORS = ['#c7c7c7', '#8ce99a', '#a9d5ff', '#d0a9ff', '#ff9b5a', '#ffd479'];
 
+  /**
+   * 六阶**发光色**的兜底表（真正的那一份在 `balance.equipment.tiers[].glow`）：
+   * 只在这个字段缺失时兜底，保证「画得出、不白屏」。一阶一个颜色，六阶天赐是一串 = 炫彩。
+   */
+  var TIER_GLOW_FALLBACK = [
+    ['#ffffff'],                                                        // 1 普通：白
+    ['#3f8cff'],                                                        // 2 专家：蓝
+    ['#a855f7'],                                                        // 3 史诗：紫
+    ['#ffd479'],                                                        // 4 传说：金
+    ['#ff4d4d'],                                                        // 5 神话：红
+    ['#ff4d4d', '#ffa64d', '#ffe066', '#5ce65c', '#4dc3ff', '#b06bff']   // 6 天赐：炫彩
+  ];
+
   /** 图标里的"暗色"（锁扣 / 门洞 / 中心孔这类负形） */
   var DARK = '#1b2438';
 
   function tierColor(tier) {
     return TIER_COLORS[tier - 1] || '#c7c7c7';
+  }
+
+  /* ------------------------------------------------------------ 阶色与发光 */
+
+  /**
+   * 某一阶的发光色（数组）：一阶一个颜色，**六阶天赐是一串 = 炫彩**（见 balance 的 equipment.tiers[].glow）。
+   * G.EQUIP 由 09-equipment.js 加载，比本文件早，所以这里直接问它 —— 颜色永远只有 balance 那一份。
+   */
+  function tierGlow(tier) {
+    var def = G.EQUIP && G.EQUIP.tierById ? G.EQUIP.tierById(tier) : null;
+    var list = def ? def.glow : null;
+    if (list && list.length) return list;
+    var index = (tier > 0 ? tier : 1) - 1;
+    return TIER_GLOW_FALLBACK[index] || TIER_GLOW_FALLBACK[0];
+  }
+
+  /** 发光规格（balance.view.iconGlow）：尺寸与节奏只在 balance 一处，代码只读它 */
+  function glowConfig() {
+    var config = BAL.view.iconGlow;
+    return config && typeof config === 'object' ? config : null;
+  }
+
+  /**
+   * 呼吸系数：1 = 最亮、1 - pulseAmp = 最暗。用**三角波**算 —— 本文件从 A6 起就是 trig-free 的
+   * （check-minigame.ps1 的三角函数白名单里没有 16-icons.js），所以这里不要写 sin / cos。
+   */
+  function glowPulse(phase) {
+    var config = glowConfig();
+    if (!config) return 1;
+    var period = config.pulseMs;
+    if (!(period > 0)) return 1;
+    var raw = typeof phase === 'number' && isFinite(phase) ? phase : 0;
+    var t = ((raw % period) + period) % period;
+    var wave = 1 - Math.abs((t / period) * 2 - 1);
+    var amp = typeof config.pulseAmp === 'number' ? config.pulseAmp : 0;
+    if (amp < 0) amp = 0;
+    if (amp > 1) amp = 1;
+    return 1 - amp * (1 - wave);
+  }
+
+  /**
+   * 第 layer 层用哪个颜色：单色阶永远同一色；**炫彩阶每过 spinMs 换一格**，
+   * 层与层之间还错开一位 —— 于是三层的环同时挂三种颜色，看着才像在流动。
+   */
+  function glowColorAt(tier, layer, phase) {
+    var colors = tierGlow(tier);
+    if (colors.length <= 1) return colors[0];
+    var config = glowConfig();
+    var spinMs = config && config.spinMs > 0 ? config.spinMs : 0;
+    var raw = typeof phase === 'number' && isFinite(phase) ? phase : 0;
+    var step = spinMs > 0 ? Math.floor(raw / spinMs) : 0;
+    var index = ((step + layer) % colors.length + colors.length) % colors.length;
+    return colors[index];
+  }
+
+  /** 一份 look（四件装备，见 09-equipment 的 lookOf）里**最高那一阶**：发光取它（0 = 光身板，不发光） */
+  function lookTier(look) {
+    if (!look) return 0;
+    var best = 0;
+    var slots = G.EQUIP.SLOT_IDS;
+    for (var i = 0; i < slots.length; i += 1) {
+      var part = look[slots[i]];
+      var tier = part && part.tier > 0 ? part.tier : 0;
+      if (tier > best) best = tier;
+    }
+    return best;
+  }
+
+  /** 八角路径（切角 = 边长 × 0.2，与 frame 同一份比例）：pad > 0 = 往框外扩出去的那一圈 */
+  function octPath(ctx, x, y, side, pad) {
+    var x0 = x - pad;
+    var y0 = y - pad;
+    var s = side + pad * 2;
+    var k = s * 0.2;
+    path(ctx, [
+      [x0 + k, y0],
+      [x0 + s - k, y0],
+      [x0 + s, y0 + k],
+      [x0 + s, y0 + s - k],
+      [x0 + s - k, y0 + s],
+      [x0 + k, y0 + s],
+      [x0, y0 + s - k],
+      [x0, y0 + k]
+    ]);
+  }
+
+  /**
+   * 框外的发光（用户：给不同等阶的装备添加发光颜色，分别为白色，蓝色，紫色，金色，红色，炫彩）：
+   * 沿八角框往外画 `layers` 层描边，**越外越淡**、每层带呼吸，颜色按阶取。
+   * 假 canvas 没有 shadowBlur，所以发光就是「多层描边」—— 与地表石碑 / 营地火光同一套画法。
+   * 返回画了几层（0 = 关掉了 / 不是装备格），自检拿它断言「空位不发光、有装就发光」。
+   */
+  function glowRing(ctx, x, y, side, tier, phase) {
+    var config = glowConfig();
+    if (!config || config.enabled === false) return 0;
+    var layers = Math.floor(config.layers);
+    if (!(layers > 0) || !(side > 0)) return 0;
+    var spread = side * (config.spreadRatio > 0 ? config.spreadRatio : 0);
+    var alpha = config.alpha > 0 ? config.alpha : 0.4;
+    var pulse = glowPulse(phase);
+    ctx.lineWidth = config.lineWidth > 0 ? config.lineWidth : 2;
+    for (var layer = 0; layer < layers; layer += 1) {
+      ctx.globalAlpha = alpha * ((layer + 1) / layers) * pulse;
+      ctx.strokeStyle = glowColorAt(tier, layer, phase);
+      octPath(ctx, x, y, side, (spread * (layers - layer)) / layers);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    return layers;
+  }
+
+  /**
+   * 角色身上那束光（背包面板的角色预览）：半径 = 传入半径 × iconGlow.haloRadiusMul，颜色取身上最高那一阶 ——
+   * 「穿一身天赐 = 一圈炫彩」就是这么来的。画在人物**之前**，所以它是从背后透出来的一束。
+   * 返回发光用的阶（0 = 光身板，一个圆都不画）。
+   */
+  function heroGlow(ctx, cx, cy, radius, look, phase) {
+    var tier = lookTier(look);
+    var config = glowConfig();
+    if (tier <= 0 || !config || config.enabled === false || !(radius > 0)) return 0;
+    var layers = Math.floor(config.haloLayers);
+    if (!(layers > 0)) return 0;
+    var alpha = config.haloAlpha > 0 ? config.haloAlpha : 0.22;
+    var mul = config.haloRadiusMul > 0 ? config.haloRadiusMul : 1.9;
+    var pulse = glowPulse(phase);
+    var out = radius * mul;
+    for (var layer = 0; layer < layers; layer += 1) {
+      ctx.globalAlpha = alpha * ((layer + 1) / layers) * pulse;
+      ctx.fillStyle = glowColorAt(tier, layer, phase);
+      ctx.beginPath();
+      ctx.arc(cx, cy, (out * (layers - layer)) / layers, 0, TAU);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    return tier;
   }
 
   /* ------------------------------------------------------------ 基本图元 */
@@ -4840,6 +5796,48 @@ G.ICONS = (function () {
     bar(ctx, cx - s * 0.3, cy + s * 0.3, cx + s * 0.26, cy - s * 0.26, color, s * 0.14);
     triangle(ctx, cx + s * 0.44, cy - s * 0.44, cx + s * 0.46, cy - s * 0.14, cx + s * 0.14, cy - s * 0.46, color);
     bar(ctx, cx - s * 0.34, cy + s * 0.16, cx - s * 0.14, cy + s * 0.36, '#ffd479', s * 0.08);
+  }
+
+  /** 商城：钱袋（袋身 + 束口 + 一枚币）—— 与「会 / 设」并排也一眼认得出 */
+  function shop(ctx, cx, cy, s, color) {
+    var w = s * 0.74;
+    var h = s * 0.6;
+    var x = cx - w / 2;
+    var y = cy - h * 0.2;
+    poly(
+      ctx,
+      [
+        [x + w * 0.34, y - h * 0.2],
+        [x + w * 0.66, y - h * 0.2],
+        [x + w, y + h * 0.3],
+        [x + w * 0.78, y + h * 0.76],
+        [x + w * 0.22, y + h * 0.76],
+        [x, y + h * 0.3]
+      ],
+      color
+    );
+    bar(ctx, cx - w * 0.2, y - h * 0.2, cx + w * 0.2, y - h * 0.2, DARK, s * 0.09);
+    circle(ctx, cx, y + h * 0.3, s * 0.14, DARK);
+    rect(ctx, cx - s * 0.04, y + h * 0.06, s * 0.08, s * 0.3, DARK);
+  }
+
+  /** 铁匠：铁砧 + 一把锤子 + 两点火星（强化 = 敲在砧上） */
+  function smith(ctx, cx, cy, s, color) {
+    poly(
+      ctx,
+      [
+        [cx - s * 0.44, cy + s * 0.04],
+        [cx + s * 0.44, cy + s * 0.04],
+        [cx + s * 0.24, cy + s * 0.34],
+        [cx - s * 0.24, cy + s * 0.34]
+      ],
+      color
+    );
+    rect(ctx, cx - s * 0.5, cy - s * 0.08, s * 0.98, s * 0.14, color);
+    bar(ctx, cx - s * 0.06, cy - s * 0.46, cx + s * 0.3, cy - s * 0.1, color, s * 0.1);
+    rect(ctx, cx + s * 0.2, cy - s * 0.54, s * 0.3, s * 0.2, color);
+    circle(ctx, cx - s * 0.42, cy - s * 0.3, s * 0.07, '#ffd479');
+    circle(ctx, cx - s * 0.54, cy - s * 0.14, s * 0.045, '#ffd479');
   }
 
   /* ------------------------------------------------------------ 技能键图标 */
@@ -5086,8 +6084,13 @@ G.ICONS = (function () {
     ctx.closePath();
   }
 
-  /** 装备格 / 图标外框：阶色描边（dim = 空位或等级不够时压淡） */
-  function frame(ctx, x, y, size, tier, dim) {
+  /**
+   * 装备格 / 图标外框：**阶色描边 + 阶的发光**（用户：给不同等阶的装备添加发光颜色）。
+   * `dim` = 空位或等级不够时压淡 —— 这种格子是「占位」不是「货」，所以**只描边、不发光**；
+   * `phase` = 发光的时间基准（世界时钟，见 18-panels 的 glowPhase）。三档都读 balance。
+   */
+  function frame(ctx, x, y, size, tier, dim, phase) {
+    if (!dim) glowRing(ctx, x, y, size, tier || 1, phase);
     var k = size * 0.2;
     var points = [
       [x + k, y],
@@ -5173,6 +6176,164 @@ G.ICONS = (function () {
     rect(ctx, cx + s * 0.16, baseY - s * 0.78, w, s * 0.78, color);
   }
 
+  /* ------------------------------------------------------------ 属性图标（A10） */
+
+  /**
+   * 属性图标（A10）：背包 / 属性面板的每一行属性前面一枚小图标。
+   *
+   * 为什么放在这个文件：与功能键图标同一套纪律 —— 方框里、以 (cx, cy) 为中心、
+   * 只用 fillRect / moveTo / lineTo / arc / fill / stroke，**不引入三角函数**
+   * （check-minigame.ps1 的三角函数白名单因此一个字都不用改）。
+   * 图标名跟着 10-player 的属性定义走（breakdown 的 `icon`），认不出来时 dispatch 退化成圆环，
+   * 于是加一项属性不会出现"有数值没图标"的白格子。
+   */
+
+  /** 等级：三级台阶（练级的形状） */
+  function iconLevel(ctx, cx, cy, s, color) {
+    var base = cy + s * 0.4;
+    rect(ctx, cx - s * 0.44, base - s * 0.26, s * 0.26, s * 0.26, color);
+    rect(ctx, cx - s * 0.13, base - s * 0.5, s * 0.26, s * 0.5, color);
+    rect(ctx, cx + s * 0.18, base - s * 0.78, s * 0.26, s * 0.78, color);
+  }
+
+  /** 战力：一只握紧的拳头（"看谁更硬"） */
+  function iconPower(ctx, cx, cy, s, color) {
+    rect(ctx, cx - s * 0.34, cy - s * 0.14, s * 0.6, s * 0.46, color);
+    circle(ctx, cx - s * 0.2, cy - s * 0.22, s * 0.11, color);
+    circle(ctx, cx, cy - s * 0.24, s * 0.11, color);
+    circle(ctx, cx + s * 0.18, cy - s * 0.2, s * 0.1, color);
+    rect(ctx, cx - s * 0.44, cy - s * 0.04, s * 0.14, s * 0.32, color);
+    bar(ctx, cx - s * 0.1, cy + s * 0.06, cx + s * 0.2, cy + s * 0.06, DARK, s * 0.05);
+  }
+
+  /** 生命：一颗心 */
+  function iconHp(ctx, cx, cy, s, color) {
+    circle(ctx, cx - s * 0.17, cy - s * 0.12, s * 0.22, color);
+    circle(ctx, cx + s * 0.17, cy - s * 0.12, s * 0.22, color);
+    triangle(ctx, cx - s * 0.37, cy - s * 0.04, cx + s * 0.37, cy - s * 0.04, cx, cy + s * 0.44, color);
+  }
+
+  /** 防御：盾牌 + 一道横梁 */
+  function iconDefense(ctx, cx, cy, s, color) {
+    poly(
+      ctx,
+      [[cx - s * 0.36, cy - s * 0.36], [cx + s * 0.36, cy - s * 0.36], [cx + s * 0.36, cy + s * 0.02], [cx, cy + s * 0.44], [cx - s * 0.36, cy + s * 0.02]],
+      color
+    );
+    rect(ctx, cx - s * 0.22, cy - s * 0.18, s * 0.44, s * 0.08, DARK);
+  }
+
+  /** 攻速：一道闪电 */
+  function iconSpeed(ctx, cx, cy, s, color) {
+    poly(
+      ctx,
+      [
+        [cx + s * 0.06, cy - s * 0.46],
+        [cx - s * 0.32, cy + s * 0.06],
+        [cx - s * 0.04, cy + s * 0.06],
+        [cx - s * 0.12, cy + s * 0.46],
+        [cx + s * 0.32, cy - s * 0.1],
+        [cx + s * 0.02, cy - s * 0.1]
+      ],
+      color
+    );
+  }
+
+  /** 暴击率：准星 */
+  function iconCrit(ctx, cx, cy, s, color) {
+    ring(ctx, cx, cy, s * 0.3, color, s * 0.08);
+    bar(ctx, cx, cy - s * 0.46, cx, cy - s * 0.26, color, s * 0.08);
+    bar(ctx, cx, cy + s * 0.26, cx, cy + s * 0.46, color, s * 0.08);
+    bar(ctx, cx - s * 0.46, cy, cx - s * 0.26, cy, color, s * 0.08);
+    bar(ctx, cx + s * 0.26, cy, cx + s * 0.46, cy, color, s * 0.08);
+    circle(ctx, cx, cy, s * 0.09, color);
+  }
+
+  /** 暴击伤害：一道四角爆芒 */
+  function iconCritDamage(ctx, cx, cy, s, color) {
+    poly(ctx, [[cx, cy - s * 0.44], [cx + s * 0.17, cy], [cx, cy + s * 0.44], [cx - s * 0.17, cy]], color);
+    poly(ctx, [[cx - s * 0.44, cy], [cx, cy - s * 0.17], [cx + s * 0.44, cy], [cx, cy + s * 0.17]], color);
+  }
+
+  /** 增伤：向上的箭头 + 一道地基（"打得更疼"） */
+  function iconDamage(ctx, cx, cy, s, color) {
+    triangle(ctx, cx, cy - s * 0.46, cx + s * 0.24, cy - s * 0.12, cx - s * 0.24, cy - s * 0.12, color);
+    rect(ctx, cx - s * 0.08, cy - s * 0.16, s * 0.16, s * 0.5, color);
+    bar(ctx, cx - s * 0.34, cy + s * 0.24, cx + s * 0.34, cy + s * 0.24, color, s * 0.09);
+  }
+
+  /** 减伤：盾牌 + 向下的实心块（"打进来的少") */
+  function iconReduce(ctx, cx, cy, s, color) {
+    poly(
+      ctx,
+      [[cx - s * 0.36, cy - s * 0.36], [cx + s * 0.36, cy - s * 0.36], [cx + s * 0.36, cy + s * 0.02], [cx, cy + s * 0.44], [cx - s * 0.36, cy + s * 0.02]],
+      color
+    );
+    triangle(ctx, cx - s * 0.22, cy - s * 0.1, cx + s * 0.22, cy - s * 0.1, cx, cy + s * 0.2, DARK);
+  }
+
+  /** 移动速度：一只靴子 */
+  function iconMove(ctx, cx, cy, s, color) {
+    rect(ctx, cx - s * 0.22, cy - s * 0.42, s * 0.3, s * 0.58, color);
+    poly(
+      ctx,
+      [[cx - s * 0.22, cy + s * 0.04], [cx + s * 0.34, cy + s * 0.04], [cx + s * 0.34, cy + s * 0.28], [cx - s * 0.22, cy + s * 0.28]],
+      color
+    );
+    rect(ctx, cx - s * 0.3, cy + s * 0.28, s * 0.68, s * 0.1, DARK);
+  }
+
+  /** 拾取范围：一块磁铁（两极上色，一眼知道是"吸东西"） */
+  function iconPickup(ctx, cx, cy, s, color) {
+    bar(ctx, cx - s * 0.26, cy - s * 0.34, cx - s * 0.26, cy + s * 0.1, color, s * 0.16);
+    bar(ctx, cx + s * 0.26, cy - s * 0.34, cx + s * 0.26, cy + s * 0.1, color, s * 0.16);
+    arc(ctx, cx, cy + s * 0.1, s * 0.26, 0, Math.PI, color, s * 0.16);
+    rect(ctx, cx - s * 0.34, cy - s * 0.46, s * 0.16, s * 0.14, '#ff8a8a');
+    rect(ctx, cx + s * 0.18, cy - s * 0.46, s * 0.16, s * 0.14, '#8cd0ff');
+  }
+
+  /** 经验加成：一本摊开的书 + 一颗星 */
+  function iconXp(ctx, cx, cy, s, color) {
+    rect(ctx, cx - s * 0.34, cy - s * 0.4, s * 0.68, s * 0.8, color);
+    rect(ctx, cx - s * 0.26, cy - s * 0.32, s * 0.44, s * 0.64, DARK);
+    rect(ctx, cx - s * 0.36, cy - s * 0.4, s * 0.1, s * 0.8, 'rgba(255,255,255,0.28)');
+    poly(ctx, [[cx + s * 0.02, cy - s * 0.2], [cx + s * 0.1, cy], [cx + s * 0.02, cy + s * 0.2], [cx - s * 0.06, cy]], color);
+  }
+
+  /** 金币加成：一枚铜钱（中方孔） */
+  function iconGold(ctx, cx, cy, s, color) {
+    circle(ctx, cx, cy, s * 0.42, color);
+    rect(ctx, cx - s * 0.12, cy - s * 0.12, s * 0.24, s * 0.24, DARK);
+  }
+
+  /** 属性名 → 画法（10-player 的 breakdown 给的 icon 名就是这里的键） */
+  var STAT_ICONS = {
+    level: iconLevel,
+    power: iconPower,
+    attack: attack,
+    hp: iconHp,
+    defense: iconDefense,
+    attackSpeed: iconSpeed,
+    crit: iconCrit,
+    critDamage: iconCritDamage,
+    damage: iconDamage,
+    reduce: iconReduce,
+    move: iconMove,
+    pickup: iconPickup,
+    xp: iconXp,
+    gold: iconGold
+  };
+
+  /** 画一枚属性图标（认不出的名字退化成圆环，绝不留白格） */
+  function statIcon(ctx, key, cx, cy, s, color) {
+    var painter = STAT_ICONS[key];
+    if (!painter) {
+      ring(ctx, cx, cy, s * 0.36, color, s * 0.08);
+      return;
+    }
+    painter(ctx, cx, cy, s, color);
+  }
+
   /* ------------------------------------------------------------ 按钮图标分发 */
 
   var SKILL_ICONS = [cleave, mend, pierce, whirl];
@@ -5190,6 +6351,8 @@ G.ICONS = (function () {
     if (id === 'camp') return camp(ctx, cx, cy, s, color);
     if (id === 'menu') return menu(ctx, cx, cy, s, color);
     if (id === 'auto') return auto(ctx, cx, cy, s, color);
+    if (id === 'shop') return shop(ctx, cx, cy, s, color);
+    if (id === 'smith') return smith(ctx, cx, cy, s, color);
     if (id === 'attack') return attack(ctx, cx, cy, s, color);
     if (id === 'login') return login(ctx, cx, cy, s, color);
     if (id === 'user') return user(ctx, cx, cy, s, color);
@@ -5199,6 +6362,11 @@ G.ICONS = (function () {
     if (id === 'stat') return stat(ctx, cx, cy, s, color);
     if (typeof id === 'string' && id.indexOf('skill') === 0) {
       skillIcon(Number(id.slice(5)) || 0, ctx, cx, cy, s, color);
+      return;
+    }
+    // A10：属性图标也走这个统一入口（背包 / 属性面板按 10-player 给的 icon 名调用）
+    if (STAT_ICONS[id]) {
+      statIcon(ctx, id, cx, cy, s, color);
       return;
     }
     ring(ctx, cx, cy, s * 0.36, color, s * 0.08);
@@ -5213,6 +6381,13 @@ G.ICONS = (function () {
   return {
     TIER_COLORS: TIER_COLORS,
     tierColor: tierColor,
+    tierGlow: tierGlow,
+    glowConfig: glowConfig,
+    glowPulse: glowPulse,
+    glowColorAt: glowColorAt,
+    glowRing: glowRing,
+    heroGlow: heroGlow,
+    lookTier: lookTier,
     size: size,
     frame: frame,
     item: item,
@@ -5227,6 +6402,8 @@ G.ICONS = (function () {
     camp: camp,
     menu: menu,
     auto: auto,
+    shop: shop,
+    smith: smith,
     attack: attack,
     cleave: cleave,
     mend: mend,
@@ -5238,6 +6415,7 @@ G.ICONS = (function () {
     dice: dice,
     trash: trash,
     stat: stat,
+    statIcon: statIcon,
     skillIcon: skillIcon,
     button: button
   };
@@ -5248,10 +6426,23 @@ G.ICONS = (function () {
  *
  * 阶段 A3：实体从"圆"升级成**简单自绘角色**，地图从"色块 + 圆点"升级成**有设计感的地图**。
  * 阶段 A6（本轮）：**Q版** 角色（大头 + 大眼 + 腮红）+ **装备外观**（穿的什么就像什么）+
- * **视角倍率**（`view.cameraZoom` 把世界层整体拉远，UI 不变）+ **更细的地表**（5×5 色块与细纹）。
+ * **视角倍率**（把世界层整体拉远，UI 不变）+ **更细的地表**（16×16 色块与细纹）。
+ * 阶段 A8：默认倍率压到 0.176（用户标准「一屏横向 128 格」）→ 世界层实体密度翻了 ~20 倍，
+ * 地表与装饰改走 `view.lodZoom` 省笔档（远到一格只有几像素时，色档 / 细纹 / 装饰都是亚像素噪点）。
+ * 阶段 A9（用户："视角的格子变多了，地图的刻画要更加细节，还有人物的大小"）：
+ *   - **宏观档**（`lodZoom` 以下）：地表按粗色格抽样 + 同色跨 chunk 批量落笔，
+ *     装饰由 `TERRAIN.decorBlobs` 聚合成"草甸 / 石滩 / 林地"斑 —— 逐格细节看不见，宏观结构要看得见；
+ *   - **演员层最小观感尺寸**（`view.actorMinZoom`）：点状的东西（角色 / 怪 / 身上的动画 / 选中指示）
+ *     反向放大，观感不低于它；面状的东西（地表 / 范围环 / AoE）保持世界尺寸。
+ * 阶段 A11（用户："地图、相机视角还需要优化，需要让地图更加细节，玩家视角更加清晰"）：
+ *   - **三个视角档位**（`view.cameraTiers`：远 128 格 / 中 64 格 / 近 32 格，默认中档）——
+ *     拉近一档，地表的斑驳细一倍（宏观色格按 **tile 数**给：远 4 格 / 中 2 格，手机上 11.7 → 5.9 CSS px）；
+ *   - **宏观调色板往主题主色收一收**（`view.lodBlend`）：色格变小之后不再是一张噪声马赛克，
+ *     而是"同一片地带淡淡斑驳"的纹理；结构交给装饰斑的轮廓（三种斑都描边）与路网；
+ *   - **玩家标记**（`view.playerMark*`）：脚下常亮的一圈细环，**屏幕尺寸恒定** —— 任何档位都找得到"我"。
  * 一帧的顺序（20-main.renderTo 调用）：
  *   地表色块 + 营地石砖 → 小径路网 → 装饰（按主题换造型）→ 地标（废墟 / 石碑）→ 营地道具
- *   → 弹道 → 怪（4 种造型 + 朝向 + 走路）→ 目标环 → 玩家（小人 + 八方向 + 挥砍 + 装备外观）→ 飘字
+ *   → 弹道 → 怪（4 种造型 + 朝向 + 走路）→ 目标环 → 玩家（标记环 + 小人 + 八方向 + 挥砍 + 装备外观）→ 飘字
  *
  * 为什么仍然**不贴图**：包体与图集是阶段 E 的事（01-game-design §12），而"简单角色"用
  * 十几个基本图元就能画出来 —— 先把辨识度与手感做出来，以后换图集只动这一层。
@@ -5363,7 +6554,10 @@ G.RENDER = (function () {
     fire: '#ffb347',
     fireCore: '#fff0b8',
     glow: '#ffcb6b',
-    banner: '#d8c07a'
+    banner: '#d8c07a',
+    stone: '#6d675c',
+    iron: '#5d6470',
+    ironTop: '#828b99'
   };
 
   /** 世界坐标 → 屏幕设计坐标 */
@@ -5372,12 +6566,108 @@ G.RENDER = (function () {
   }
 
   /**
-   * 视角倍率（A6，`balance.view.cameraZoom`）：< 1 = 镜头拉远、看得更广。
-   * 0.8 时每边多看 25%，而且**只缩放世界层** —— HUD / 面板 / 按钮保持原尺寸。
+   * 当前视角档位（A11）：`balance.view.cameraTiers[balance.view.cameraTier]`。
+   * 每档 = { id, name, tiles（一屏横向多少格）, zoom, lodBlocks }；
+   * 运行时档位由 20-main 按存档里的 `settings.zoomTier` 写入 `view.cameraTier`（一个整数），
+   * 渲染层只读它 —— 界面层不读存档那条纪律没破。
+   */
+  function tier() {
+    var tiers = BAL.view.cameraTiers;
+    if (!tiers || !tiers.length) return null;
+    var index = Math.floor(BAL.view.cameraTier);
+    if (!(index >= 0) || index >= tiers.length) index = 0;
+    return tiers[index];
+  }
+
+  /**
+   * 视角倍率（< 1 = 镜头拉远、看得更广）：**只缩放世界层** —— HUD / 面板 / 按钮保持原尺寸。
+   *
+   * 口径只有一条：**一屏横向多少格** → `zoom = designWidth / (tiles × world.tileSize)`。
+   *   - 落在预设档位上（`view.zoomTiles` == 这一档的 `tiles`）时直接返回表里的 `zoom`：
+   *     表是数值的单一出处，128 / 64 / 32 这三个标准值因此永远是精确数（自检逐档验这条等式）；
+   *   - 拖到两档之间（A11 之二：设置面板里的视角缩放轴，16~64 格）才按上面那条式子现算。
+   *
+   * 为什么不让档位表直接承接连续值：档位还要给宏观色格边长 / 装载环 / 小地图半径定规格，
+   * 那些"档"级别的数字不该跟着每拖一下乱跳（见 `lodBlockTiles` / 14-world 的 `loadRing`）。
    */
   function zoom() {
-    var value = BAL.view.cameraZoom;
-    return value > 0 ? value : 1;
+    var current = tier();
+    var tiles = Math.round(BAL.view.zoomTiles);
+    if (current && tiles === current.tiles && current.zoom > 0) return current.zoom;
+    if (tiles > 0) {
+      var derived = BAL.view.designWidth / (tiles * BAL.world.tileSize);
+      if (derived > 0 && isFinite(derived)) return derived;
+    }
+    return current && current.zoom > 0 ? current.zoom : 1;
+  }
+
+  /** 这一档宏观色格的边长（按 tile 数，A11）：远 4 格 / 中 1 格 / 近 1 格（1 = 逐格） */
+  function lodBlockTiles() {
+    var current = tier();
+    var width = current ? Math.round(current.lodBlockTiles) : 4;
+    return width >= 1 ? width : 1;
+  }
+
+  /**
+   * 这一档每 chunk 的宏观色格数 = 每 chunk 的格数 ÷ 色格边长（A11）：远 16/4 = 4、中 16/1 = 16。
+   *
+   * 这是"地图更细节"的关键数字：色格的**世界尺寸**从远档的 128 单位（4 格）缩到中档的 32 单位（1 格），
+   * 于是中档在手机上每 5.9 CSS px 就换一次色 —— 地表看得见的斑驳细一倍，而视野只小了 4 倍**面积**
+   * （64×139 格 vs 128×277 格），换来的清晰度是实打实的。
+   * 近档 1 格 = 逐格，它走 high 细节（见 `groundDetailAt`），根本不进宏观档。
+   */
+  function lodBlocks() {
+    var blocks = Math.round(TERRAIN.tileCountPerChunk() / lodBlockTiles());
+    return blocks >= 1 ? blocks : 1;
+  }
+
+  /**
+   * 地表 / 装饰的细节档（A8，`balance.view.lodZoom`）：
+   * zoom 低于阈值时一格在屏幕上不足 ~9 CSS px，6 档色、土斑细纹、装饰全都只是亚像素噪点 ——
+   * 于是走**宏观档**（A9/A11）：地表按本档的 `lodBlocks` 抽样、同色跨 chunk 批量落笔，
+   * 装饰换成宏观斑（`TERRAIN.decorBlobs`），逐件装饰整层跳过。
+   * 三个档位里远 / 中走宏观档，近档（0.703 > 0.5）走逐格档。
+   * 纯函数（只看传入的倍率），自检可以直接断言每一档，不用去改 balance。
+   */
+  function groundDetailAt(k) {
+    var threshold = BAL.view.lodZoom;
+    return threshold > 0 && k < threshold ? 'low' : 'high';
+  }
+
+  function lowDetail() {
+    return groundDetailAt(zoom()) === 'low';
+  }
+
+  /**
+   * 演员层缩放（A9，`balance.view.actorMinZoom`）：用户"还有人物的大小"。
+   *
+   * 一屏 128 格意味着镜头拉远了 4.55 倍：角色（半径 24）只剩 ~4 CSS px，怪也是。于是给
+   * **点状的东西**（角色 / 怪的身体与影子 / 身上的动画 / 选中与仇恨指示 / 弹道）一个最小观感倍率 ——
+   * zoom 低于它时按 `actorMinZoom / zoom` 反向放大，观感不再低于这个倍率（0.8 = 与 A6 时代一样大）。
+   *
+   * 代价是有意接受的：世界被压缩了 4.55 倍而角色没有，所以"角色看起来比脚下的地大"。
+   * **面状的东西一律不放大**（地表 / 路 / 营地 / 地标 / 攻击范围与 AoE 环）：它们的尺寸是世界比例，
+   * 放大就等于骗人。`actorMinZoom = 0` 或放开到 ≥ zoom 时本层完全不生效（回到"角色 4 CSS px"）。
+   */
+  function actorScale() {
+    var k = zoom();
+    var floorZoom = BAL.view.actorMinZoom;
+    if (!(floorZoom > 0) || k >= floorZoom) return 1;
+    return floorZoom / k;
+  }
+
+  /**
+   * 以屏幕点为中心把后面画的东西放大 `scale` 倍（= 把角色"画大"而不是"挪位置"）。
+   * 与 `beginWorld` 同一个套路：只动画布变换，坐标公式一个字不改。
+   * **必须成对 restore**（自检里有一条 save/restore 配平的断言，防的就是"缩放漏进 HUD"）。
+   */
+  function beginActor(ctx, point, scale) {
+    ctx.save();
+    if (scale !== 1) {
+      ctx.translate(point.x, point.y);
+      ctx.scale(scale, scale);
+      ctx.translate(-point.x, -point.y);
+    }
   }
 
   /**
@@ -5499,23 +6789,331 @@ G.RENDER = (function () {
     ctx.globalAlpha = 1;
   }
 
-  /** 地表细度（A6）：每个 chunk 切 5×5 色块 + 一撮细纹（细纹攒成一条路径，一次 fill 画完） */
-  var GROUND_BLOCKS = 5;
-  var GROUND_SPECKS = 12;
+  /**
+   * 地表细度（A7 修订）：网格边长 = `world.tileSize`，块数 = `TERRAIN.tileCountPerChunk()`。
+   *
+   * 之前这里写死 5×5：块边长 102 世界单位（手机上约 42 CSS px）—— 那就是"一眼看见像素块"的来源。
+   * 现在 tileSize = 32 → 16×16，块边长 51 世界单位（约 13 CSS px），按档攒路径而不是按块。
+   */
+  var GROUND_LEVELS = 6; // 3 种结构色 × 亮 / 暗 2 档：同档的块攒成一条路径 → 每 chunk 最多 6 次落笔
+  var GROUND_SHADE = 0.07; // 亮暗档往黑 / 白混多少：够把接缝揉开，又不会花
+  var GROUND_SPECKS = 40; // 每 chunk 的细纹（土斑 / 草籽）：更密的细纹让块的边界看不出来
+
+  /** 一块复用的色档缓存（一个 chunk 内 blocks² 张块）：每帧不新建数组，GC 不抖 */
+  var levelCache = null;
+
+  /** 一块复用的 6 档颜色（每个 chunk 按主题重算一次） */
+  var groundColors = [];
 
   /**
-   * 地表：每 chunk 一块主题底色 + 5×5 色块（颜色来自 groundVariant，位置与主题都由哈希决定），
+   * 一张地表块的色档 0..5：低 1 位 = 亮 / 暗，高 2 位 = 结构色（`TERRAIN.groundVariant` 的那 3 种）。
+   * 纯整数哈希 —— 和地图本身一样"同一坐标永远同一档"，所以画面不会闪（改 tileSize 也不动它）。
+   */
+  function groundLevel(seed, cx, cy, tx, ty) {
+    return TERRAIN.groundVariant(seed, cx, cy, tx, ty) * 2 + G.RNG.hashInt([seed, cx, cy, tx, ty, 0x2f], 2);
+  }
+
+  /** 把一个 chunk 的色档整张算出来（每块只哈希一次，下面 6 档各扫一遍它） */
+  function groundLevels(seed, cx, cy, blocks) {
+    var need = blocks * blocks;
+    if (!levelCache || levelCache.length < need) levelCache = new Uint8Array(need);
+    for (var by = 0; by < blocks; by += 1) {
+      for (var bx = 0; bx < blocks; bx += 1) levelCache[by * blocks + bx] = groundLevel(seed, cx, cy, bx, by);
+    }
+    return levelCache;
+  }
+
+  /* ---------------------------------------------------------------- 远距宏观档（A9） */
+
+  /**
+   * 远距宏观档的地表 / 装饰（A9）：用户"视角的格子变多了，地图的刻画要更加细节"。
+   *
+   * 一屏 128 格时，一格只有 ~2.9 CSS px —— **"更细"这条路已经走到头了**（16×16 色档、土斑、
+   * 逐件装饰全是亚像素噪点）。所以这一档换的是**细节的层级**：把同一份地表哈希**粗抽样**成
+   * `view.lodGroundBlocks ×` 这么多格（4×4 → 每格 128 世界单位 ≈ 11.8 CSS px），
+   * 于是 128 格的视野里有一屏"有纹理的地"，而不是一片纯色；远看与近看是同一片地，只是抽样更粗。
+   *
+   * 落笔的账：粗色格按"同 band（= 同主题同色偏）"攒进同一个槽，最后每槽每档一次 fill ——
+   * 一整屏 139 个 chunk 的**地表落笔反而比"每 chunk 一次 fillRect"更少**（见 perf-frame 实测）。
+   */
+  var MACRO_SHADE = 0.09; // 粗色格的亮暗差：比近景（0.07）略强，11.8 CSS px 的格子要靠它才看得出纹理
+  var MACRO_SLOT_MAX = 40; // 一帧最多几组"同主题同色偏"的 chunk（band = 距原点 1000 一个，一屏通常 3~9 组）
+  var MACRO_CACHE_MAX = 1024; // chunk 级宏观斑缓存上限（满了整片清掉重来）
+
+  /** 复用的粗色档缓存（一个 chunk 内 blocks² 格） */
+  var macroLevelsBuf = null;
+
+  /** 每帧复用的调色板槽：[{ band, colors }]，colors = 6 档地表色 + 草 / 石 / 树三个斑色 */
+  var macroSlots = [];
+  var macroSlotUsed = 0;
+
+  /** 每个（槽 × 档）一串数字 [x, y, w, h]；每个（槽 × 种类）一串数字 [x, y, rx, ry] —— 复用，不每帧新建 */
+  var macroRuns = [];
+  var macroBlobsOf = [];
+
+  /** chunk 级宏观斑缓存（每个 chunk 只跑一次装饰流）+ 上一次画了几个斑（自检用） */
+  var macroChunkCache = null;
+  var macroChunkCount = 0;
+  var macroBlobDrawn = 0;
+
+  /**
+   * 把一个 chunk 的粗色档整张算出来：在同一个 16×16 色档场里按 `step` 隔点抽样。
+   * 缓存复用（不每帧新建数组），哈希只跑 blocks² 次。
+   */
+  function macroLevels(seed, cx, cy, blocks) {
+    var need = blocks * blocks;
+    if (!macroLevelsBuf || macroLevelsBuf.length < need) macroLevelsBuf = new Uint8Array(need);
+    var step = Math.max(1, Math.round(TERRAIN.tileCountPerChunk() / blocks));
+    for (var by = 0; by < blocks; by += 1) {
+      for (var bx = 0; bx < blocks; bx += 1) {
+        macroLevelsBuf[by * blocks + bx] = groundLevel(seed, cx, cy, bx * step, by * step);
+      }
+    }
+    return macroLevelsBuf;
+  }
+
+  /**
+   * 一个槽的 9 个颜色：0..5 = 6 档地表色（口径与近景同一份），6..8 = 草 / 石 / 树三个斑色。
+   *
+   * A11（用户："地图更加细节"）：每一档都先往**本主题的主色**（`theme.ground[0]`）混 `view.lodBlend` ——
+   * 因为色格变小了（中档一块只有 2 格地表 = 手机上 5.9 CSS px），要是每块都用满对比的原色，
+   * 远看就是一张**噪声马赛克**；往主色收一收，就变成"同一片地、带淡淡斑驳"的纹理，
+   * 结构感交给装饰斑（草甸 / 石滩 / 林地）与路网去说。近档走逐格档，不受这里影响。
+   */
+  function macroColors(theme, tint, out) {
+    var blend = BAL.view.lodBlend >= 0 && BAL.view.lodBlend <= 1 ? BAL.view.lodBlend : 0;
+    var dominant = TERRAIN.mixHex(theme.ground[0], '#000010', tint);
+    for (var level = 0; level < GROUND_LEVELS; level += 1) {
+      var base = TERRAIN.mixHex(theme.ground[level >> 1], level & 1 ? '#ffffff' : '#000010', MACRO_SHADE);
+      out[level] = TERRAIN.mixHex(TERRAIN.mixHex(base, dominant, blend), '#000010', tint);
+    }
+    out[6] = TERRAIN.mixHex(theme.ground[1], theme.accent, 0.16); // 草甸：底色往主题点缀色走一点
+    out[7] = TERRAIN.mixHex(theme.ground[2], '#ffffff', 0.2); // 石滩：亮一点的岩色
+    out[8] = TERRAIN.mixHex(theme.decor, '#000010', 0.12); // 林地：主题装饰色压暗 = 树冠
+  }
+
+  /**
+   * 取（或新建）本帧的一个调色板槽：**同一个 band 的 chunk 共用一份颜色**。
+   * 这就是"跨 chunk 批量落笔"的前提 —— 一屏里同色的 chunk 全攒进同一条路径。
+   */
+  function macroSlotFor(band, theme, tint) {
+    for (var i = 0; i < macroSlotUsed; i += 1) if (macroSlots[i].band === band) return i;
+    if (macroSlotUsed >= MACRO_SLOT_MAX) return 0; // 兜底（band 数是"距原点 / 1000"，一屏到不了 40 组）
+    var slot = macroSlots[macroSlotUsed];
+    if (!slot) {
+      slot = { band: band, colors: [] };
+      macroSlots[macroSlotUsed] = slot;
+    }
+    slot.band = band;
+    macroColors(theme, tint, slot.colors);
+    macroSlotUsed += 1;
+    return macroSlotUsed - 1;
+  }
+
+  /** 把一条矩形记进（槽 × 档）那串数字 —— 之后再统一 beginPath / rect / fill */
+  function macroPushRun(index, x, y, w, h) {
+    var runs = macroRuns[index];
+    if (!runs) {
+      runs = [];
+      macroRuns[index] = runs;
+    }
+    runs.push(x, y, w, h);
+  }
+
+  /**
+   * 一个 chunk 的宏观斑（带缓存）：同一个 chunk 只跑一次 `TERRAIN.decorBlobs`。
+   * 键用整数（`(cx + 8192) * 16384 + (cy + 8192)`）—— 每帧 139 次查找不产生字符串。
+   * 走到 ±8192 个 chunk（≈ ±419 万世界单位）以外理论上会撞键，撞了也只是那几个斑长得像，不影响玩法。
+   */
+  function macroBlobsAt(seed, cx, cy, band, maxBlobs) {
+    if (!macroChunkCache) macroChunkCache = {};
+    var key = (cx + 8192) * 16384 + (cy + 8192);
+    var hit = macroChunkCache[key];
+    if (hit && hit.band === band && hit.maxBlobs === maxBlobs) return hit.blobs;
+    var blobs = TERRAIN.decorBlobs(seed, cx, cy, band, maxBlobs);
+    if (macroChunkCount >= MACRO_CACHE_MAX) {
+      macroChunkCache = {};
+      macroChunkCount = 0;
+    }
+    macroChunkCache[key] = { band: band, maxBlobs: maxBlobs, blobs: blobs };
+    macroChunkCount += 1;
+    return blobs;
+  }
+
+  /**
+   * 宏观档的装饰斑：把每个 chunk 的**真实装饰**聚合成 1~2 个"草甸 / 石滩 / 林地"斑，
+   * 按（槽 × 种类）攒路径 —— 一整屏的林子与石滩只花几次落笔。
+   * 走进去看到的是同一片（同一个随机流，见 `TERRAIN.decorBlobs`），所以"远看有林子"不会落空。
+   */
+  function drawMacroBlobs(ctx, camera, chunks, seed, maxBlobs) {
+    var i;
+    var j;
+    var slot;
+    var kind;
+    var band;
+    var blobs;
+    var blob;
+    var point;
+    var path;
+    var index;
+    var drawn = 0;
+
+    for (i = 0; i < chunks.length; i += 1) {
+      band = G.SPAWN.chunkCenterBand(chunks[i].cx, chunks[i].cy);
+      blobs = macroBlobsAt(seed, chunks[i].cx, chunks[i].cy, band, maxBlobs);
+      if (blobs.length === 0) continue;
+      slot = macroSlotFor(band, TERRAIN.themeForBand(band), TERRAIN.deepBandIntensity(band));
+      for (j = 0; j < blobs.length; j += 1) {
+        blob = blobs[j];
+        kind = blob.kind === 'tree' ? 2 : blob.kind === 'rock' ? 1 : 0;
+        index = slot * 3 + kind;
+        path = macroBlobsOf[index];
+        if (!path) {
+          path = [];
+          macroBlobsOf[index] = path;
+        }
+        point = toScreen(camera, blob.x, blob.y);
+        // 贴在地上的一片 → 扁椭圆（ry = 0.68 rx）：远看才是"地上一块植被"，不是飘着的气球
+        path.push(point.x, point.y, blob.r, blob.r * 0.68);
+        drawn += 1;
+      }
+    }
+
+    for (slot = 0; slot < macroSlotUsed; slot += 1) {
+      for (kind = 0; kind < 3; kind += 1) {
+        path = macroBlobsOf[slot * 3 + kind];
+        if (!path || path.length === 0) continue;
+        ctx.globalAlpha = kind === 2 ? 0.5 : 0.4;
+        ctx.fillStyle = macroSlots[slot].colors[6 + kind];
+        ctx.beginPath();
+        for (j = 0; j < path.length; j += 4) ellipsePath(ctx, path[j], path[j + 1], path[j + 2], path[j + 3]);
+        ctx.fill();
+        // A11：三种斑都沿同一条路径描一圈深色边（fill 不清路径，所以只多一次 stroke）——
+        // "林子 / 石滩 / 草甸"的轮廓因此看得出来：地图上的**结构**就是这些斑 + 路网 + 营地。
+        ctx.globalAlpha = kind === 2 ? 0.3 : 0.18;
+        ctx.strokeStyle = TERRAIN.mixHex(macroSlots[slot].colors[6 + kind], '#000010', 0.45);
+        ctx.lineWidth = kind === 2 ? 3 : 2;
+        ctx.stroke();
+        path.length = 0;
+      }
+    }
+    ctx.globalAlpha = 1;
+    macroBlobDrawn = drawn;
+  }
+
+  /**
+   * 宏观档的地表：色格（跨 chunk 同色批量落笔）+ 装饰斑。
+   *
+   * 与近景逐格档的两处差别，都是"这个尺度上什么才看得见"决定的：
+   *   1. 色格是**粗抽样**（`lodBlocks()`² 而不是 16²）：远档一块 4 格地表、中档一块 2 格 ——
+   *      远近视同一片地（同一个 `groundLevel` 哈希），只是抽样更粗；
+   *   2. 攒路径的范围从"一个 chunk"放大到"整个调色板槽"（= 所有同 band 的 chunk），
+   *      于是 139 个 chunk 只花几十次 fill，反而比"每 chunk 一次 fillRect"更省。
+   */
+  function drawGroundMacro(ctx, camera, chunks, seed) {
+    var blocks = lodBlocks();
+    var block = CHUNK.CHUNK_SIZE / blocks;
+    var blobLimit = BAL.view.lodDecorBlobs > 0 ? Math.round(BAL.view.lodDecorBlobs) : 0;
+    var i;
+    var bx;
+    var by;
+    var level;
+    var start;
+    var slot;
+    var origin;
+    var band;
+    var theme;
+    var tint;
+    var levels;
+    var runs;
+    var j;
+    var cx;
+    var cy;
+
+    macroSlotUsed = 0;
+    macroBlobDrawn = 0;
+
+    for (i = 0; i < chunks.length; i += 1) {
+      cx = chunks[i].cx;
+      cy = chunks[i].cy;
+      band = G.SPAWN.chunkCenterBand(cx, cy);
+      theme = TERRAIN.themeForBand(band);
+      tint = TERRAIN.deepBandIntensity(band);
+      slot = macroSlotFor(band, theme, tint);
+      origin = toScreen(camera, CHUNK.chunkOrigin(cx), CHUNK.chunkOrigin(cy));
+      levels = macroLevels(seed, cx, cy, blocks);
+
+      // 底色（第 0 档）整块先记上：第 0 档因此不参与下面的粗色格（与近景同一个口径）
+      macroPushRun(slot * GROUND_LEVELS, origin.x, origin.y, CHUNK.CHUNK_SIZE, CHUNK.CHUNK_SIZE);
+
+      for (by = 0; by < blocks; by += 1) {
+        bx = 0;
+        while (bx < blocks) {
+          level = levels[by * blocks + bx];
+          if (level === 0) {
+            bx += 1;
+            continue;
+          }
+          start = bx;
+          while (bx < blocks && levels[by * blocks + bx] === level) bx += 1;
+          macroPushRun(
+            slot * GROUND_LEVELS + level,
+            origin.x + start * block,
+            origin.y + by * block,
+            (bx - start) * block,
+            block
+          );
+        }
+      }
+    }
+
+    // 落笔：每个（槽 × 档）一次 fill —— 一整屏的地表于是只花几十笔
+    for (i = 0; i < macroSlotUsed; i += 1) {
+      for (level = 0; level < GROUND_LEVELS; level += 1) {
+        runs = macroRuns[i * GROUND_LEVELS + level];
+        if (!runs || runs.length === 0) continue;
+        ctx.beginPath();
+        for (j = 0; j < runs.length; j += 4) ctx.rect(runs[j], runs[j + 1], runs[j + 2], runs[j + 3]);
+        ctx.fillStyle = macroSlots[i].colors[level];
+        ctx.fill();
+        runs.length = 0; // 复用这串数字（下一帧从 0 开始攒）
+      }
+    }
+
+    if (blobLimit > 0) drawMacroBlobs(ctx, camera, chunks, seed, blobLimit);
+  }
+
+  /** 自检用：上一次宏观档的规模（几个调色板槽 = 几组主题 / 色偏、几个装饰斑、每 chunk 几个色格） */
+  function macroStats() {
+    return { slots: macroSlotUsed, blobs: macroBlobDrawn, blocks: lodBlocks(), blockTiles: lodBlockTiles() };
+  }
+
+  /**
+   * 地表：每 chunk 一块主题底色 + `tileSize` 网格的色块（结构色 × 亮暗档，全部来自哈希），
    * 最后在原点盖上营地的石砖地。
    *
-   * A6 的做法差别：同色的色块**攒进一条路径**再一次性 fill —— 一个 chunk 从最多 16 次落笔降到 3 次，
-   * 省下来的预算换成"更细的网格 + 每 chunk 一撮土斑"，于是画面更细而帧上的落笔更少。
+   * A6 的做法差别：同档的色块**攒进一条路径**再一次性 fill。于是网格从 5×5 变成 16×16 之后，
+   * 每 chunk 的落笔还是 7 次（底色 + 5 档 + 细纹），块却从 25 张变成 256 张 —— 一格一格的接缝由
+   * 亮暗档 + 每 chunk 40 道细纹揉开，远看是"一片有细节的地"，不是"一堆方块"。
+   * 性能账见 `tools\perf-frame.mjs`（落笔预算 900）。
+   * A8：倍率压到 0.176（一屏 128 格）之后，视野里的 chunk 从 ~15 涨到 ~171 —— 逐格档在这个
+   * 尺度上既看不见又贵，于是远距档整个交给 `drawGroundMacro`（粗色格 + 装饰斑）。
    */
   function drawGround(ctx, camera) {
     var rect = viewRect(camera);
     var chunks = CHUNK.chunksInRect(rect.minX, rect.minY, rect.maxX, rect.maxY, 0);
     var seed = BAL.season.worldSeed;
-    var blocks = GROUND_BLOCKS;
+    var blocks = TERRAIN.tileCountPerChunk();
     var block = CHUNK.CHUNK_SIZE / blocks;
+    var level;
+
+    // A9 远距宏观档：一格只剩 ~2.9 CSS px，逐格色档 / 土斑 / 逐件装饰都成了亚像素噪点 ——
+    // 换成"同一份哈希的粗抽样 + 装饰斑"（细节从"更细"转向"更大"）
+    if (lowDetail()) {
+      drawGroundMacro(ctx, camera, chunks, seed);
+      drawCampPlaza(ctx, camera, rect);
+      return;
+    }
 
     for (var i = 0; i < chunks.length; i += 1) {
       var cx = chunks[i].cx;
@@ -5526,29 +7124,38 @@ G.RENDER = (function () {
       var ground = theme.ground;
       var origin = toScreen(camera, CHUNK.chunkOrigin(cx), CHUNK.chunkOrigin(cy));
 
-      // 底色：深带用 accent 混一点，让"越走越远"有视觉反馈
-      ctx.fillStyle = TERRAIN.mixHex(ground[0], '#000010', tint);
+      var levels = groundLevels(seed, cx, cy, blocks);
+
+      // 6 档颜色：结构色（ground[0..2]）先按亮 / 暗混一点，再叠深带的暗罩
+      for (level = 0; level < GROUND_LEVELS; level += 1) {
+        var base = TERRAIN.mixHex(ground[level >> 1], level & 1 ? '#ffffff' : '#000010', GROUND_SHADE);
+        groundColors[level] = TERRAIN.mixHex(base, '#000010', tint);
+      }
+
+      // 底色 = 最暗那一档，整块先铺满（第 0 档因此不用再建路径）
+      ctx.fillStyle = groundColors[0];
       ctx.fillRect(origin.x, origin.y, CHUNK.CHUNK_SIZE, CHUNK.CHUNK_SIZE);
 
-      var v;
-      for (v = 1; v < 3; v += 1) {
+      for (level = 1; level < GROUND_LEVELS; level += 1) {
         var any = false;
         ctx.beginPath();
         for (var by = 0; by < blocks; by += 1) {
-          for (var bx = 0; bx < blocks; bx += 1) {
-            if (TERRAIN.groundVariant(seed, cx, cy, bx, by) !== v) continue;
-            var bx0 = origin.x + bx * block;
-            var by0 = origin.y + by * block;
-            ctx.moveTo(bx0, by0);
-            ctx.lineTo(bx0 + block, by0);
-            ctx.lineTo(bx0 + block, by0 + block);
-            ctx.lineTo(bx0, by0 + block);
-            ctx.closePath();
+          // 同一行里相邻的同档块合成一个矩形（rect 一次画完）：路径长度几乎减半
+          var runStart = -1;
+          for (var bx = 0; bx <= blocks; bx += 1) {
+            var same = bx < blocks && levels[by * blocks + bx] === level;
+            if (same) {
+              if (runStart < 0) runStart = bx;
+              continue;
+            }
+            if (runStart < 0) continue;
+            ctx.rect(origin.x + runStart * block, origin.y + by * block, (bx - runStart) * block, block);
             any = true;
+            runStart = -1;
           }
         }
         if (!any) continue;
-        ctx.fillStyle = TERRAIN.mixHex(ground[v], '#000010', tint);
+        ctx.fillStyle = groundColors[level];
         ctx.fill();
       }
 
@@ -5559,7 +7166,7 @@ G.RENDER = (function () {
         var hy = G.RNG.hashInt([seed, cx, cy, s, 0x7c], 4096) / 4096;
         var sx = origin.x + hx * CHUNK.CHUNK_SIZE;
         var sy = origin.y + hy * CHUNK.CHUNK_SIZE;
-        var len = 3 + G.RNG.hashInt([seed, cx, cy, s, 0x11], 4);
+        var len = 2 + G.RNG.hashInt([seed, cx, cy, s, 0x11], 3);
         ctx.moveTo(sx, sy);
         ctx.lineTo(sx + len, sy);
         ctx.lineTo(sx + len, sy - len * 0.5);
@@ -5757,7 +7364,7 @@ G.RENDER = (function () {
     }
   }
 
-  /** 营地道具：帐篷 / 篝火 / 旗 / 木牌 / 箱子 / 树桩（摆位数据在 04-terrain 的 CAMP_PROPS） */
+  /** 营地道具：帐篷 / 篝火 / 旗 / 木牌 / 箱子 / 树桩 / 铁匠的铁砧（摆位数据在 04-terrain 的 CAMP_PROPS） */
   function drawCampProp(ctx, point, prop, nowMs) {
     var scale = prop.scale || 1;
     if (prop.kind === 'tent') drawTent(ctx, point, scale);
@@ -5766,6 +7373,8 @@ G.RENDER = (function () {
     else if (prop.kind === 'sign') drawSign(ctx, point, scale);
     else if (prop.kind === 'crate') drawCrate(ctx, point, scale);
     else if (prop.kind === 'stump') drawStump(ctx, point, scale);
+    // 铁匠（本次新增）：营地里唯一"会干活"的一件 —— 站在旁边屏幕上会多一枚「锻」键（20-main）
+    else if (prop.kind === 'forge') drawForge(ctx, point, scale, nowMs);
   }
 
   /** 帐篷：三角帆布（左亮右暗）+ 门洞 + 顶杆 */
@@ -5847,6 +7456,109 @@ G.RENDER = (function () {
     ctx.fill();
   }
 
+  /**
+   * 铁匠（本次新增，用户要求"在公会营地里增加铁匠NPC"）：一台**铁砧 + 炭炉 + 斜靠的锤子**，
+   * 头顶挂一块「铁匠」小牌 —— 走近一眼看出"这个人能敲东西"。
+   * 炉火的抖动只跟**逻辑时间**走（与篝火同一套写法；16-render 在三角函数白名单里）。
+   */
+  function drawForge(ctx, point, scale, nowMs) {
+    var s = scale;
+    var flick = Math.sin(nowMs / 120) * 0.5 + Math.sin(nowMs / 61) * 0.5;
+    var i;
+    drawShadow(ctx, point, 40 * s, 0.24);
+
+    // ① 石台
+    ctx.fillStyle = CAMP_COLORS.stone;
+    ctx.beginPath();
+    ctx.moveTo(point.x - 40 * s, point.y);
+    ctx.lineTo(point.x + 40 * s, point.y);
+    ctx.lineTo(point.x + 30 * s, point.y - 20 * s);
+    ctx.lineTo(point.x - 30 * s, point.y - 20 * s);
+    ctx.closePath();
+    ctx.fill();
+
+    // ② 铁砧：腰身 + 台面（上沿亮一档，看得出是金属）
+    ctx.fillStyle = CAMP_COLORS.iron;
+    ctx.beginPath();
+    ctx.moveTo(point.x - 18 * s, point.y - 20 * s);
+    ctx.lineTo(point.x + 18 * s, point.y - 20 * s);
+    ctx.lineTo(point.x + 12 * s, point.y - 44 * s);
+    ctx.lineTo(point.x - 12 * s, point.y - 44 * s);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(point.x - 34 * s, point.y - 58 * s);
+    ctx.lineTo(point.x + 30 * s, point.y - 56 * s);
+    ctx.lineTo(point.x + 22 * s, point.y - 42 * s);
+    ctx.lineTo(point.x - 36 * s, point.y - 44 * s);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = CAMP_COLORS.ironTop;
+    ctx.beginPath();
+    ctx.moveTo(point.x - 34 * s, point.y - 58 * s);
+    ctx.lineTo(point.x + 30 * s, point.y - 56 * s);
+    ctx.lineTo(point.x + 30 * s, point.y - 50 * s);
+    ctx.lineTo(point.x - 34 * s, point.y - 52 * s);
+    ctx.closePath();
+    ctx.fill();
+
+    // ③ 炭炉：光晕 + 炉身 + 两支火苗（复用的是篝火那两支的画法）
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = CAMP_COLORS.glow;
+    ctx.beginPath();
+    ctx.arc(point.x - 46 * s, point.y - 12 * s, 24 * s + flick * 3, 0, TAU);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = CAMP_COLORS.wood;
+    ctx.beginPath();
+    ctx.moveTo(point.x - 60 * s, point.y);
+    ctx.lineTo(point.x - 32 * s, point.y);
+    ctx.lineTo(point.x - 36 * s, point.y - 18 * s);
+    ctx.lineTo(point.x - 56 * s, point.y - 18 * s);
+    ctx.closePath();
+    ctx.fill();
+    var flameHeight = 20 * s + flick * 5;
+    drawFlame(ctx, point.x - 46 * s, point.y - 16 * s, 16 * s, flameHeight, CAMP_COLORS.fire, flick);
+    drawFlame(ctx, point.x - 46 * s, point.y - 16 * s, 8 * s, flameHeight * 0.6, CAMP_COLORS.fireCore, -flick);
+
+    // ④ 斜靠在砧边的锤子
+    ctx.strokeStyle = CAMP_COLORS.wood;
+    ctx.lineWidth = 6 * s;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(point.x + 22 * s, point.y);
+    ctx.lineTo(point.x + 44 * s, point.y - 44 * s);
+    ctx.stroke();
+    ctx.fillStyle = CAMP_COLORS.iron;
+    ctx.beginPath();
+    ctx.moveTo(point.x + 36 * s, point.y - 42 * s);
+    ctx.lineTo(point.x + 56 * s, point.y - 60 * s);
+    ctx.lineTo(point.x + 44 * s, point.y - 72 * s);
+    ctx.lineTo(point.x + 26 * s, point.y - 54 * s);
+    ctx.closePath();
+    ctx.fill();
+
+    // ⑤ 火星：三颗往上飘（位置只由逻辑时间决定，重放同一个时刻一定同画面）
+    for (i = 0; i < 3; i += 1) {
+      var rise = (nowMs / 600 + i / 3) % 1;
+      ctx.globalAlpha = 0.8 * (1 - rise);
+      ctx.fillStyle = '#ffd479';
+      ctx.beginPath();
+      ctx.arc(point.x - 18 * s + i * 17 * s, point.y - 62 * s - rise * 34 * s, 3 * s, 0, TAU);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // ⑥ 名牌「铁匠」：与营地那块「新手营地」同一套写法（跟着世界缩放，站在近处才看得清）
+    ctx.globalAlpha = 0.78;
+    ctx.fillStyle = '#ffd479';
+    ctx.font = '24px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('铁匠', point.x, point.y - 88 * s);
+    ctx.globalAlpha = 1;
+  }
+
   /** 旗：木杆 + 会飘的布（布每时每刻都在动，让营地"活着"） */
   function drawBanner(ctx, point, scale, nowMs) {
     var wave = Math.sin(nowMs / 320) * 6 * scale;
@@ -5926,6 +7638,9 @@ G.RENDER = (function () {
    * 造型表在 DECOR_STYLE；每件装饰自带 band，所以"这块地是荒漠还是雪原"一眼就能看出来。
    */
   function drawDecor(ctx, camera, decor) {
+    // A8/A9 远距档：拉远到 `view.lodZoom` 以下之后，一件装饰只有 1~2 CSS px（纯噪点）——
+    // 整层跳过，交给 `drawGroundMacro` 的宏观斑（草甸 / 石滩 / 林地）去表达"这里是什么地"
+    if (lowDetail()) return;
     for (var i = 0; i < decor.length; i += 1) {
       var item = decor[i];
       var theme = TERRAIN.themeForBand(
@@ -6236,12 +7951,16 @@ G.RENDER = (function () {
       // 每只怪一个固定的相位偏移：同一张地图上的怪不会"齐步走"（id 是纯整数，可复现）
       var phase = walkPhase(now + (monster.id % 97) * 13, moving, ACTOR_STYLE.walkMs + (monster.id % 5) * 20);
       var flashing = monster.hurtUntil > 0 && now < monster.hurtUntil;
+      // A9 演员层：怪也一起放大（不然玩家看得到自己、看不到怪）
+      var scale = actorScale();
+
+      beginActor(ctx, point, scale);
 
       // 仇恨提示：正在追 / 正在打的怪脚下加一圈暗色（一眼看出谁醒了）
       if (monster.state === 'chase' || monster.state === 'attack') {
         ctx.globalAlpha = 0.4;
         ctx.fillStyle = dark;
-        ellipsePath(ctx, point.x, point.y + monster.radius * 0.5, monster.radius + 10, monster.radius * 0.6);
+        ellipsePath(ctx, point.x, point.y + monster.radius * 0.5 * scale, (monster.radius + 10) * scale, monster.radius * 0.6 * scale);
         ctx.fill();
         ctx.globalAlpha = 1;
       }
@@ -6260,15 +7979,18 @@ G.RENDER = (function () {
       if (monster.elite) {
         ctx.strokeStyle = '#ffd479';
         ctx.lineWidth = 4;
-        ellipsePath(ctx, point.x, point.y + monster.radius * 0.55, monster.radius + 8, monster.radius * 0.5);
+        ellipsePath(ctx, point.x, point.y + monster.radius * 0.55 * scale, (monster.radius + 8) * scale, monster.radius * 0.5 * scale);
         ctx.stroke();
-        drawCrown(ctx, point.x, point.y - monster.radius * 2.5, monster.radius * 0.5);
+        drawCrown(ctx, point.x, point.y - monster.radius * 2.5 * scale, monster.radius * 0.5 * scale);
       }
 
-      // 血条：只在掉过血或正在交战时画；位置抬到新造型头顶之上
+      ctx.restore(); // 身体画完就恢复：血条与名字是**设计像素**（字号不跟着放大 4.55 倍）
+
+      // 血条：只在掉过血或正在交战时画；抬升量跟着演员层放大（否则会被放大后的身体盖住），
+      // 条宽与字号仍是设计像素 —— 一眼能读，而不会被放大成一条糊上去的横幅。
       if (monster.hp < monster.hpMax || monster.state === 'attack' || monster.state === 'chase') {
         var barW = Math.max(36, monster.radius * 2.4);
-        var barY = point.y - monster.radius * 2.9 - 10;
+        var barY = point.y - (monster.radius * 2.9 + 10) * scale;
         var ratio = monster.hpMax > 0 ? monster.hp / monster.hpMax : 0;
         if (ratio < 0) ratio = 0;
         ctx.fillStyle = 'rgba(0,0,0,0.55)';
@@ -6282,7 +8004,7 @@ G.RENDER = (function () {
         ctx.font = '18px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(monster.name + ' Lv.' + monster.level, point.x, point.y + monster.radius + 22);
+        ctx.fillText(monster.name + ' Lv.' + monster.level, point.x, point.y + (monster.radius + 22) * scale);
       }
     }
   }
@@ -6490,14 +8212,14 @@ G.RENDER = (function () {
     ctx.fill();
   }
 
-  /** 自动战斗的目标环（哪只在被打，一眼可见） */
+  /** 自动战斗的目标环（哪只在被打，一眼可见）；A9：跟着演员层放大，环正好箍住放大后的怪 */
   function drawTargetRing(ctx, camera, target) {
     if (!target) return;
     var point = toScreen(camera, target.x, target.y);
     ctx.strokeStyle = '#ff6b6b';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.arc(point.x, point.y, target.radius + 12, 0, Math.PI * 2);
+    ctx.arc(point.x, point.y, (target.radius + 12) * actorScale(), 0, Math.PI * 2);
     ctx.stroke();
   }
 
@@ -6530,6 +8252,27 @@ G.RENDER = (function () {
   }
 
   /**
+   * 玩家标记（A11，用户："玩家视角更加清晰"）：脚下常亮的一圈细环。
+   *
+   * 为什么需要它：视角拉到远档（128 格一屏）时，"我在哪"是第一个会丢的信息 ——
+   * 角色本身靠演员层保持 ~20 CSS px，但它周围的地、怪、装饰全在同一片低对比的色块里。
+   * 一圈**屏幕尺寸恒定**的金色细环（+ 很轻的呼吸感）就能把它钉住，而且不骗人：
+   * 它是指示物（和名牌 / 血条同一条纪律），不是范围，所以不随演员层放大。
+   * 呼吸只用 `Math.sin`（纯视觉，16-render 在三角白名单里），不参与任何随机流。
+   */
+  function drawPlayerMark(ctx, point, nowMs, dead) {
+    var radius = BAL.view.playerMarkRadius;
+    if (!(radius > 0)) return;
+    var pulse = 1 + Math.sin(((nowMs % 1600) / 1600) * TAU) * 0.08;
+    ctx.globalAlpha = dead ? 0.22 : 0.46;
+    ctx.strokeStyle = dead ? '#8d9bb5' : '#ffe08a';
+    ctx.lineWidth = BAL.view.playerMarkWidth;
+    ellipsePath(ctx, point.x, point.y + radius * 0.18, radius * pulse, radius * 0.34 * pulse);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  /**
    * 玩家：自绘 Q版小人（八方向朝向 + 走路摆腿摆臂 + 出手挥砍 + 受击闪红 + 倒地躺平）。
    * `stats` 只用来推出手间隔，好让"挥砍"跟得上真正的攻速；`nowMs` 缺省取逻辑时间。
    * `look` = 身上四件装备的外观（09-equipment 的 lookOf，20-main 每帧传进来）：
@@ -6544,27 +8287,38 @@ G.RENDER = (function () {
     var swing = player.dead ? 1 : swingPhase(now, player.lastAttackAt, interval);
     var flashing = player.dead !== true && player.hurtUntil > 0 && now < player.hurtUntil;
     var palette = player.dead ? PLAYER_DOWN : flashing ? PLAYER_FLASH : PLAYER_PALETTE;
+    var scale = actorScale();
 
-    // 打击范围（淡淡一圈，帮助理解为什么"差一点就打不到"）
-    ctx.globalAlpha = 0.1;
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(point.x, point.y, BAL.player.attackRange, 0, TAU);
-    ctx.stroke();
-    ctx.globalAlpha = 1;
+    // 打击范围（淡淡一圈，帮助理解为什么"差一点就打不到"）：**世界比例**，不跟着演员层放大。
+    // A9：宏观视角下角色被放大 4.55 倍，这一圈会被身体整个盖住 —— 那时干脆不画
+    // （它本来就只剩 ~8 CSS px，判断不了任何东西），而不是把它也放大成"假的攻击范围"。
+    if (scale === 1) {
+      ctx.globalAlpha = 0.1;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, BAL.player.attackRange, 0, TAU);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // A9 演员层：影子与身体一起放大（"角色多大，影子就多大"，不然像浮在地上）
+    // A11：先画玩家标记（屏幕尺寸恒定的一圈细环），它压在影子与身体之下
+    drawPlayerMark(ctx, point, now, player.dead === true);
+    beginActor(ctx, point, scale);
 
     drawShadow(ctx, point, BAL.player.radius, player.dead ? 0.2 : 0.3);
 
     ctx.save();
     if (player.dead) {
-      // 倒地：整个人绕脚踝转 90°，再压暗一点
+      // 倒地：整个人绕脚踝转 90°，再压暗一点（在演员层放大后的坐标系里转，绕的还是脚踝）
       ctx.globalAlpha = 0.55;
       ctx.translate(point.x, point.y);
       ctx.rotate(-Math.PI / 2);
       ctx.translate(-point.x, -point.y);
     }
     drawHumanoid(ctx, point, BAL.player.radius, index, walkPhase(now, moving), palette, swing, look || EMPTY_LOOK);
+    ctx.restore();
     ctx.restore();
   }
 
@@ -6971,6 +8725,32 @@ G.RENDER = (function () {
   }
 
   /**
+   * 角色预览（A10，用户要求"上方放置角色预览图"）：把同一个小人按**指定像素半径**画在界面里。
+   *
+   * 与 drawPlayer 共用 `drawHumanoid` 和同一份 look（09-equipment 的 lookOf），所以
+   * "穿上什么就像什么"在面板里与地图上完全一致 —— 绝不会变成两套说法。
+   * 与 drawPlayer 的差别只有三点，而且都是"界面层必须自己说了算"的部分：
+   *   1. **不读相机**：(cx, cy) 就是屏幕设计坐标（cy 是脚底）；
+   *   2. **不读 zoom / actorScale**：尺寸由调用方给 —— 面板里的角色不该随镜头远近变大变小；
+   *   3. 不画攻击范围环、不做受击闪红：预览要的是"我现在长什么样"。
+   * `index` 是八方向下标（0 = 面向镜头，见 facingIndex），`phase` 是走路相位（0 = 站定）。
+   */
+  function drawHeroPreview(ctx, cx, cy, radius, look, index, phase) {
+    var point = { x: cx, y: cy };
+    drawShadow(ctx, point, radius, 0.3);
+    drawHumanoid(
+      ctx,
+      point,
+      radius,
+      typeof index === 'number' ? index : 0,
+      typeof phase === 'number' ? phase : 0,
+      PLAYER_PALETTE,
+      1,
+      look || EMPTY_LOOK
+    );
+  }
+
+  /**
    * 左上角头像（HUD 用）：程序自绘的圆脸 + 护额。
    * `seed` 决定肤色/发色（纯整数取模，不占任何随机流，所以同一角色永远同一张脸）。
    */
@@ -7032,7 +8812,8 @@ G.RENDER = (function () {
   function drawNameplate(ctx, camera, info) {
     if (!info || !info.name) return;
     var point = toScreen(camera, info.x, info.y);
-    var lift = (info.radius || 24) * 2.6 + BAL.view.nameplate.offsetY;
+    // A9：抬升量跟着演员层放大（角色被放大 4.55 倍后，名牌得跟着离开头顶）；条宽与字号仍是设计像素
+    var lift = ((info.radius || 24) * 2.6 + BAL.view.nameplate.offsetY) * actorScale();
     var barW = info.barWidth || BAL.view.nameplate.barWidth;
     var barH = BAL.view.nameplate.barHeight;
     var barY = point.y - lift;
@@ -7138,7 +8919,9 @@ G.RENDER = (function () {
         continue;
       }
 
-      var radius = effect.radius * (0.85 + 0.4 * played);
+      // A9：刀光跟着演员层放大 —— 它是"手上的刀扫过去"，必须贴住被放大的身体；
+      // 上面已经 continue 掉的 ring / mend / bolt 是技能特效（含真实 AoE 半径），保持世界尺寸
+      var radius = effect.radius * (0.85 + 0.4 * played) * actorScale();
       var from = angle - 1.15 + played * 1.35;
 
       ctx.globalAlpha = life * (effect.crit ? 0.95 : 0.7);
@@ -7173,13 +8956,14 @@ G.RENDER = (function () {
     }
   }
 
-  /** 远程弹道：一个小亮点沿直线飞 */
+  /** 远程弹道：一个小亮点沿直线飞；A9：亮点跟着演员层放大（否则宏观视角下只有 1 px） */
   function drawProjectiles(ctx, camera, shots) {
     ctx.fillStyle = '#9ad4ff';
+    var scale = actorScale();
     for (var i = 0; i < shots.length; i += 1) {
       var point = toScreen(camera, shots[i].x, shots[i].y);
       ctx.beginPath();
-      ctx.arc(point.x, point.y, 7, 0, Math.PI * 2);
+      ctx.arc(point.x, point.y, 7 * scale, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -7211,7 +8995,14 @@ G.RENDER = (function () {
     ellipsePath: ellipsePath,
     toScreen: toScreen,
     viewRect: viewRect,
+    tier: tier,
     zoom: zoom,
+    lodBlocks: lodBlocks,
+    lodBlockTiles: lodBlockTiles,
+    groundDetailAt: groundDetailAt,
+    actorScale: actorScale,
+    beginActor: beginActor,
+    macroStats: macroStats,
     beginWorld: beginWorld,
     endWorld: endWorld,
     facingIndex: facingIndex,
@@ -7219,6 +9010,7 @@ G.RENDER = (function () {
     facesAway: facesAway,
     walkPhase: walkPhase,
     swingPhase: swingPhase,
+    groundLevel: groundLevel,
     drawGround: drawGround,
     drawRoads: drawRoads,
     drawCamp: drawCamp,
@@ -7227,6 +9019,8 @@ G.RENDER = (function () {
     drawMonsters: drawMonsters,
     drawTargetRing: drawTargetRing,
     drawPlayer: drawPlayer,
+    drawPlayerMark: drawPlayerMark,
+    drawHeroPreview: drawHeroPreview,
     drawAvatar: drawAvatar,
     drawNameplate: drawNameplate,
     drawEffects: drawEffects,
@@ -7241,19 +9035,27 @@ G.RENDER = (function () {
  * 布局纪律：所有 y 坐标都由 `SCREEN.safeTop()` / `SCREEN.safeBottom()` 推出来，
  * 不写死数字 —— 长屏、刘海屏、手势条都能自动躲开。
  *
- * 画的东西（A4 重排）：
+ * 画的东西（A4 重排，A7 换位）：
  *   吸顶左：**头像 + 角色名 + 等级**（用户要求"左上角添加玩家头像，角色名，等级"）
  *   吸顶中：玩家血条 + 金币 / 战力 / 难度带 / 自动战斗状态
- *   吸顶右：**小地图**（chunk 网格 + 小径 + 营地 + 地标 + 怪 + 公会锚点 + 玩家朝向）
+ *   吸顶右：**小地图**（chunk 网格 + 小径 + 营地 + 地标 + 怪 + 公会锚点 + 玩家朝向；
+ *     A11 起覆盖范围跟着视角档位走，并画出**视野框** = 主画面现在覆盖的那一块）
  *   吸底：**经验条**（用户要求"画面最下方添加经验条"）
- *   吸底右侧：五个圆形功能键「自动 / 箱 / 包 / 会 / 设」（带角标；自动是开关）
+ *   吸底上一行：**五个圆形功能键**「营 箱 包 会 设 自动」（带角标；自动是开关）
+ *   吸底最下一行：**四个技能键**「斩 疗 刺 旋」（A7 起从这里下沉到最底，名字改画在圆上方；
+ *     A10 起每个键的右上角挂一个「自动释放」勾选框 —— 勾上的才会被自动战斗放出去）
  *   左下：摇杆由 15-input 自己画
+ *   **左边缘：一条侧边栏**（本次新增，用户："回到营地按钮设置在左边侧边栏，商城下面"）——
+ *     竖着两枚圆键：「商」（商城）在上、「营」（回营地）在下，共用一个半透明底板；
+ *     它不在吸底动作栏里，所以底部那两行的几何一点没动（见 sideButtons / sideBarRect）
  *   调试面板（可选）：FPS / chunk 数 / 活跃怪数 / 当前目标 / 世界种子 / 世界指纹
  *
- * 两个"必须记住"的点：
- *   1. **功能键与面板卡片互不遮挡**：卡片右侧留了 `view.panel.rightReserve` 的位置，
- *      按钮整体抬升 `view.hud.buttonLift` 给经验条让位（见 18-panels 的卡片几何）；
- *   2. 按钮的坐标就是命中测试的坐标（15-input 只认这一份），所以画法与判定不会各算一套。
+ * 三个"必须记住"的点：
+ *   1. **两行按钮 + 经验条**（A7）都是从 `expTop()` 往上推的：技能行贴底、功能行在它上面 ——
+ *      行距只由 `hud.barGap / captionGap / rowGap` 与两个半径决定，改一处整条底栏自动让位；
+ *   2. **功能键与面板卡片互不遮挡**：卡片右侧留了 `view.panel.rightReserve` 的位置，
+ *      卡片底边落在 `bottomBarTop()` 之上（见 18-panels 的卡片几何）；
+ *   3. 按钮的坐标就是命中测试的坐标（15-input 只认这一份），所以画法与判定不会各算一套。
  */
 
 G.HUD = (function () {
@@ -7299,34 +9101,56 @@ G.HUD = (function () {
   }
 
   /**
-   * 右下功能键：**自动 / 箱 / 包 / 会 / 设**（从下往上排，最常用/最需要拇指的排最低）。
-   * `badge` 是右上角的小角标（宝箱数 / 背包装备数 / 有没有公会）；
-   * `state` 只服务画法（'on' 时按钮点亮），命中测试与它无关。
+   * 底部两行圆键的几何（A7）：全部从 `expTop()` 与 `view.hud/skillBar/functionBar` 推出来，
+   * 一个硬编码数字都没有 —— 换屏幕、加安全区、改半径，整条底栏自己让位。
    */
-  /** 右下圆形按钮的半径（功能键与技能栏共用同一份宽度计算，改一处就够） */
-  var FUNCTION_BUTTON_RADIUS = 46;
-
-  /** 右下功能键那一列的左边线（技能栏贴在它左边，见 skillButtons） */
-  function functionColumnLeft() {
-    return SCREEN.width() - BAL.input.attackButtonMargin - FUNCTION_BUTTON_RADIUS * 2;
+  /** 经验条上沿 y：整条吸底动作栏都从它往上推（A7），不写死数字 */
+  function expTop() {
+    return SCREEN.height() - SCREEN.safeBottom() - BAL.view.hud.expBarHeight;
   }
 
-  /** 技能栏那一行的中心 y：与最下面那个功能键同一行（都在经验条上方） */
-  function skillRowY() {
-    return SCREEN.height() - SCREEN.safeBottom() - BAL.view.hud.buttonLift - FUNCTION_BUTTON_RADIUS;
+  /** 一小块说明文字占的高度（字高 + 一点间距）：算两行按钮之间的行距用 */
+  function captionBlock(size) {
+    return BAL.view.hud.captionGap + size;
   }
 
   /**
-   * 技能栏（A5，用户要求"四个技能键"）：四个圆键排在右下功能键的**左边**、与最低那个功能键同一行。
-   * 每个键画圆 + 一个字（斩 / 疗 / 刺 / 旋），下面写技能名；冷却时压一层扇形暗罩并改显示剩余秒数；
+   * 技能栏圆心 y（A7）：**贴屏幕最底** —— 圆的下沿离经验条只剩 `hud.barGap`。
+   * 技能名因此改画在圆**上方**（名字块由 captionBlock 算进整条底栏的高度里）。
+   */
+  function skillRowY() {
+    return expTop() - BAL.view.hud.barGap - BAL.view.skillBar.radius;
+  }
+
+  /**
+   * 功能图标栏圆心 y（A7）：在技能栏整块（名字 + 圆）之上再空 `hud.rowGap` 排一行 ——
+   * 它占的正是**技能原来那一行**：现在归功能键（箱 / 包 / 会 / 设 / 自动 + 营地里的「营」），
+   * 技能下沉到最底（用户要求"技能放最底，原来技能的位置放背包 / 自动等图标"）。
+   */
+  function functionRowY() {
+    var skills = BAL.view.skillBar;
+    var hud = BAL.view.hud;
+    var skillBlockTop = skillRowY() - skills.radius - captionBlock(skills.nameSize);
+    return skillBlockTop - hud.rowGap - captionBlock(G.ICONS.size('captionSize')) - BAL.view.functionBar.radius;
+  }
+
+  /** 整条吸底动作栏的顶边：面板卡片落在它上面就不会被压住（自检也读它） */
+  function bottomBarTop() {
+    return functionRowY() - BAL.view.functionBar.radius;
+  }
+
+  /**
+   * 技能栏（A5 起；A7 起**下沉到屏幕最底**）：四个圆键贴在**经验条正上方、靠屏幕右边**。
+   * 每个键画圆 + 一个字（斩 / 疗 / 刺 / 旋），技能名画在圆**上面**（下面留给经验条）；冷却时压一层扇形暗罩并改显示剩余秒数；
    * 没到解锁等级的画成"锁 + Lv.n"。
    *
    * 与功能键的纪律完全一致：**坐标就是命中测试的坐标**（15-input 只认这一份），
    * 而锁定 / 冷却 / 剩余毫秒由 20-main 的 `skillView()` 提前算好传进来 ——
    * HUD 不认识 balance 里的技能表，它只认这份视图（界面层不读玩法数据，决策 #4）。
    *
-   * 注意：最左边那个键有可能压到左下角摇杆区（`input.zoneWidthRatio`）的边缘 —— 这是**故意的**：
-   * 15-input 先判按钮再判摇杆，按到键上就是放技能，摇杆区还有足够大的一块空地（浮动摇杆本来就是按下即出）。
+   * A7：这一排上面那一行留给功能键（见 buttons），技能键整排靠屏幕右边（`view.skillBar.margin`）——
+   * 于是左下角摇杆区（`input.zoneWidthRatio`）整块空地都还给走位；想让这一排居中，把 margin 改成
+   * `(屏宽 − 整排宽) / 2` 就行（设计宽 720 下是 206）。
    */
   function skillButtons(view) {
     var config = BAL.view.skillBar;
@@ -7336,12 +9160,14 @@ G.HUD = (function () {
     var radius = config.radius;
     var step = radius * 2 + config.gap;
     var rowWidth = slots.length * radius * 2 + (slots.length - 1) * config.gap;
-    // 从右往左贴：最后一个技能紧挨着功能键，第一个技能在最左边（读起来就是 1→4）
-    var firstX = functionColumnLeft() - 18 - rowWidth + radius;
+    // 右贴边（留 skillBar.margin）：最后一个技能靠屏幕右边，第一个技能在它左边（读起来就是 1→4）
+    var firstX = SCREEN.width() - config.margin - rowWidth + radius;
     var y = skillRowY();
+    var auto = config.autoBox;
     var list = [];
     for (var i = 0; i < slots.length; i += 1) {
       var slot = slots[i];
+      var x = firstX + i * step;
       list.push({
         id: 'skill' + slot.index,
         label: slot.key,
@@ -7352,7 +9178,14 @@ G.HUD = (function () {
         cool: slot.cool,
         remainSec: slot.remainMs > 0 ? Math.ceil(slot.remainMs / 1000) : 0,
         unlockLevel: slot.unlockLevel,
-        x: firstX + i * step,
+        // A7：技能名画在圆**上面**（下面那一线留给吸底经验条）
+        captionAbove: true,
+        // A10：这个技能勾上"自动释放"了吗（来自 skillView，界面层不读存档里的设置表）
+        auto: slot.auto !== false,
+        // A10：右上角勾选框的几何（框心 + 边长）—— 画（drawButtons）与点（skillAutoButtons）
+        // 用的是**同一份**，永远不会有"画在这儿、要点那儿"的老毛病
+        autoBox: { x: x + radius * auto.offsetX, y: y - radius * auto.offsetY, size: auto.side },
+        x: x,
         y: y,
         r: radius
       });
@@ -7360,12 +9193,160 @@ G.HUD = (function () {
     return list;
   }
 
+  /**
+   * A10：四个技能键右上角的「自动释放」勾选框（用户要求"给四个技能位置做一个是否自动释放的勾选位置"）。
+   *
+   * 它是一枚**独立的小方键**：几何直接取 `skillButtons` 里的 `autoBox`（一份出处），
+   * 注册顺序排在技能键**前面** —— 15-input 的 `buttonAt` 取第一个命中的，于是方框永远优先于整个圆键，
+   * 点框是切换自动、点圆是放技能，两者不会打架。
+   */
+  function skillAutoButtons(view) {
+    var skills = skillButtons(view);
+    var list = [];
+    for (var i = 0; i < skills.length; i += 1) {
+      var box = skills[i].autoBox;
+      list.push({
+        id: 'skillAuto' + i,
+        label: '自动',
+        name: skills[i].name,
+        badge: 0,
+        on: skills[i].auto === true,
+        lock: skills[i].lock === true,
+        /**
+         * `kind: 'skillAuto'` 是给 `drawButtons` 看的**跳过标记**：这枚小方框只占按钮表里的一个命中位置，
+         * 画法由技能键自己那一趟的 `drawAutoBox` 负责（同一份几何）——
+         * 不标它，`drawButtons` 会顺手按"圆按钮"再画一遍（多一圈圆 + 一个图标 + 一行字，
+         * 压到技能键上，还白花 ~29 次落笔；`tools\perf-frame.mjs` 就是这么发现的）。
+         */
+        kind: 'skillAuto',
+        x: box.x,
+        y: box.y,
+        r: box.size / 2
+      });
+    }
+    return list;
+  }
+
+  /**
+   * A10：画一枚「自动释放」勾选框。亮的绿框 + 勾 = 会自动放；暗框 + 「自」= 不会自动放
+   * （手动点那个技能键照样能放 —— 这是"勾选只作用在自动战斗"的视觉表达）。
+   * 技能还没解锁时整块压淡，但**仍然可点**（提前把想自动放的技能勾好）。
+   */
+  function drawAutoBox(ctx, button) {
+    var box = button.autoBox;
+    var half = box.size / 2;
+    var on = button.auto === true;
+    var left = box.x - half;
+    var top = box.y - half;
+    ctx.globalAlpha = button.lock === true ? 0.5 : 0.96;
+    ctx.fillStyle = on ? '#2f8a4f' : '#131a29';
+    G.RENDER.roundRectPath(ctx, left, top, box.size, box.size, 8);
+    ctx.fill();
+    ctx.strokeStyle = on ? '#8ce99a' : '#4d5f86';
+    ctx.lineWidth = 3;
+    G.RENDER.roundRectPath(ctx, left, top, box.size, box.size, 8);
+    ctx.stroke();
+    if (on) {
+      // 一个对勾：两笔直线（只用 moveTo/lineTo，假 canvas 也认）
+      ctx.strokeStyle = '#eafff0';
+      ctx.lineWidth = 5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(box.x - half * 0.42, box.y + half * 0.04);
+      ctx.lineTo(box.x - half * 0.1, box.y + half * 0.4);
+      ctx.lineTo(box.x + half * 0.48, box.y - half * 0.44);
+      ctx.stroke();
+    } else {
+      text(ctx, '自', box.x, box.y, Math.round(box.size * 0.56), '#6d86b5', 'center');
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /**
+   * 左侧边栏（本次新增）—— 用户要求：**「回到营地按钮设置在左边侧边栏，商城下面」**。
+   *
+   * 一枚枚圆键竖着排、贴左边缘：上面那枚「商」（商城），它下面那枚「营」（回营地）。
+   * 为什么单开一块而不是塞进功能栏：用户要的就是"侧边栏"—— 竖排、贴左边，
+   * 与底部那一行是**两个区域**。它与功能键共用同一套画法与命中表（15-input 只认
+   * `uiView().buttons` 这一份），所以"画在哪 / 点哪 / 判定哪"仍然只有一处。
+   *
+   * 三条几何纪律（数字全在 `view.sideBar`，改数值不用改代码）：
+   *   1. **竖排的间距比功能栏大得多**（gap 58 对 20）：这里必须塞得下圆下方那行说明文字
+   *      （`hud.captionGap` + `captionSize`），否则第二枚的圆会压到第一枚的字上；
+   *   2. 第一枚的**上沿**与面板卡片顶边齐平（都从 `plateHeight()` 起算）；
+   *   3. 整条栏在卡片**左边**：`view.panel.leftReserve` 让卡片右移这么多，于是
+   *      面板打开时侧边栏既不会被盖住，也不会抢走卡片的触摸（20-main 的三层路由先给卡片）。
+   */
+  function sideButtons(view) {
+    var config = BAL.view.sideBar;
+    var save = view && view.save ? view.save : null;
+    var defs = [
+      // 商城（A15 起在底部功能栏；本次挪进侧边栏）：角标 = 手里的强化石 ——
+      // 与「包」的装备数、「箱」的箱子数同一套读法
+      { id: 'sideShop', label: '商城', iconKey: 'shop', badge: save && save.stones ? save.stones : 0, action: 'shop' },
+      // 回营地（本次新增）：把玩家送回原点营地中心（冷却 / 战斗中禁用的规矩在 20-main 的 teleportCamp）
+      { id: 'sideCamp', label: '回营地', iconKey: 'camp', badge: 0, action: 'camp' }
+    ];
+    var radius = config.radius;
+    var step = radius * 2 + config.gap;
+    var top = plateHeight() + config.top + radius;
+    var list = [];
+    for (var i = 0; i < defs.length; i += 1) {
+      list.push({
+        id: defs[i].id,
+        /** 圆下面的说明（与功能键同一套画法：`hud.captionGap` 那一行） */
+        label: defs[i].label,
+        /** 图标按 iconKey 取（id 是 sideShop / sideCamp，图标仍是「商」「营」那两个） */
+        iconKey: defs[i].iconKey,
+        action: defs[i].action,
+        badge: defs[i].badge,
+        state: '',
+        /** 标记：16-render / 预览与自检靠它把"侧边栏"和"底部功能栏"分开（画法与命中都不受影响） */
+        kind: 'side',
+        side: i + 1,
+        x: config.left,
+        y: top + i * step,
+        r: radius
+      });
+    }
+    return list;
+  }
+
+  /**
+   * 侧边栏的底板：一枚圆一枚圆地悬在世界（或卡片旁边）上会像"两个迷路的按钮"，
+   * 一条半透明的竖栏才读得出"这是一条侧边栏"。几何由第一枚与最后一枚键推出来，
+   * **不写死数字** —— 自检与 tools\hud-preview.mjs 读的就是这一份。
+   */
+  function sideBarRect() {
+    var list = sideButtons();
+    if (!list.length) return null;
+    var pad = BAL.view.sideBar.pad;
+    var first = list[0];
+    var last = list[list.length - 1];
+    // 下沿要把最后一枚键的说明文字也算进去（否则那行字会悬在栏外）
+    var bottom = last.y + last.r + captionBlock(G.ICONS.size('captionSize')) + pad;
+    return {
+      x: first.x - first.r - pad,
+      y: first.y - first.r - pad,
+      w: first.r * 2 + pad * 2,
+      h: bottom - (first.y - first.r - pad)
+    };
+  }
+
+  /**
+   * 底部功能图标栏（A7）：**一行圆键**，槽位 0 是营 · 槽位 1..5 是 箱 / 包 / 会 / 设 / 自动
+   * （营地槽在营地外留空）。它占的正是**技能原来那一行** —— 用户要求"把背包 / 自动攻击 / 菜单这些图标挪到技能原本的位置"。
+   *
+   * 槽位**固定**（`view.functionBar.slots`）：营地槽在外面就空着，不把其余键往中间挪 ——
+   * 于是进出营地时键的坐标一个都不动，不会出现"刚出营地那一下点到了旁边那个键"。
+   * A15 那枚「商」占的是 slot 6，**本次已挪到左边侧边栏**（见 sideButtons）——
+   * 底部这一行因此只剩 5 个键（营地外）与 6 个键（营地里），坐标一个都没动，slot 6 空着。
+   * `badge` 是右上角的小角标（宝箱数 / 背包装备数 / 有没有公会 / 手里几颗强化石），
+   * `state` 只服务画法（'on' 时按钮点亮）。
+   */
   function buttons(view) {
-    var radius = FUNCTION_BUTTON_RADIUS;
-    var gap = 18;
-    var lift = BAL.view.hud.buttonLift;
-    var x = SCREEN.width() - BAL.input.attackButtonMargin - radius;
-    var y = SCREEN.height() - SCREEN.safeBottom() - lift - radius;
+    var config = BAL.view.functionBar;
+    var radius = config.radius;
     var save = view && view.save ? view.save : null;
     var auto = !!(save && save.settings && save.settings.autoBattle === true);
     var defs = [
@@ -7374,21 +9355,36 @@ G.HUD = (function () {
       { id: 'guild', label: '会', badge: save && save.guild ? 1 : 0 },
       { id: 'menu', label: '设', badge: 0 },
       { id: 'auto', label: auto ? '自动' : '手动', badge: 0, state: auto ? 'on' : 'off' }
+      // 「商」不再在这一行（本次新增：用户要求商城放进左边侧边栏的顶部，见 sideButtons）——
+      // slot 6 因此空着，其余 5 个键的坐标一个都没动（slots 仍是 7，整排仍然居中）
     ];
-    // 站在营地里才出现的「营」：营地的交互入口（治疗 / 商店 / 传送，A4）
-    if (view && view.inCamp) defs.push({ id: 'camp', label: '营', badge: 0, state: 'on' });
+    // 站在营地里才出现的「营」：营地的交互入口（治疗 / 商店 / 传送，A4）——
+    // 它写死占**最左边那个槽位**（slot 0），所以其余键一个都不动
+    if (view && view.inCamp) defs.push({ id: 'camp', label: '营', badge: 0, state: 'on', slot: 0 });
+
+    var step = radius * 2 + config.gap;
+    var rowWidth = config.slots * radius * 2 + (config.slots - 1) * config.gap;
+    // 整行居中：槽位数固定，所以有没有「营」都压在同一个框里
+    var firstX = (SCREEN.width() - rowWidth) / 2 + radius;
+    var y = functionRowY();
     var list = [];
     for (var i = 0; i < defs.length; i += 1) {
+      // 没写 slot 的按顺序从 1 往下排（0 号槽位留给「营」）
+      var slot = defs[i].slot === undefined ? i + 1 : defs[i].slot;
       list.push({
         id: defs[i].id,
         label: defs[i].label,
         badge: defs[i].badge || 0,
         state: defs[i].state || '',
-        x: x,
-        y: y - i * (radius * 2 + gap),
+        x: firstX + slot * step,
+        y: y,
         r: radius
       });
     }
+    // 左侧边栏（本次新增）追加在**最后**：功能键的槽位、顺序、坐标一个都不动 ——
+    // 自检与 tools\hud-preview.mjs 都在数这份表，追加最安全（预览里 `outside[0]` 仍是「箱」）
+    var side = sideButtons(view);
+    for (var s = 0; s < side.length; s += 1) list.push(side[s]);
     return list;
   }
 
@@ -7396,12 +9392,41 @@ G.HUD = (function () {
    * 画按钮（按下时稍微放大 + 变色；自动战斗开着时按钮常亮，一眼看出当前模式）。
    * A5 起同一个循环还画技能键：`cool`（剩余比例）+ `remainSec`（读秒）+ `lock`（未解锁）——
    * 技能键的状态全部来自 skillView()，这里只负责把它画出来。
+   * A7 起技能键的说明文字画在圆**上方**（`captionAbove`），功能键仍在圆下方。
    */
   function drawButtons(ctx, view) {
     var list = view && view.buttons ? view.buttons : [];
     var nowMs = view && view.now ? view.now : 0;
+    /**
+     * 左侧边栏的底板先画（本次新增）：它是一条半透明的竖栏，压在**世界与面板卡片之上**
+     * （drawButtons 是最后一趟），而侧边栏本身在卡片左边（`view.panel.leftReserve`）——
+     * 所以"栏盖住卡片"这件事不会发生，只是绘制顺序保证了它永远可见。
+     */
+    var hasSide = false;
+    for (var k = 0; k < list.length; k += 1) {
+      if (list[k].kind === 'side') {
+        hasSide = true;
+        break;
+      }
+    }
+    if (hasSide) {
+      var rail = sideBarRect();
+      if (rail) {
+        ctx.globalAlpha = 0.72;
+        ctx.fillStyle = '#0e1526';
+        G.RENDER.roundRectPath(ctx, rail.x, rail.y, rail.w, rail.h, 26);
+        ctx.fill();
+        ctx.strokeStyle = '#2b3a5c';
+        ctx.lineWidth = 3;
+        G.RENDER.roundRectPath(ctx, rail.x, rail.y, rail.w, rail.h, 26);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
     for (var i = 0; i < list.length; i += 1) {
       var button = list[i];
+      // A10：勾选框只在按钮表里占一个**命中位置**，画法由技能键那一趟的 drawAutoBox 负责 —— 这里跳过
+      if (button.kind === 'skillAuto') continue;
       var pressed = G.INPUT.isPressed(button.id, nowMs);
       var locked = button.lock === true;
       var cooling = !locked && button.cool > 0;
@@ -7419,9 +9444,11 @@ G.HUD = (function () {
       ctx.stroke();
 
       // A6：图标（每个键都有对应图形：箱 / 包 / 会 / 营 / 设 / 自动 + 斩 / 疗 / 刺 / 旋）
+      // 本次新增：侧边栏的「商 / 营」按 `iconKey` 取图标（它们的 id 是 sideShop / sideCamp，
+      // 图标仍是「商」「营」那两个 —— 16-icons 的 button() 认 id，所以在这里把 iconKey 递过去）
       G.ICONS.button(
         ctx,
-        button.id,
+        button.iconKey || button.id,
         button.x,
         button.y,
         button.id.indexOf('skill') === 0 ? button.r * 1.5 : G.ICONS.size('buttonSize'),
@@ -7440,6 +9467,9 @@ G.HUD = (function () {
         ctx.globalAlpha = 1;
       }
 
+      // A10：技能键右上角的「自动释放」勾选框（压在冷却扇形之上，永远看得见、点得到）
+      if (button.autoBox) drawAutoBox(ctx, button);
+
       if (locked) text(ctx, '锁', button.x, button.y + button.r * 0.5, 22, '#5c6b8a', 'center');
       else if (button.remainSec > 0) text(ctx, String(button.remainSec), button.x, button.y + button.r * 0.5, 24, '#ffffff', 'center');
 
@@ -7454,15 +9484,19 @@ G.HUD = (function () {
         text(ctx, button.label, chipX, chipY, 18, '#ffd479', 'center');
       }
 
-      // 圈下面一行说明：技能键写技能名（锁着写解锁等级），功能键写「箱 / 包 / 会 / 营 / 设 / 自动」
+      // 圆旁边一行说明：技能键写技能名（锁着写解锁等级），功能键写「箱 / 包 / 会 / 营 / 设 / 自动」。
+      // A7 起技能键的说明画在圆**上方**（下面那一线留给吸底经验条）；间距统一用 `hud.captionGap`，
+      // 与 `functionRowY()` 算行距时用的是同一个数 —— 改一处，两行都不会互相压。
       var caption = button.name ? (locked ? 'Lv.' + button.unlockLevel : button.name) : button.label;
       if (caption) {
+        var captionSize = button.name ? BAL.view.skillBar.nameSize : G.ICONS.size('captionSize');
+        var captionGap = BAL.view.hud.captionGap + captionSize * 0.5;
         text(
           ctx,
           caption,
           button.x,
-          button.y + button.r + 14,
-          button.name ? BAL.view.skillBar.nameSize : G.ICONS.size('captionSize'),
+          button.captionAbove ? button.y - button.r - captionGap : button.y + button.r + captionGap,
+          captionSize,
           locked ? '#8d8d8d' : cooling ? '#9fb4d8' : '#e8f1ff',
           'center'
         );
@@ -7485,8 +9519,9 @@ G.HUD = (function () {
       'chunk 已装载 ' + view.chunks + ' / 上限 ' + BAL.view.chunkCacheLimit + '  活跃怪 ' + view.activeMonsters,
       '目标 ' + (view.target ? view.target.name + ' Lv.' + view.target.level + ' HP ' + Math.round(view.target.hp) : '无'),
       '坐标 ' + Math.round(view.player.x) + ', ' + Math.round(view.player.y) + '  难度带 ' + G.CHUNK.bandOf(view.player.x, view.player.y),
+      '视角 ' + (view.zoom ? view.zoom.name + '（一屏 ' + view.zoom.tiles + ' 格 · 一格 ' + view.zoom.tileCssPx + ' CSS px · 宏观色格 ' + view.zoom.lodBlocks + ' 格）' : '—'),
       '怪物击杀 ' + view.save.stats.kills + '（精英 ' + view.save.stats.eliteKills + '）开箱 ' + view.save.stats.opened,
-      '技能 ' + (view.lastSkill || '—') + ' 已放 ' + (view.save.stats.skillCasts || 0) + ' 次  解锁 ' + (view.skills ? view.skills.unlocked + '/' + view.skills.total : '—'),
+      '技能 ' + (view.lastSkill || '—') + ' 已放 ' + (view.save.stats.skillCasts || 0) + ' 次  解锁 ' + (view.skills ? view.skills.unlocked + '/' + view.skills.total : '—') + '  自动释放 ' + (view.skills && view.skills.autoCount !== undefined ? view.skills.autoCount + '/' + view.skills.total : '—'),
       '世界种子 ' + BAL.season.worldSeed + '  指纹 ' + (view.fingerprint || '—'),
       '触摸 ' + (G.PLAT.hasTt() ? 'tt' : '桩') + '  存档 ' + (view.saveOk ? '正常' : '未写入')
     ];
@@ -7499,8 +9534,49 @@ G.HUD = (function () {
   }
 
   /**
-   * 小地图（右上角）：附近 chunk 网格 + 小径路网 + 营地 + 地标 + 怪点 + 公会锚点 + 玩家朝向。
-   * 它是"地图设计"的呈现层 —— 玩家要能一眼看出"我在哪、路往哪边走、还有什么没去过"。
+   * 小地图覆盖多少个 chunk（A11）：**跟着视角档位走，而且必须装得下整屏** ——
+   * 半径 = ceil(max(视野宽, 视野高) / 2 / chunkSize)，于是远档 9、中档 5、近档 3。
+   *
+   * A8 时它是写死的 3：拉远到 128 格之后地图反而比屏幕小，"我在哪一块"就没法看了（那版记为待办）。
+   * A11 修掉：屏幕多大，地图就多大 —— 小地图上的**视野框**（`minimapViewRect`）因此永远画得进框里，
+   * 一眼看出"我屏幕上看到的，是地图上这一块"。
+   * 代价很小：地图上多出来的只是网格线与路网的路径（都是**一次 stroke** 画完），
+   * 怪点 / 地标仍然只来自已装载的 chunk。
+   */
+  function minimapRadius() {
+    var rect = G.RENDER.viewRect({ x: 0, y: 0 });
+    var need = (rect.width > rect.height ? rect.width : rect.height) / 2 / G.CHUNK.CHUNK_SIZE;
+    var radius = Math.ceil(need);
+    return radius >= 1 ? radius : 1;
+  }
+
+  /**
+   * 小地图上的"视野框"（A11）：主画面现在覆盖的世界矩形 → 小地图坐标。
+   * 画与自检读的是同一份 —— 于是"小地图上这一小格"和"我屏幕上看到的地"永远对得上。
+   * 视野框以**相机**为中心（相机带前瞻偏移），而不是玩家 —— 这正是"镜头在看哪里"的答案。
+   */
+  function minimapViewRect(view) {
+    var config = BAL.view.minimap;
+    var size = config.size;
+    var left = SCREEN.width() - size - config.margin;
+    var top = minimapTop();
+    var player = view.player;
+    var camera = view.camera || player;
+    var scale = size / (minimapRadius() * G.CHUNK.CHUNK_SIZE * 2);
+    var rect = G.RENDER.viewRect(camera);
+    return {
+      x: left + size / 2 + (rect.minX - player.x) * scale,
+      y: top + size / 2 + (rect.minY - player.y) * scale,
+      w: rect.width * scale,
+      h: rect.height * scale,
+      worldW: rect.width,
+      worldH: rect.height
+    };
+  }
+
+  /**
+   * 小地图（右上角）：附近 chunk 网格 + 小径路网 + 营地 + 地标 + 怪点 + 公会锚点 + 玩家朝向
+   * + A11 的**视野框**。它是"地图设计"的呈现层 —— 玩家要能一眼看出"我在哪、路往哪边走、还有什么没去过"。
    * 路网用的是**和小地图外面同一份数据**（G.TERRAIN.roadsInRect），不另画一套。
    */
   function drawMinimap(ctx, view) {
@@ -7509,7 +9585,7 @@ G.HUD = (function () {
     var left = SCREEN.width() - size - config.margin;
     var top = minimapTop();
     var player = view.player;
-    var halfWorld = config.chunkRadius * G.CHUNK.CHUNK_SIZE;
+    var halfWorld = minimapRadius() * G.CHUNK.CHUNK_SIZE;
     var scale = size / (halfWorld * 2);
     var centerX = left + size / 2;
     var centerY = top + size / 2;
@@ -7610,6 +9686,23 @@ G.HUD = (function () {
       }
     }
 
+    // 视野框（A11）：主画面现在覆盖的范围。竖屏一屏很高（远档 128×277 格），所以这个框常常上下超出小地图 ——
+    // 裁到地图里画（于是远档看到的是"我正在看这一竖条地"，近档看到的是一个小框）。
+    // 与 minimapViewRect 同一份几何：画与自检不会各算一套。
+    var frame = minimapViewRect(view);
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(left, top);
+    ctx.lineTo(left + size, top);
+    ctx.lineTo(left + size, top + size);
+    ctx.lineTo(left, top + size);
+    ctx.closePath();
+    ctx.clip();
+    ctx.strokeStyle = 'rgba(255,224,138,0.7)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(frame.x, frame.y, frame.w, frame.h);
+    ctx.restore();
+
     // 玩家：一个朝向三角（朝向直接取 player.facing，不另算一套）
     var fx = player.facing.x;
     var fy = player.facing.y;
@@ -7695,7 +9788,7 @@ G.HUD = (function () {
     var save = view.save;
     var width = SCREEN.width();
     var height = BAL.view.hud.expBarHeight;
-    var y = SCREEN.height() - SCREEN.safeBottom() - height;
+    var y = expTop();
     var need = PROG.xpToNext(save.level);
     bar(ctx, 0, y, width, height, need > 0 ? save.exp / need : 0, '#4f8fd8', 'rgba(8,12,24,0.72)');
     text(
@@ -7711,7 +9804,7 @@ G.HUD = (function () {
 
   /**
    * 主绘制：view 由 20-main 组装（玩家、属性、存档、FPS、目标…）。
-   * **功能键不在这里画**（交给 `drawButtons`）：面板卡片只占 1/3 屏，
+   * **功能键不在这里画**（交给 `drawButtons`）：面板卡片只占约 2/3 屏高，底部整条动作栏仍露在外面，
    * 按钮要压在卡片之上继续可用，所以 20-main 的绘制顺序是 HUD → 面板 → 按钮。
    */
   function draw(ctx, view) {
@@ -7729,14 +9822,21 @@ G.HUD = (function () {
 
   return {
     buttons: buttons,
+    sideButtons: sideButtons,
+    sideBarRect: sideBarRect,
     skillButtons: skillButtons,
-    functionColumnLeft: functionColumnLeft,
+    skillAutoButtons: skillAutoButtons,
+    expTop: expTop,
     skillRowY: skillRowY,
+    functionRowY: functionRowY,
+    bottomBarTop: bottomBarTop,
     draw: draw,
     drawTop: drawTop,
     drawExpBar: drawExpBar,
     drawButtons: drawButtons,
     drawMinimap: drawMinimap,
+    minimapRadius: minimapRadius,
+    minimapViewRect: minimapViewRect,
     plateHeight: plateHeight,
     minimapTop: minimapTop,
     bar: bar,
@@ -7745,13 +9845,15 @@ G.HUD = (function () {
 })();
 
 /**
- * 18-panels.js —— 自绘面板（开箱 / 背包 / 商城 / 公会 / 设置 / 自检）+ 标题与创建角色界面
+ * 18-panels.js —— 自绘面板（开箱 / 背包 / 商城 / 公会 / 营地 / 强化 / 属性 / 设置 / 自检）+ 标题与创建角色界面
  *
  * 小游戏没有 DOM，所以界面也是 canvas 画的（01-game-design §2 的最后一条）。
  *
  * **A4 的三处改动（都是用户直接提的需求）**：
- *   1. **只占约 1/3 屏**：面板从"全屏覆盖"改成一张卡片
- *      （宽 = 屏宽 − leftMargin − rightReserve，高 = 屏高 × heightRatio，见 balance.view.panel）；
+ *   1. **只占一部分屏**：面板从"全屏覆盖"改成一张卡片
+ *      （宽 = 屏宽 − leftMargin − rightReserve，高 = 屏高 × heightRatio，见 balance.view.panel）。
+ *      A4 是"约 1/3 屏"（heightRatio 0.42），**2026-10-01 用户改成"约 2/3 屏高"（0.66）** ——
+ *      为的是少滚：背包内容约 1492 设计 px，视口从 ~580 变成 ~964；
  *   2. **打开面板时游戏不停止**：卡片之外的触摸照旧给 15-input（摇杆能推、功能键能按），
  *      世界也照旧跑（20-main 的 step 不再因为面板开着而 return）；
  *   3. **关闭按钮**：卡片右上角一个圆形 ✕；面板内容比卡片长时，在卡片内上下拖动可以滚。
@@ -7764,15 +9866,98 @@ G.HUD = (function () {
  *
  * action 清单（都由 20-main 处理）：
  *   { type: 'close' }              关掉当前面板（✕）
- *   { type: 'open', panel }        切换面板（'chest' | 'bag' | 'shop' | 'guild' | 'menu' | 'selftest'）
+ *   { type: 'open', panel }        切换面板（'chest' | 'bag' | 'shop' | 'guild' | 'camp' | 'enhance' | 'stat' | 'menu' | 'selftest'）
  *   { type: 'openChest', count }   开箱（真正的抽奖在 20-main：那里才动保底计数）
+ *   { type: 'openChestTier', tier } 开掉**这一阶**的箱子（A14：宝箱清单每行右侧那枚「全开」）
+ *   { type: 'toggleChestAuto', tier } 切换这一阶的「自动开启」（A14：勾上 = 掉出来就当场开）
  *   { type: 'equip', itemId }      穿上背包里的某件装备
+ *   { type: 'unequip', slotId }    脱下某个部位
+ *   { type: 'skillAuto', index }   切换第 index 个技能的「自动释放」勾选（A10）
+ *   { type: 'setZoomTiles', tiles } 把视角缩放到"一屏 tiles 格"（设置面板里那一行滚动轴，A11 之二）
  *   { type: 'salvageAll' }         一键分解（只留比身上强的）
  *   { type: 'buyHorn' }            买号角（500 金币，20 级解锁）
- *   { type: 'createGuild' }        建公会（消耗一个号角）
- *   { type: 'renameGuild' }        换一个随机会名（canvas 里没有输入框）
+ *   { type: 'buyStone' }           买强化石（100 金币一颗，本次新增）
+ *   { type: 'enhance', slotId }    铁匠强化**已穿的那一件**（本次新增：扣强化石 → 09-equipment 的 applyEnhance）
+ *   { type: 'createGuild' }        建公会（消耗一个号角；名字非法 / 没号角会被 20-main 拦下）
+ *   { type: 'typeGuildName' }      调平台键盘输入公会名（本次新增：建会必须自己取名字）
+ *   { type: 'renameGuild' }        随机取一个公会名（键盘不可用时的兜底输入方式）
+ *   { type: 'typeJoinName' }       调平台键盘输入"要加入的公会名"（本次新增）
+ *   { type: 'joinGuild', name? }   加入公会（不给 name 就用那一行的草稿；给了 name 就是列表里点的那一行）
+ *   { type: 'guildSync' }          向服务端要一份最新成员表（本次新增）
+ *   { type: 'guildList' }          向服务端要一份公会列表（本次新增）
+ *   { type: 'guildLeave' }         退出公会（会长不能退，本次新增）
  *   { type: 'teleportGuild' }      回到公会锚点（冷却 + 战斗中禁用）
  *   { type: 'selftest' }  { type: 'cloudPing' }  { type: 'toggleDebug' }  { type: 'resetSave' }
+ *
+ * **A10（用户：把背包 / 宝箱 / 属性的 UI 做得更好看一些，模仿参考图）**：三个面板从"一列一列的字"
+ * 重排成**版面**，但复用同一条命中链与滚动链 —— 每一块仍然是一个行对象，只是 `kind` 不同、
+ * 由 `PAINTERS` 分派画法：
+ *   背包：角色预览（四角四个装备槽，点一下脱）→ 技能自动释放条（点一下切换）→ 三排背包格（点一下穿；
+ *        本次新增：拖格子可以**翻页**看后面的装备，见文件末的「本次新增」一段）
+ *        → 属性网格（2 列，图标 + 名称 + 数值）；
+ *   宝箱：两个大按钮（开 1 / 开 10）→ 两条保底进度条 → 六阶宝箱清单（一阶一行：阶名 + × 数量 + 掉落占比）；
+ *   属性：头像抬头（等级 / 经验条 / 战力）+ 一行一张的属性卡（图标 + 数值 + 基础与装备的拆分）。
+ * 版面尺寸全在 `balance.view.panel.layout`；`hit: false` 的行（大块背景 / 小标题 / 进度条）不吃触摸，
+ * 于是"背景块排在前、可点的格子排在后"也能各画各的、各点各的。
+ *
+ * **A11 之二（用户："玩家设置中添加视角缩放滚动轴，可以缩到16-64"）**：设置面板里多了一个
+ * `kind: 'slider'` 的行 —— 它是面板里唯一"拖"出来的控件：
+ *   1. 按下的那一下就跳到手指位置（滑块的标准手感），**拖动时不吃滚动**（卡片内容不会跟着跑）；
+ *   2. 拖动过程中由 20-main 每帧问一次 `sliderDrag()`，世界**边拖边缩放**（静默，不写存储）；
+ *   3. 松手才产出一个 action（`{ type: 'setZoomTiles', tiles }`）→ 提示 + 落盘。
+ * 范围与画法规格全在 `balance.view.zoomSlider`（16 ~ 64 格 / 轨道高 / 圆钮半径 / 两端余量）。
+ *
+ * **A12（用户：给不同等阶的装备添加发光颜色，分别为白色，蓝色，紫色，金色，红色，炫彩）**：
+ * 面板里每一处「装备格」都多了一层阶的发光 —— 颜色在 `balance.equipment.tiers[].glow`，
+ * 画法在 16-icons 的 `glowRing` / `heroGlow`，这里只负责**把时间基准（世界时钟）与阶号递下去**：
+ *   1. 背包格 / 四角装备槽 / 宝箱清单的行图标 / 行图标：`frame(..., glowPhase())`，空位与等级不够的（`dim`）不发光；
+ *   2. 宝箱清单每行左边那口阶色小箱：它走的就是 `frame`，于是六阶的发光色在清单上一行一个；
+ *   3. 角色预览：`heroGlow` 在人物之前画一束光，颜色取身上**最高那一阶**（光身板就没有这一束）。
+ *
+ * **A13（用户："宝箱背包不需要格子，直接放不同等阶宝箱×数量"）**：宝箱面板撤掉**箱子格**与**六阶图例**，
+ * 换成**六阶宝箱清单** —— 一阶一行、恒六行：左边一口阶色小箱（顺手带上 A12 的发光）+ 阶名 +
+ * 右边「× 数量」+ 一行掉落占比（仍然是按权重算出来的）。数量由 08-loot 的 `countByTier` 数出来，
+ * **没有的阶也占一行**（压淡写 × 0），于是"还缺哪一阶"一眼看得出来，也不再需要"只列出前 12 个"那种截断。
+ * 清单**行身**仍然是只读的（`hit: false`）：袋子里的箱子按掉落顺序排，点"传说"那一行开出来的却可能是别的阶，
+ * 所以"按阶开箱"不靠点行身，而是靠 A14 给每一行配的那枚**显式按钮**（见下）。
+ *
+ * **A14（用户："宝箱可以设置是否自动开启——对应不同等阶不同的开启按钮"）**：清单每一行右侧多两枚
+ * **按阶的控件**（行身照旧 `hit: false`，点那一行的字上什么都不发生）：
+ *   1. `chest:tierOpen:<阶>` —— 一枚**阶色**的「全开」小按钮：点一下把**这一阶**的箱子全开掉
+ *      （action `{ type: 'openChestTier', tier }` → 20-main 的 `openChestsOfTier`）。这一阶一口
+ *      箱子也没有时整块压淡、并且**不产出 action**（同背包里空位的纪律：点了没反应，也不会误开别的阶）；
+ *   2. `chest:tierAuto:<阶>` —— 一枚「自动」勾选（画法与技能条上那一枚一样）：勾上 = 这一阶一掉出来
+ *      就当场开（存 `settings.chestAuto`，action `{ type: 'toggleChestAuto', tier }`）。勾选**恒可点**：
+ *      先勾上、之后掉出来就自动开，所以"这一阶现在 0 口箱子"照样能勾。
+ * 两枚控件都**长在清单那一行的行带里**（尺寸在 `balance.view.panel.layout`：`chestOpenWidth /
+ * chestOpenHeight / chestAutoSide / chestControlGap`），于是清单还是恒六行、宝箱面板还是不用滚；
+ * "× 数量"因此往左让出位置 —— 它的右边界 = 勾选框左边界 - 12（`tierControls` 一处算出来，画与点共用）。
+ *
+ * **本次新增（用户：背包要能滚动查看所有装备 + 商城里加可购买物品 + 营地里加铁匠NPC）**：
+ *   1. **背包分页**（`bagRow` = 当前页第一行在全部装备里的行号）：三排格子从原先的
+ *      「只列前 15 件」变成**一页 15 件、拖格子上下翻页**。可拖的那块是**格子那一整块**
+ *      （`bagGridRect`，含空框区域），卡片其余部分照旧往下滚卡片 —— 两种手势互不吃：
+ *      按在格子上拖 = 翻页，按在别处拖 = 滚卡片。页数写在标题右侧（`第 1-3 / 共 5 页`），
+ *      页码夹在 [0, maxRow]（到底 / 到顶就不动了）。写法与 A11 之二的缩放轴同源
+ *      （按下记状态 → move 改状态 → 松手收尾），只是改的是页码而不是世界倍率；
+ *      而且**拖动过就不触发那一行的 action**（手指滑过一格不该把装备穿上）。
+ *   2. **商城的第二件货**：强化石（100 金币一颗，`balance.shop.stone`）—— 与号角同一套买法；
+ *   3. **强化面板**（`current === 'enhance'`，营地铁匠 / 营地面板 / 那枚「锻」圆键都进这里）：
+ *      四个已穿部位各一行（装备内观图标 + 当前强化等级 + 下一级要几颗石头 + 强化后的战力），
+ *      点一行 = 强化一次；末尾一行直接跳去商城买石头。数值规则全在 09-equipment
+ *      （`enhanceCost` 每级翻倍、`applyEnhance` 是唯一改等级的地方），这里只把它排成行。
+ *
+ * **本次新增之二（用户："创建公会需要自己输入公会名，公会页面显示公会人员，公会等级，公会信息"）**：
+ *   1. **公会名是打出来的**：面板上多了一行「公会名：…」（点它 → 20-main 调平台键盘 `PLAT.editText`），
+ *      草稿 `draftGuildName` 存在本文件；不再有"打开面板就自动填一个名字"这件事。
+ *      模拟器里没有 `tt.showKeyboard`，所以「随机取一个名字」那一行留着当兜底
+ *      （与登录页的「换一个随机昵称」同一条思路）；
+ *   2. **公会面板重排**：没有公会时 = 输入名 → 创建（另有随机名）+ 加入（输入名 / 服务端列表里点一行）；
+ *      有公会时 = 公会等级（含升级进度）+ 公会信息（会长 / 我的身份 / 人数 / 锚点 / 最近同步）+
+ *      **公会人员**（一行一个人：会长第一、在线优先、自己带 `（我）`）+ 回锚点 / 刷新成员 / 退会。
+ *      等级与成员表的**规则**在 11-save 的 `G.GUILD`，**权威**在服务端（`/api/guild/*`）；
+ *   3. **卡片左边让位**（`view.panel.leftReserve`）：左边缘那条**左侧边栏**（17-hud 的 sideButtons）
+ *      必须永远露在卡片外 —— 20-main 的触摸路由是"卡片优先"，被盖住就等于点不到。
  */
 
 G.PANELS = (function () {
@@ -7781,8 +9966,9 @@ G.PANELS = (function () {
   var BAL = G.BAL;
   var SCREEN = G.SCREEN;
   var EQUIP = G.EQUIP;
-  var LOOT = G.LOOT;
   var PROG = G.PROG;
+  /** 公会的规则与记录（本次新增）：名字合不合法、等级怎么算都在 11-save 的 G.GUILD 里 */
+  var GUILD = G.GUILD;
 
   var current = null;
   var pressedRowId = null;
@@ -7794,13 +9980,43 @@ G.PANELS = (function () {
   var dragging = false;
   var pressedClose = false;
 
-  /** 随机会名用的词（canvas 里没有输入框，用"换一个"代替打字；阶段 D 再接平台键盘） */
+  /**
+   * 视角缩放轴的拖动状态（A11 之二）：`sliderRow` = 手指正按住的那一行（松手 / 关面板时清空），
+   * `sliderTiles` = 已经拖到的格数。画的时候读它（圆钮跟着手指走），20-main 每帧也读它（世界实时缩放）。
+   */
+  var sliderRow = null;
+  var sliderTiles = 0;
+
+  /**
+   * 背包分页状态（本次新增）：`bagRow` = 当前这一页的**第一行**在全部装备里的行号
+   * （0 = 第一页；一页 = `gridRows` 行 × `gridColumns` 列 = 15 件）。
+   * `bagMaxRow` / `bagGridRect` 由 buildRows 每次重算 —— 画、命中测试、翻页读的都是同一份，
+   * 不会出现「画的是第二页、点的是第一页」。`bagDrag` = 手指正按在格子上拖的那一笔
+   * （松手 / 关面板时清空；不是 null 就说明这一笔手势归"翻页"，卡片不跟着滚）。
+   */
+  var bagRow = 0;
+  var bagMaxRow = 0;
+  var bagGridRect = null;
+  var bagDrag = null;
+
+  /** 随机会名用的词（键盘不可用时的兜底：模拟器里没有 tt.showKeyboard，也得能建会） */
   var GUILD_A = ['铁血', '荒野', '星火', '长风', '夜航', '荒原', '钢齿', '灰烬'];
   var GUILD_B = ['兄弟会', '远征团', '守望者', '拾荒团', '游猎帮', '商队', '联盟'];
 
+  /**
+   * 公会名草稿（本次新增：用户要求**自己输入**公会名）：小游戏里没有 `<input>`，打字只能靠平台键盘 ——
+   * 由 20-main 的 `typeGuildName` 调 `PLAT.editText`，回来的值通过 `setDraftGuildName` 落在这里。
+   * 为什么草稿放在面板模块里：输入行与「创建公会」按钮都在面板上，值跟着面板走最自然；
+   * 而"这个字能不能用"只认 `G.GUILD.validate`，所以校验不在这里重复一遍。
+   * `joinDraftName` 是**加入**那一行用的名字（与创建分开存，免得上一次的输入串到另一件事上）。
+   */
   var draftGuildName = '';
+  var joinDraftName = '';
 
-  /** 用世界时间做种子生成会名（本工程只允许 G.RNG 出随机，不许 Math.random） */
+  /**
+   * 用世界时间做种子生成会名（本工程只允许 G.RNG 出随机，不许 Math.random）。
+   * 本次改动：它不再是**默认值**，只在玩家点「随机取一个名字」时用（用户要求自己输入公会名）。
+   */
   function nextGuildName(salt) {
     var rng = new G.RNG.Rng(G.RNG.hash32((G.WORLD.now() | 0) + (salt | 0), 0x6d17, 0x3c1f));
     var a = GUILD_A[rng.int(0, GUILD_A.length - 1)];
@@ -7808,20 +10024,42 @@ G.PANELS = (function () {
     return a + b;
   }
 
+  /**
+   * "多久以前"（公会那一块的时间戳用）：**只吃世界时间** ——
+   * `guild.syncAt` / `listAt` 都是 20-main 用 `WORLD.now()` 写进去的，和 `view.now` 同一把尺子。
+   * （服务端给的 createdAt 是真实 epoch，跟虚拟世界时钟不同源，所以界面上一律不显示它。）
+   */
+  function agoText(stampMs, view) {
+    var now = view && view.now ? view.now : G.WORLD.now();
+    var diff = now - stampMs;
+    if (!(stampMs > 0)) return '还没同步过';
+    if (!(diff > 0)) return '刚刚';
+    if (diff < 60000) return Math.round(diff / 1000) + ' 秒前';
+    if (diff < 3600000) return Math.round(diff / 60000) + ' 分钟前';
+    return Math.round(diff / 3600000) + ' 小时前';
+  }
+
   /* ------------------------------------------------------------- 卡片几何 */
 
   /**
-   * 面板卡片：**只占约 1/3 屏**（用户要求"ui 不要铺满屏幕，只要占三分之一大小"）。
-   *   width  = 屏宽 − leftMargin − rightReserve （右边留给右下功能键，互不遮挡）
-   *   height = 屏高 × heightRatio
-   *   位置   = 左贴 margin、上边贴在吸顶块下方（下半屏留给摇杆与拇指）
-   * 0.79 × 0.38 ≈ 30% 屏面积。所有数字都在 balance.view.panel，改数值不用改代码。
+   * 面板卡片：**A4 是"约 1/3 屏"，2026-10-01 用户改成"约 2/3 屏高"**（用户当初的原话是
+   * "ui 不要铺满屏幕，只要占三分之一大小"；后来在 `tools\hud-preview.html` 里把 heightRatio
+   * 从 0.42 拖到 0.66 —— 目的很直白：背包内容约 1492 设计 px，卡片高一点就少滚一截）。
+   *   width  = 屏宽 − leftMargin − leftReserve − rightReserve
+   *            （右边留给右下功能键，**左边留给左侧边栏** —— 本次新增：
+   *             20-main 的触摸路由是"卡片优先"，卡片盖住侧边栏就等于那两枚键点不到，
+   *             所以卡片整体右移 `leftReserve`，侧边栏永远露在卡片外；自检盯着这条缝）
+   *   height = 屏高 × heightRatio （0.66 时 ≈ 90% 宽 × 66% 高 ≈ 59% 屏面积）
+   *   位置   = 左贴 margin、上边贴在吸顶块下方（底边仍然压在整条吸底动作栏之上：自检盯着这一条，
+   *            实测 1284 <= 1304 设计单位 —— 卡片再高一点就要压到功能键了）
+   * 所有数字都在 balance.view.panel，改数值不用改代码。
    */
   function rect() {
     var config = BAL.view.panel;
-    var width = SCREEN.width() - config.leftMargin - config.rightReserve;
+    var left = config.leftMargin + config.leftReserve;
+    var width = SCREEN.width() - left - config.rightReserve;
     var height = SCREEN.height() * config.heightRatio;
-    return { x: config.leftMargin, y: G.HUD.plateHeight() + 18, w: width, h: height };
+    return { x: left, y: G.HUD.plateHeight() + 18, w: width, h: height };
   }
 
   /** 内容视口：卡片去掉标题栏之后的那块（行只在这里面绘制与命中） */
@@ -7872,6 +10110,20 @@ G.PANELS = (function () {
     return scroll;
   }
 
+  /**
+   * 背包分页的当前状态（本次新增）：自检与工具读它 —— 返回的是**最近一次 buildRows** 算出来的那一份
+   * （画、命中、翻页共用同一份），所以断言里看到的页码就是屏幕上那一页。
+   */
+  function bagScroll() {
+    return {
+      row: bagRow,
+      maxRow: bagMaxRow,
+      columns: layout().gridColumns,
+      visibleRows: layout().gridRows,
+      gridRect: bagGridRect
+    };
+  }
+
   /** 这一点在不在面板的"势力范围"里（卡片矩形 + 关闭键的圆）：不在就交给摇杆/功能键 */
   function contains(point) {
     if (!current || !point) return false;
@@ -7890,7 +10142,15 @@ G.PANELS = (function () {
     scroll = 0;
     dragging = false;
     pressedClose = false;
-    if (panel === 'guild' && !draftGuildName) draftGuildName = nextGuildName(0);
+    sliderRow = null;
+    sliderTiles = 0;
+    // 背包分页（本次新增）：每次打开都回到第一页 —— 面板一关一开，玩家要看到的是"最新的装备"
+    bagRow = 0;
+    bagDrag = null;
+    bagGridRect = null;
+    // 公会名草稿**不预填**（本次改动：用户要求"创建公会需要自己输入公会名"）——
+    // 打开面板时它是什么就是什么：空着就如实写"还没输入"，点「创建公会」会被拦下来
+    // （20-main 的 createGuild 再判一次；随机名只在玩家主动点「随机取一个名字」时进来）。
   }
 
   function close() {
@@ -7899,6 +10159,9 @@ G.PANELS = (function () {
     scroll = 0;
     dragging = false;
     pressedClose = false;
+    sliderRow = null;
+    sliderTiles = 0;
+    bagDrag = null;
   }
 
   function isOpen() {
@@ -7909,9 +10172,46 @@ G.PANELS = (function () {
     return current;
   }
 
+  /**
+   * 发光的时间基准（A12：装备等阶的发光）：取**世界时钟** —— 跟着游戏一起走、一起停，
+   * 而且不碰 Date.now（那是 12-platform / 20-main 的活）。呼吸与炫彩流动都读它，
+   * 同一个数也进自检（16-icons 的 glowPulse / glowColorAt 是纯函数，可以逐点断言）。
+   */
+  function glowPhase() {
+    return G.WORLD.now();
+  }
+
   /** 阶色只有一份：16-icons 的 TIER_COLORS（这里只转发，免得两处各写一套颜色） */
   function tierColor(tier) {
     return G.ICONS.tierColor(tier);
+  }
+
+  /**
+   * 六阶宝箱清单（A13，用户："宝箱背包不需要格子，直接放不同等阶宝箱×数量"）：
+   * 一阶一行 —— 阶号 + 阶名 + 阶色 + **× 数量** + 掉落占比。
+   * 数量由 `LOOT.countByTier` 从存档里数（袋子空了就全是 0，清单照样六行）；
+   * 占比**按 balance.chests.tiers 的权重算出来**，不是写死的文案 ——
+   * 改权重清单自己跟着变，不会出现"面板上写的和抽奖表不一致"。
+   */
+  function chestSummary(chests) {
+    var tiers = BAL.chests.tiers;
+    var counts = G.LOOT.countByTier(chests);
+    var total = 0;
+    var i;
+    for (i = 0; i < tiers.length; i += 1) total += tiers[i].weight;
+    var list = [];
+    for (i = 0; i < tiers.length; i += 1) {
+      var share = total > 0 ? (tiers[i].weight / total) * 100 : 0;
+      list.push({
+        tier: tiers[i].id,
+        name: tiers[i].name,
+        color: tierColor(tiers[i].id),
+        count: counts[i] || 0,
+        share: share,
+        text: '掉落 ' + (share >= 1 ? share.toFixed(1) : share.toFixed(2)) + '%'
+      });
+    }
+    return list;
   }
 
   /**
@@ -7924,8 +10224,10 @@ G.PANELS = (function () {
     var y = row.y + ((row.h - 10) - size) / 2;
     var icon = row.icon;
     var gear = icon.kind === 'gear';
-    var dim = gear && !icon.look;
-    G.ICONS.frame(ctx, x, y, size, icon.tier, dim);
+    // dim = 没有货：空位 / 等级不够（gear 那一条），或 A13 宝箱清单里"这一阶 0 口箱子"（icon.dim）
+    // —— 两种都只描阶色、不发光（A12 的纪律：发光是"有货"的标记）
+    var dim = icon.dim === true || (gear && !icon.look);
+    G.ICONS.frame(ctx, x, y, size, icon.tier, dim, glowPhase());
     if (gear) {
       if (icon.look) G.ICONS.item(ctx, icon.look, x + size / 2, y + size / 2, size * 0.92);
       else G.ICONS.slotPlaceholder(ctx, icon.slot, x + size / 2, y + size / 2, size * 0.92);
@@ -7934,6 +10236,448 @@ G.PANELS = (function () {
     }
     return x + size;
   }
+
+  /* ------------------------------------------------ A10 版面（尺寸全在 balance） */
+
+  /** 面板内的版面尺寸（A10）：数字只在 `balance.view.panel.layout` 一处，代码只读它 */
+  function layout() {
+    return BAL.view.panel.layout;
+  }
+
+  /** 内容区的默认横向范围：行铺满整宽，格子自己给 x / w */
+  function contentRect() {
+    var area = viewport();
+    return { x: area.x + 10, w: area.w - 20 };
+  }
+
+  /** 分区小标题（左标题 + 右说明），`hit: false` —— 它只是"这块讲什么"的路牌 */
+  function pushTitle(list, box, y, text, sub) {
+    list.push({
+      id: 'title:' + text,
+      kind: 'title',
+      hit: false,
+      x: box.x,
+      w: box.w,
+      y: y,
+      h: layout().titleHeight,
+      pad: 0,
+      text: text,
+      sub: sub || ''
+    });
+  }
+
+  /* ------------------------------------------------------------ 各"块"的画法 */
+
+  /**
+   * 行（默认画法，A4 起的形状）：左图标 + 主字 + 副字 —— 商城 / 公会 / 营地 / 设置 / 自检结果仍是它。
+   */
+  function paintRow(ctx, area, row, pressed) {
+    ctx.fillStyle = pressed ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.05)';
+    ctx.fillRect(area.x + 10, row.y, area.w - 20, row.h - 10);
+    // A6：行左侧的图标（装备 = 内观，功能 = 对应图形）；有没有图标决定文字从哪开始
+    var textX = row.icon ? iconBox(ctx, area, row) + 14 : area.x + 24;
+    G.HUD.text(ctx, row.text, textX, row.y + (row.sub ? 22 : (row.h - 10) / 2), 26, row.color, 'left');
+    if (row.sub) G.HUD.text(ctx, row.sub, textX, row.y + 44, 17, '#9fb4d8', 'left');
+    if (!row.action) {
+      // 不可点的行给个视觉标记，免得玩家一直点它
+      ctx.globalAlpha = 0.5;
+      G.HUD.text(ctx, '（说明）', area.x + area.w - 22, row.y + (row.h - 10) / 2, 17, '#8d9bb5', 'right');
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  /** 分区标题：左边一块小标题、右边一句"这块有多少"，下面一条淡淡的分隔线 */
+  function paintTitle(ctx, area, row) {
+    G.HUD.text(ctx, row.text, row.x, row.y + row.h / 2, 21, '#9fb4d8', 'left');
+    if (row.sub) G.HUD.text(ctx, row.sub, row.x + row.w, row.y + row.h / 2, 16, '#6d86b5', 'right');
+    ctx.fillStyle = 'rgba(109,134,181,0.3)';
+    ctx.fillRect(row.x, row.y + row.h - 9, row.w, 2);
+  }
+
+  /**
+   * 格子：阶色八角框 + 内观图标 + 框内左下角的小角标 + 框下一行名字。
+   * 背包格是"框 + 名字"，四个装备槽是"大框 + 名字画在框里"（`row.caption` 决定要不要留出名字那一行）。
+   * 宝箱不再是格子（A13 改成一行一阶的清单，见 `paintChestTier`），所以这里的 `cell` 只服务背包与装备槽。
+   * 图标全部交给 G.ICONS（frame / item / slotPlaceholder / button），所以"背上什么、包里是什么"只有一份画法。
+   */
+  function paintCell(ctx, area, row, pressed) {
+    var side = row.caption ? Math.min(row.w, row.h - 26) : Math.min(row.w, row.h);
+    var frameX = row.x + (row.w - side) / 2;
+    var frameY = row.y + (row.h - side) / 2;
+    G.ICONS.frame(ctx, frameX, frameY, side, row.tier || 0, row.dim === true, glowPhase());
+    var cx = frameX + side / 2;
+    var cy = frameY + side / 2;
+    if (row.icon) {
+      if (row.icon.kind === 'gear') {
+        if (row.icon.look) G.ICONS.item(ctx, row.icon.look, cx, cy, side * 0.82);
+        else G.ICONS.slotPlaceholder(ctx, row.icon.slot, cx, cy, side * 0.82);
+      } else {
+        G.ICONS.button(ctx, row.icon.key, cx, cy, side * 0.7, '#dce6ff');
+      }
+    }
+    // 框内左下角的小角标（战力 / 空 / 等级门槛）—— 压在图标下沿，不遮住东西
+    if (row.badge) {
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(frameX + 2, frameY + side - 24, side - 4, 22);
+      G.HUD.text(ctx, row.badge, cx, frameY + side - 13, 15, row.color || '#c9d8f2', 'center');
+    }
+    // 名字：背包格 / 宝箱格画在框下面，装备槽画在框里最上面一行
+    if (row.text) {
+      if (row.caption) {
+        G.HUD.text(ctx, row.text, cx, row.y + row.h - 12, 16, '#c9d8f2', 'center');
+      } else {
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(frameX + 2, frameY + 2, side - 4, 22);
+        G.HUD.text(ctx, row.text, cx, frameY + 13, 15, row.color || '#e8f1ff', 'center');
+      }
+    }
+    if (pressed) {
+      ctx.globalAlpha = 0.26;
+      ctx.fillStyle = '#ffd479';
+      ctx.fillRect(frameX, frameY, side, side);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  /** 大按钮（开箱 / 一键分解 / 角色属性）：一整块可点的圆角矩形 + 图标 + 两行字 */
+  function paintButton(ctx, area, row, pressed) {
+    var h = row.h - 8;
+    var gold = row.tone === 'gold';
+    ctx.fillStyle = pressed ? (gold ? '#ffd479' : '#2f6b46') : gold ? 'rgba(255,212,121,0.13)' : 'rgba(255,255,255,0.06)';
+    G.RENDER.roundRectPath(ctx, row.x, row.y, row.w, h, 16);
+    ctx.fill();
+    ctx.strokeStyle = gold ? '#ffd479' : '#4d5f86';
+    ctx.lineWidth = 3;
+    G.RENDER.roundRectPath(ctx, row.x, row.y, row.w, h, 16);
+    ctx.stroke();
+    var textX = row.x + 20;
+    if (row.icon) {
+      var size = G.ICONS.size('buttonSize') * 0.72;
+      G.ICONS.button(ctx, row.icon.key, row.x + 20 + size / 2, row.y + h / 2, size, pressed ? '#241a05' : row.color || '#ffd479');
+      textX = row.x + 20 + size + 14;
+    }
+    G.HUD.text(ctx, row.text, textX, row.y + h / 2 - (row.sub ? 13 : 0), 26, row.color || '#e8f1ff', 'left');
+    if (row.sub) G.HUD.text(ctx, row.sub, textX, row.y + h / 2 + 17, 16, '#9fb4d8', 'left');
+  }
+
+  /** 进度条（保底计数 / 经验）：左标题、右数值，下面一条带底色的条 */
+  function paintBar(ctx, area, row) {
+    var barH = layout().barHeight - 12;
+    G.HUD.text(ctx, row.text, row.x, row.y + 14, 19, '#e8f1ff', 'left');
+    G.HUD.text(ctx, row.valueText || '', row.x + row.w, row.y + 14, 19, row.color || '#e8f1ff', 'right');
+    G.HUD.bar(ctx, row.x, row.y + 30, row.w, barH, row.ratio || 0, row.color || '#8ce99a', 'rgba(0,0,0,0.5)');
+  }
+
+  /** 属性格（背包下面的 2 列网格）：一枚图标 + 名称 + 右侧数值（一行装下） */
+  function paintStat(ctx, area, row) {
+    var size = 32;
+    G.ICONS.statIcon(ctx, row.iconKey, row.x + 8 + size / 2, row.y + row.h / 2, size, row.color || '#dce6ff');
+    G.HUD.text(ctx, row.text, row.x + 8 + size + 10, row.y + row.h / 2, 19, '#c9d8f2', 'left');
+    G.HUD.text(ctx, row.value, row.x + row.w - 6, row.y + row.h / 2, 21, row.color || '#e8f1ff', 'right');
+  }
+
+  /** 属性卡（属性面板：一行一张）：图标盒 + 名称 + 右对齐的大数值 + 一行"等级基础 / 装备"拆分 */
+  function paintStatCard(ctx, area, row) {
+    var config = layout();
+    var h = row.h - 10;
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    G.RENDER.roundRectPath(ctx, row.x, row.y, row.w, h, 14);
+    ctx.fill();
+    var boxSize = config.iconSize;
+    var boxY = row.y + (h - boxSize) / 2;
+    ctx.fillStyle = 'rgba(255,255,255,0.07)';
+    G.RENDER.roundRectPath(ctx, row.x + 16, boxY, boxSize, boxSize, 12);
+    ctx.fill();
+    G.ICONS.statIcon(ctx, row.iconKey, row.x + 16 + boxSize / 2, boxY + boxSize / 2, boxSize * 0.62, row.color || '#dce6ff');
+    var textX = row.x + 16 + boxSize + 16;
+    G.HUD.text(ctx, row.label, textX, row.y + 32, 22, '#c9d8f2', 'left');
+    G.HUD.text(ctx, row.value, row.x + row.w - 20, row.y + 32, 30, row.color || '#e8f1ff', 'right');
+    G.HUD.text(ctx, row.sub, textX, row.y + 64, 16, '#8fa6c8', 'left');
+  }
+
+  /**
+   * 角色预览（背包面板的抬头）：一张圆角卡 + 脚下的台面光 + 站立的小人。
+   * 四个角的**装备槽是另外四个格子**，画在它上面、点的是那几个格子 —— 这一块自己不吃触摸（`hit: false`）。
+   */
+  function paintPreview(ctx, area, row) {
+    var config = layout();
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    G.RENDER.roundRectPath(ctx, row.x, row.y, row.w, row.h, 18);
+    ctx.fill();
+    ctx.strokeStyle = '#3a4a6b';
+    ctx.lineWidth = 2;
+    G.RENDER.roundRectPath(ctx, row.x, row.y, row.w, row.h, 18);
+    ctx.stroke();
+    var cx = row.x + row.w / 2;
+    var feet = row.y + row.h - 54;
+    // 台面：一圈淡淡的椭圆光（ellipsePath 只用到 translate / scale / arc，假 canvas 也认）
+    G.RENDER.ellipsePath(ctx, cx, feet + 12, config.heroRadius * 1.7, config.heroRadius * 0.42);
+    ctx.fillStyle = 'rgba(109,134,181,0.22)';
+    ctx.fill();
+    // A12：身上最高那一阶的发光（光身板就没有这一束）—— 与装备格 / 背包格 / 宝箱清单同一份颜色表
+    G.ICONS.heroGlow(ctx, cx, feet, config.heroRadius, row.look, glowPhase());
+    G.RENDER.drawHeroPreview(ctx, cx, feet, config.heroRadius, row.look, 0, 0);
+    // 名字 / 等级与战力压在卡片顶部（正好落在左右两个装备槽之间）
+    G.HUD.text(ctx, row.text, cx, row.y + 32, 26, '#ffffff', 'center');
+    G.HUD.text(ctx, row.sub, cx, row.y + 64, 19, '#ffd479', 'center');
+  }
+
+  /** 技能条上的一个技能（背包面板）：图标 + 名字 + 一枚「自动」勾选框（点一下切换自动释放） */
+  function paintChip(ctx, area, row, pressed) {
+    var h = row.h - 8;
+    ctx.fillStyle = pressed ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.05)';
+    G.RENDER.roundRectPath(ctx, row.x, row.y, row.w, h, 14);
+    ctx.fill();
+    var iconR = h / 2 - 12;
+    var cx = row.x + 12 + iconR;
+    var cy = row.y + h / 2;
+    ctx.globalAlpha = row.lock ? 0.45 : 1;
+    ctx.fillStyle = '#1b2438';
+    ctx.beginPath();
+    ctx.arc(cx, cy, iconR, 0, Math.PI * 2);
+    ctx.fill();
+    G.ICONS.skillIcon(row.index, ctx, cx, cy, iconR * 1.5, '#dce6ff');
+    ctx.globalAlpha = 1;
+    var textX = cx + iconR + 12;
+    G.HUD.text(ctx, row.text, textX, row.y + 26, 20, row.lock ? '#8d9bb5' : '#e8f1ff', 'left');
+    // 「自动」勾选框：绿的 = 自动战斗会放它；暗的 = 只手动放
+    var side = 26;
+    var boxX = textX;
+    var boxY = row.y + h - 32;
+    ctx.fillStyle = row.on ? '#2f8a4f' : '#131a29';
+    G.RENDER.roundRectPath(ctx, boxX, boxY, side, side, 7);
+    ctx.fill();
+    ctx.strokeStyle = row.on ? '#8ce99a' : '#4d5f86';
+    ctx.lineWidth = 2.5;
+    G.RENDER.roundRectPath(ctx, boxX, boxY, side, side, 7);
+    ctx.stroke();
+    if (row.on) {
+      ctx.strokeStyle = '#eafff0';
+      ctx.lineWidth = 4;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(boxX + 6, boxY + 13);
+      ctx.lineTo(boxX + 11, boxY + 18);
+      ctx.lineTo(boxX + 20, boxY + 7);
+      ctx.stroke();
+    }
+    G.HUD.text(ctx, '自动', boxX + side + 8, boxY + side / 2, 16, row.on ? '#8ce99a' : '#8d9bb5', 'left');
+  }
+
+  /** 缩放轴的规格（`balance.view.zoomSlider`）：画法与命中测试共用一份，别在两处各算一套 */
+  function sliderConfig() {
+    return BAL.view.zoomSlider;
+  }
+
+  /**
+   * 视角缩放轴（A11 之二，用户："玩家设置中添加视角缩放滚动轴，可以缩到16-64"）：
+   * 一行 = 左边标题 + 右边实时读数 + 一条轨道与圆钮。
+   * 轨道两端各留 `endPad`（≥ 圆钮半径）—— 圆心只走 [x+endPad, x+w-endPad]，滑到头圆钮也不越出轨道。
+   * 读数取的是**正在拖的值**（拖动中看 sliderTiles），所以圆钮与数字永远一起动。
+   */
+  function paintSlider(ctx, area, row, pressed) {
+    var config = sliderConfig();
+    var value = sliderValue(row);
+    var ratio = sliderRatio(value);
+    ctx.fillStyle = pressed ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.05)';
+    G.RENDER.roundRectPath(ctx, row.x, row.y, row.w, row.h - 10, 14);
+    ctx.fill();
+    G.HUD.text(ctx, row.text, row.x + 20, row.y + 26, 24, '#e8f1ff', 'left');
+    G.HUD.text(ctx, row.valueText, row.x + row.w - 20, row.y + 26, 22, row.color || '#ffd479', 'right');
+    G.HUD.text(ctx, row.sub, row.x + 20, row.y + 52, 16, '#9fb4d8', 'left');
+    var trackX = row.x + config.endPad;
+    var trackW = row.w - config.endPad * 2;
+    var trackY = row.y + row.h - 10 - config.trackHeight - 10;
+    G.HUD.bar(ctx, trackX, trackY, trackW, config.trackHeight, ratio, '#4f8fd8', 'rgba(255,255,255,0.12)');
+    var knobX = trackX + trackW * ratio;
+    var knobY = trackY + config.trackHeight / 2;
+    ctx.fillStyle = pressed ? '#ffd479' : '#dce6ff';
+    ctx.beginPath();
+    ctx.arc(knobX, knobY, config.knobRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#1b2438';
+    ctx.beginPath();
+    ctx.arc(knobX, knobY, config.knobRadius * 0.42, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  /** 缩放轴现在该显示哪一格：正在拖就是拖到的值，否则取界面视图（`uiView().zoom.tiles`），再兜底 balance */
+  function sliderValue(row) {
+    if (sliderRow && sliderRow.id === row.id) return sliderTiles;
+    if (row.tiles > 0) return row.tiles;
+    return BAL.view.zoomTiles;
+  }
+
+  /** 值 → 圆钮在轨道上的比例（0 = 最左 = 一屏 minTiles 格） */
+  function sliderRatio(tiles) {
+    var config = sliderConfig();
+    var span = config.maxTiles - config.minTiles;
+    if (!(span > 0)) return 0;
+    var ratio = (tiles - config.minTiles) / span;
+    return ratio < 0 ? 0 : ratio > 1 ? 1 : ratio;
+  }
+
+  /**
+   * 手指的 x → 整格数（纯函数，自检直接拿它验"滑到最左就是 16 格、最右就是 64 格"）。
+   * 只用横向坐标：卡片的 x / w 不随滚动变，所以拖动中不必关心滚到哪了。
+   */
+  function sliderTilesAt(x) {
+    var config = sliderConfig();
+    var box = contentRect();
+    var trackX = box.x + config.endPad;
+    var trackW = box.w - config.endPad * 2;
+    var ratio = trackW > 0 ? (x - trackX) / trackW : 0;
+    ratio = ratio < 0 ? 0 : ratio > 1 ? 1 : ratio;
+    return Math.round(config.minTiles + ratio * (config.maxTiles - config.minTiles));
+  }
+
+  /** 属性面板的抬头：头像 + 名字 + 等级 + 战力 + 经验条 */
+  function paintHeader(ctx, area, row) {
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    G.RENDER.roundRectPath(ctx, row.x, row.y, row.w, row.h, 18);
+    ctx.fill();
+    var radius = BAL.view.hud.avatarRadius;
+    G.RENDER.drawAvatar(ctx, row.x + 24 + radius, row.y + 72, radius, row.seed);
+    var textX = row.x + 24 + radius * 2 + 20;
+    G.HUD.text(ctx, row.text, textX, row.y + 34, 28, '#ffffff', 'left');
+    G.HUD.text(ctx, row.sub, textX, row.y + 70, 20, '#9fb4d8', 'left');
+    G.HUD.text(ctx, row.value, row.x + row.w - 24, row.y + 34, 30, '#ffd479', 'right');
+    G.HUD.text(ctx, row.valueText, row.x + row.w - 24, row.y + 70, 18, '#8fa6c8', 'right');
+    G.HUD.bar(ctx, row.x + 20, row.y + row.h - 30, row.w - 40, 16, row.ratio, '#4f8fd8', 'rgba(0,0,0,0.5)');
+  }
+
+  /**
+   * 宝箱清单的一行（A13）：左边一口阶色小箱（走 `iconBox`，于是阶色框 + A12 的发光 + 箱子里观
+   * 与地图上的开箱按钮是同一份画法）+ 阶名 + 右边「× 数量」+ 一行掉落占比。
+   * **没有的阶照样占一行**（清单恒六行，一眼看得出还缺哪一阶）：那一行的字与数量一起压淡。
+   * A14 起这一行的右端还坐着两枚按阶控件（「全开」+「自动」，见 `paintTierOpen` / `paintTierAuto`），
+   * 于是"× 数量"的右边界改用 `row.countRight`（没给才回到老位置 —— 兜底，不至于把四个字叠在一起）。
+   */
+  function paintChestTier(ctx, area, row) {
+    var h = row.h - layout().cellGap;
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.fillRect(area.x + 10, row.y, area.w - 20, h);
+    var textX = iconBox(ctx, area, row) + 14;
+    var midY = row.y + h / 2;
+    var empty = row.count === 0;
+    G.HUD.text(ctx, row.text, textX, midY - 13, 24, empty ? '#7d8ba8' : row.color, 'left');
+    G.HUD.text(ctx, row.sub, textX, midY + 15, 16, '#8fa6c8', 'left');
+    if (empty) ctx.globalAlpha = 0.42;
+    G.HUD.text(
+      ctx,
+      '× ' + row.count,
+      row.countRight === undefined ? area.x + area.w - 22 : row.countRight,
+      midY,
+      30,
+      empty ? '#7d8ba8' : row.color,
+      'right'
+    );
+    if (empty) ctx.globalAlpha = 1;
+  }
+
+  /* ------------------------------------------------ A14：清单每行右侧的按阶控件 */
+
+  /**
+   * 宝箱清单某一行右侧那两枚控件的几何（A14）：**画与点共用这一份**，
+   * 免得"画的框和点的框差几像素"这种经典 bug（面板里所有格子都是这条纪律）。
+   *
+   * 从右往左：行右内边距 12 →「全开」按钮（`chestOpenWidth` × `chestOpenHeight`）→ `chestControlGap`
+   * →「自动」勾选（`chestAutoSide` 的方框 + 8 的缝 + 两个字；16px 的两个汉字正好一个 side 宽，
+   * 于是整块宽度 = side × 2 + 8）→ 再往左 12 才是"× 数量"的右边界。
+   * 两枚控件的 y 都在**行带**里居中（行高 - `cellGap`；清单行 h = `chestTierHeight`）。
+   */
+  function tierControls(row) {
+    var config = layout();
+    var side = config.chestAutoSide;
+    var autoW = side + 8 + side;
+    var right = row.x + row.w - 12;
+    var openW = config.chestOpenWidth;
+    var openH = config.chestOpenHeight;
+    var bandH = row.h - config.cellGap;
+    var autoX = right - openW - config.chestControlGap - autoW;
+    return {
+      openX: right - openW,
+      openW: openW,
+      openH: openH,
+      openY: row.y + (bandH - openH) / 2,
+      autoX: autoX,
+      autoW: autoW,
+      autoSide: side,
+      autoY: row.y + (bandH - side) / 2,
+      countRight: autoX - 12
+    };
+  }
+
+  /**
+   * 「全开」按钮（A14）：一枚小圆角板，颜色就是**这一阶的阶色** —— 六行六色，一眼分得清点的是哪一阶
+   * （用户原话："对应不同等阶不同的开启按钮"）。
+   * 这一阶一口箱子也没有时整块压淡（阶色仍在，看得出是哪一阶的按钮），并且 buildRows 那边不产出
+   * action —— 压淡 + 点了没反应，两件事一起才叫"这一阶没货"。
+   */
+  function paintTierOpen(ctx, area, row, pressed) {
+    var empty = row.count === 0;
+    ctx.globalAlpha = pressed ? 0.42 : empty ? 0.07 : 0.17;
+    ctx.fillStyle = row.color;
+    G.RENDER.roundRectPath(ctx, row.x, row.y, row.w, row.h, 14);
+    ctx.fill();
+    ctx.globalAlpha = empty && !pressed ? 0.4 : 1;
+    ctx.strokeStyle = row.color;
+    ctx.lineWidth = 3;
+    G.RENDER.roundRectPath(ctx, row.x, row.y, row.w, row.h, 14);
+    ctx.stroke();
+    G.HUD.text(ctx, row.text, row.x + row.w / 2, row.y + row.h / 2, 26, row.color, 'center');
+    ctx.globalAlpha = 1;
+  }
+
+  /**
+   * 「自动」勾选（A14）：绿 = 这一阶掉出来就当场开，暗 = 照旧进背包等玩家点。
+   * 画法与技能条上那一枚（`paintChip`）同一套：圆角方框 + 勾 + 右边的「自动」两个字 —— 两处入口
+   * 说的是同一件事，长相也该是同一个（A10 定的规矩）。
+   * 按下时整块亮一点（面板里所有可点控件都这样给一次反馈）。
+   */
+  function paintTierAuto(ctx, area, row, pressed) {
+    var side = row.side;
+    var boxX = row.x;
+    var boxY = row.y + (row.h - side) / 2;
+    ctx.globalAlpha = pressed ? 0.7 : 1;
+    ctx.fillStyle = row.on ? '#2f8a4f' : '#131a29';
+    G.RENDER.roundRectPath(ctx, boxX, boxY, side, side, 8);
+    ctx.fill();
+    ctx.strokeStyle = row.on ? '#8ce99a' : '#4d5f86';
+    ctx.lineWidth = 2.5;
+    G.RENDER.roundRectPath(ctx, boxX, boxY, side, side, 8);
+    ctx.stroke();
+    if (row.on) {
+      ctx.strokeStyle = '#eafff0';
+      ctx.lineWidth = 4;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(boxX + 7, boxY + 15);
+      ctx.lineTo(boxX + 13, boxY + 21);
+      ctx.lineTo(boxX + 24, boxY + 8);
+      ctx.stroke();
+    }
+    G.HUD.text(ctx, '自动', boxX + side + 8, boxY + side / 2, 16, row.on ? '#8ce99a' : '#8d9bb5', 'left');
+    ctx.globalAlpha = 1;
+  }
+
+  /** 块类型 → 画法（A10 起面板是"版面"而不是"一列行"，但命中与滚动仍然是同一条链） */
+  var PAINTERS = {
+    row: paintRow,
+    title: paintTitle,
+    cell: paintCell,
+    button: paintButton,
+    bar: paintBar,
+    stat: paintStat,
+    statCard: paintStatCard,
+    preview: paintPreview,
+    chip: paintChip,
+    header: paintHeader,
+    slider: paintSlider,
+    chestTier: paintChestTier,
+    tierOpen: paintTierOpen,
+    tierAuto: paintTierAuto
+  };
 
   /** 面板里唯一的圆按钮：卡片右上角的关闭键。返回数组是为了和 HUD 的按钮同构 */
   function buttons() {
@@ -7955,56 +10699,208 @@ G.PANELS = (function () {
     var i;
 
     if (current === 'chest') {
+      var chestConfig = layout();
+      var chestBox = contentRect();
+      var chestHalf = (chestBox.w - chestConfig.cellGap) / 2;
+      // ① 两个大按钮并排：开 1 个 / 开 10 个 —— 原来那两行"能点的字"现在是一整块能按的板
       list.push({
         id: 'chest:open1',
+        kind: 'button',
+        tone: 'gold',
+        x: chestBox.x,
+        w: chestHalf,
         y: top,
-        h: rowH,
+        h: chestConfig.bigButtonHeight,
+        pad: 0,
         icon: { kind: 'ui', key: 'chest' },
-        text: '开 1 个宝箱',
-        sub: '保底计数：史诗 ' + view.save.pity.epic + '/' + BAL.chests.pity.epic + ' · 神话 ' + view.save.pity.mythic + '/' + BAL.chests.pity.mythic,
+        text: '开 1 个',
+        sub: '普通怪 8% 起 · 精英 25%',
         color: '#ffd479',
         action: { type: 'openChest', count: 1 }
       });
       list.push({
         id: 'chest:open10',
-        y: top + rowH,
-        h: rowH,
+        kind: 'button',
+        tone: 'gold',
+        x: chestBox.x + chestHalf + chestConfig.cellGap,
+        w: chestHalf,
+        y: top,
+        h: chestConfig.bigButtonHeight,
+        pad: 0,
         icon: { kind: 'ui', key: 'chest' },
-        text: '开 10 个宝箱',
-        sub: '背包 ' + view.save.chests.length + ' / ' + BAL.chests.bagCap + '（满了自动分解成金币）',
+        text: '开 10 个',
+        sub: '背包 ' + view.save.chests.length + ' / ' + BAL.chests.bagCap,
         color: '#ffd479',
         action: { type: 'openChest', count: 10 }
       });
-      top += rowH * 2 + 24;
-      for (i = 0; i < view.save.chests.length && i < 8; i += 1) {
-        var chest = view.save.chests[i];
+      top += chestConfig.bigButtonHeight + chestConfig.cellGap;
+      // ② 两条保底进度条：差几箱必出史诗 / 神话，一眼看得出来
+      var pityH = chestConfig.barHeight + 18;
+      list.push({
+        id: 'chest:pityEpic',
+        kind: 'bar',
+        hit: false,
+        x: chestBox.x,
+        w: chestBox.w,
+        y: top,
+        h: pityH,
+        pad: 0,
+        text: '史诗保底（第 ' + BAL.chests.pity.epic + ' 箱必出）',
+        valueText: view.save.pity.epic + ' / ' + BAL.chests.pity.epic,
+        ratio: BAL.chests.pity.epic > 0 ? view.save.pity.epic / BAL.chests.pity.epic : 0,
+        color: '#d0a9ff'
+      });
+      list.push({
+        id: 'chest:pityMythic',
+        kind: 'bar',
+        hit: false,
+        x: chestBox.x,
+        w: chestBox.w,
+        y: top + pityH,
+        h: pityH,
+        pad: 0,
+        text: '神话保底（第 ' + BAL.chests.pity.mythic + ' 箱必出）',
+        valueText: view.save.pity.mythic + ' / ' + BAL.chests.pity.mythic,
+        ratio: BAL.chests.pity.mythic > 0 ? view.save.pity.mythic / BAL.chests.pity.mythic : 0,
+        color: '#ff9b5a'
+      });
+      top += pityH * 2 + chestConfig.cellGap;
+      // ③ 六阶宝箱清单（A13）：一阶一行 —— 阶色小箱 + 阶名 + 「× 数量」 + 掉落占比
+      //    用户原话："宝箱背包不需要格子，直接放不同等阶宝箱×数量" —— 恒六行，没有的阶也占一行（压淡）
+      //    A14：每一行右侧再挂两枚**按阶的控件**（「全开」+「自动」，见 tierControls）
+      var chestAuto = view.save.settings ? view.save.settings.chestAuto : null;
+      var autoTiers = G.LOOT.autoCount(chestAuto);
+      pushTitle(
+        list,
+        chestBox,
+        top,
+        '宝箱背包',
+        view.save.chests.length +
+          ' / ' +
+          BAL.chests.bagCap +
+          ' 口 · 按阶汇总' +
+          (autoTiers > 0 ? ' · 自动 ' + autoTiers + ' 阶' : '')
+      );
+      top += chestConfig.titleHeight;
+      var chestListing = chestSummary(view.save.chests);
+      for (i = 0; i < chestListing.length; i += 1) {
+        var chestEntry = chestListing[i];
+        var tierRow = {
+          id: 'chest:tier:' + chestEntry.tier,
+          kind: 'chestTier',
+          hit: false,
+          x: chestBox.x,
+          w: chestBox.w,
+          y: top,
+          h: chestConfig.chestTierHeight,
+          pad: 0,
+          tier: chestEntry.tier,
+          icon: { kind: 'ui', key: 'chest', tier: chestEntry.tier, dim: chestEntry.count === 0 },
+          text: chestEntry.name + '宝箱',
+          sub: chestEntry.text,
+          count: chestEntry.count,
+          share: chestEntry.share,
+          color: chestEntry.color
+        };
+        // 两枚按阶控件的几何：画（paintTierOpen / paintTierAuto）与点（下面两个行对象）共用这一份
+        var controls = tierControls(tierRow);
+        tierRow.countRight = controls.countRight;
+        list.push(tierRow);
+        // ① 「全开」：开掉**这一阶**的全部箱子。这一阶一口箱子也没有时压淡且**不产出 action**
         list.push({
-          id: 'chest:bag:' + i,
-          y: top + i * 62,
-          h: 62,
-          icon: { kind: 'ui', key: 'chest', tier: chest.tier },
-          text: LOOT.tierName(chest.tier) + '（掉落等级 ' + chest.level + '）',
-          sub: '',
-          color: tierColor(chest.tier),
-          action: { type: 'openChest', count: 1 }
+          id: 'chest:tierOpen:' + chestEntry.tier,
+          kind: 'tierOpen',
+          x: controls.openX,
+          w: controls.openW,
+          y: controls.openY,
+          h: controls.openH,
+          pad: 0,
+          tier: chestEntry.tier,
+          count: chestEntry.count,
+          color: chestEntry.color,
+          text: '全开',
+          action: chestEntry.count > 0 ? { type: 'openChestTier', tier: chestEntry.tier } : null
         });
+        // ② 「自动」：勾上 = 这一阶掉出来就当场开（恒可点：先勾上、之后掉出来就自动开）
+        list.push({
+          id: 'chest:tierAuto:' + chestEntry.tier,
+          kind: 'tierAuto',
+          x: controls.autoX,
+          w: controls.autoW,
+          y: top,
+          h: chestConfig.chestTierHeight - chestConfig.cellGap,
+          pad: 0,
+          tier: chestEntry.tier,
+          side: controls.autoSide,
+          on: G.LOOT.autoEnabled(chestAuto, chestEntry.tier),
+          text: '自动',
+          action: { type: 'toggleChestAuto', tier: chestEntry.tier }
+        });
+        top += chestConfig.chestTierHeight + chestConfig.cellGap;
       }
+      top += chestConfig.cellGap;
       if (view.save.chests.length === 0) {
-        list.push({ id: 'chest:empty', y: top, h: 62, text: '还没有宝箱', sub: '去打怪：普通怪约 8% 掉箱，精英 25%', color: '#c7c7c7', action: null });
+        list.push({
+          id: 'chest:empty',
+          kind: 'title',
+          hit: false,
+          x: chestBox.x,
+          w: chestBox.w,
+          y: top,
+          h: chestConfig.titleHeight,
+          pad: 0,
+          text: '还没有宝箱',
+          sub: '去打怪：普通怪约 8% 掉箱，精英 25%'
+        });
       }
       return list;
     }
 
     if (current === 'bag') {
-      // A6：四个部位（武器 / 衣服 / 鞋子 / 饰品）—— 穿了什么一眼可见，点一下脱下来
-      for (i = 0; i < EQUIP.SLOT_IDS.length; i += 1) {
-        var slotId = EQUIP.SLOT_IDS[i];
+      var bagConfig = layout();
+      var bagBox = contentRect();
+      var slotSide = bagConfig.slotSize;
+      var slotInset = bagConfig.slotInset;
+      // ① 角色预览：中间站着小人，四角各一个装备槽（穿了什么一眼看得见，点一下脱下来）
+      var previewTop = top;
+      list.push({
+        id: 'bag:preview',
+        kind: 'preview',
+        hit: false,
+        x: bagBox.x,
+        w: bagBox.w,
+        y: previewTop,
+        h: bagConfig.previewHeight,
+        pad: 0,
+        look: EQUIP.lookOf(view.save.loadout),
+        text: view.save.name || '无名者',
+        sub: 'Lv.' + view.save.level + ' · ' + view.save.gold + ' 金币 · 战力 ' + view.stats.power
+      });
+      // 四角：左上武器、右上衣服、左下鞋子、右下饰品（与 EQUIP.SLOT_IDS 同序，读起来就是"从头到脚"）
+      var corners = [
+        { slotId: 'weapon', x: bagBox.x + slotInset, y: previewTop + slotInset },
+        { slotId: 'armor', x: bagBox.x + bagBox.w - slotInset - slotSide, y: previewTop + slotInset },
+        { slotId: 'boots', x: bagBox.x + slotInset, y: previewTop + bagConfig.previewHeight - slotInset - slotSide },
+        {
+          slotId: 'trinket',
+          x: bagBox.x + bagBox.w - slotInset - slotSide,
+          y: previewTop + bagConfig.previewHeight - slotInset - slotSide
+        }
+      ];
+      for (i = 0; i < corners.length; i += 1) {
+        var slotId = corners[i].slotId;
         var slotDef = EQUIP.slotById(slotId);
         var equipped = view.save.loadout ? view.save.loadout[slotId] : null;
         list.push({
           id: 'bag:slot:' + slotId,
-          y: top + i * 80,
-          h: 76,
+          kind: 'cell',
+          x: corners[i].x,
+          w: slotSide,
+          y: corners[i].y,
+          h: slotSide,
+          pad: 0,
+          tier: equipped ? equipped.tier : 0,
+          dim: !equipped,
           icon: {
             kind: 'gear',
             slot: slotId,
@@ -8012,67 +10908,188 @@ G.PANELS = (function () {
             tier: equipped ? equipped.tier : 0,
             size: G.ICONS.size('slotSize')
           },
-          text: slotDef.name + '：' + (equipped ? equipped.name : '（空）'),
-          sub: equipped
-            ? EQUIP.tierById(equipped.tier).name + ' · 战力 ' + equipped.power + ' · 需求 Lv.' + equipped.reqLevel + ' · 点一下脱下'
-            : '还没穿：开箱开出更好的会自动穿上（等级够的话）',
+          text: slotDef.name + EQUIP.enhanceTag(equipped),
+          badge: equipped ? '战力 ' + equipped.power : '空',
           color: equipped ? tierColor(equipped.tier) : '#8d9bb5',
           action: equipped ? { type: 'unequip', slotId: slotId } : null
         });
       }
-      top += EQUIP.SLOT_IDS.length * 80 + 8;
-      list.push({
-        id: 'bag:stat',
-        y: top,
-        h: rowH,
-        icon: { kind: 'ui', key: 'stat' },
-        text: '角色属性',
-        sub: '等级基础与装备加成逐项对照（当前战力 ' + view.stats.power + '）',
-        color: '#a9d5ff',
-        action: { type: 'open', panel: 'stat' }
-      });
-      list.push({
-        id: 'bag:salvageAll',
-        y: top + rowH,
-        h: rowH,
-        icon: { kind: 'ui', key: 'bag' },
-        text: '一键分解（每件都留最强的）',
-        sub: '换金币 · 背包 ' + view.save.items.length + ' 件',
-        color: '#ffd479',
-        action: { type: 'salvageAll' }
-      });
-      top += rowH * 2 + 16;
-      for (i = 0; i < view.save.items.length && i < 9; i += 1) {
-        var item = view.save.items[i];
-        var worn = view.save.loadout[item.slotId];
-        var better = !worn || item.power > worn.power;
-        var wearable = EQUIP.canWear(item, view.save.level);
-        list.push({
-          id: 'bag:item:' + item.id,
-          y: top + i * 74,
-          h: 70,
-          icon: { kind: 'gear', slot: item.slotId, look: item.look, tier: item.tier },
-          text: item.name + '（战力 ' + item.power + '）',
-          sub:
-            (wearable ? (better ? '↑ 更强' : '↓ 更弱') : '等级不够') +
-            ' · ' +
-            EQUIP.tierById(item.tier).name +
-            ' · 需求 Lv.' +
-            item.reqLevel +
-            (wearable ? ' · 点一下穿上' : ''),
-          color: wearable ? (better ? '#8ce99a' : '#c7c7c7') : '#8d8d8d',
-          action: { type: 'equip', itemId: item.id }
-        });
+      top = previewTop + bagConfig.previewHeight + bagConfig.cellGap;
+      // ② 技能条（A10）：四个技能 + 「自动释放」勾选 —— 与技能键右上角那枚勾选框是同一件事
+      var bagSkills = (view.skills && view.skills.slots) || [];
+      if (bagSkills.length) {
+        var autoOn = 0;
+        for (i = 0; i < bagSkills.length; i += 1) {
+          if (bagSkills[i].auto !== false) autoOn += 1;
+        }
+        pushTitle(list, bagBox, top, '技能 · 自动释放', autoOn + ' / ' + bagSkills.length + ' 开启');
+        top += bagConfig.titleHeight;
+        var chipW = (bagBox.w - bagConfig.cellGap * (bagSkills.length - 1)) / bagSkills.length;
+        for (i = 0; i < bagSkills.length; i += 1) {
+          list.push({
+            id: 'bag:skill:' + bagSkills[i].index,
+            kind: 'chip',
+            x: bagBox.x + i * (chipW + bagConfig.cellGap),
+            w: chipW,
+            y: top,
+            h: bagConfig.skillChipHeight,
+            pad: 0,
+            index: bagSkills[i].index,
+            text: bagSkills[i].name,
+            on: bagSkills[i].auto !== false,
+            lock: !bagSkills[i].unlocked,
+            action: { type: 'skillAuto', index: bagSkills[i].index }
+          });
+        }
+        top += bagConfig.skillChipHeight + bagConfig.cellGap;
       }
+      // ③ 三排背包格（点一下穿上）：比身上强的画绿色角标，等级不够的压淡。
+      //   本次新增：这一块**一页 15 件**（gridRows 行 × gridColumns 列），拖格子上下翻页看后面的装备 ——
+      //   `bagRow` = 这一页的第一行在全部装备里的行号，页码由这里夹回合法范围（装备变少时也要夹）。
+      var bagColumns = bagConfig.gridColumns;
+      var bagLines = bagConfig.gridRows;
+      var bagCount = view.save.items.length;
+      var bagTotalRows = Math.max(1, Math.ceil(bagCount / bagColumns));
+      bagMaxRow = bagTotalRows > bagLines ? bagTotalRows - bagLines : 0;
+      if (bagRow > bagMaxRow) bagRow = bagMaxRow;
+      pushTitle(
+        list,
+        bagBox,
+        top,
+        '背包',
+        bagCount === 0
+          ? '还没有装备'
+          : bagMaxRow > 0
+            ? bagCount +
+              ' 件 · 第 ' +
+              (bagRow + 1) +
+              '–' +
+              Math.min(bagRow + bagLines, bagTotalRows) +
+              ' / 共 ' +
+              bagTotalRows +
+              ' 排（上下拖格子翻页）'
+            : bagCount + ' 件装备'
+      );
+      top += bagConfig.titleHeight;
+      var slotW = (bagBox.w - bagConfig.cellGap * (bagColumns - 1)) / bagColumns;
+      // 这块矩形（含空框区域）就是"翻页手势"的势力范围：move 按它判、画也按它排 —— 只有这一份出处
+      bagGridRect = {
+        x: bagBox.x,
+        w: bagBox.w,
+        y: top,
+        h: bagLines * (bagConfig.gridCellHeight + bagConfig.cellGap)
+      };
+      for (i = 0; i < bagColumns * bagLines; i += 1) {
+        var cellX = bagBox.x + (i % bagColumns) * (slotW + bagConfig.cellGap);
+        var cellY = top + Math.floor(i / bagColumns) * (bagConfig.gridCellHeight + bagConfig.cellGap);
+        // 这一格在**全部装备**里的序号 = 当前页第一行 x 每行几格 + 页内序号
+        var slotIndex = bagRow * bagColumns + i;
+        var item = view.save.items[slotIndex] || null;
+        if (item) {
+          var worn = view.save.loadout ? view.save.loadout[item.slotId] : null;
+          var better = !worn || item.power > worn.power;
+          var wearable = EQUIP.canWear(item, view.save.level);
+          list.push({
+            id: 'bag:item:' + item.id,
+            kind: 'cell',
+            caption: true,
+            x: cellX,
+            w: slotW,
+            y: cellY,
+            h: bagConfig.gridCellHeight,
+            pad: 0,
+            tier: item.tier,
+            dim: !wearable,
+            icon: { kind: 'gear', slot: item.slotId, look: item.look, tier: item.tier },
+            text: item.name + EQUIP.enhanceTag(item),
+            badge: wearable ? (better ? '↑ ' : '') + '战力 ' + item.power : 'Lv.' + item.reqLevel,
+            color: wearable ? (better ? '#8ce99a' : '#c7c7c7') : '#8d8d8d',
+            action: { type: 'equip', itemId: item.id }
+          });
+        } else {
+          list.push({
+            id: 'bag:empty:' + slotIndex,
+            kind: 'cell',
+            hit: false,
+            caption: true,
+            x: cellX,
+            w: slotW,
+            y: cellY,
+            h: bagConfig.gridCellHeight,
+            pad: 0,
+            tier: 0,
+            dim: true,
+            text: '空'
+          });
+        }
+      }
+      top += bagLines * (bagConfig.gridCellHeight + bagConfig.cellGap) + bagConfig.cellGap;
       if (view.save.items.length === 0) {
         list.push({
           id: 'bag:empty',
+          kind: 'title',
+          hit: false,
+          x: bagBox.x,
+          w: bagBox.w,
           y: top,
-          h: 62,
+          h: bagConfig.titleHeight,
+          pad: 0,
           text: '背包是空的',
-          sub: '开箱会自动穿上更强的装备（等级够的话），不要的在这里分解',
-          color: '#c7c7c7',
-          action: null
+          sub: '开箱会开出装备，等级够的会自动穿上'
+        });
+        top += bagConfig.titleHeight;
+      }
+      // ④ 两个大按钮：一键分解 / 角色属性（后者与设置面板里那一行是同一个面板）
+      var bagHalf = (bagBox.w - bagConfig.cellGap) / 2;
+      list.push({
+        id: 'bag:salvageAll',
+        kind: 'button',
+        x: bagBox.x,
+        w: bagHalf,
+        y: top,
+        h: bagConfig.bigButtonHeight,
+        pad: 0,
+        icon: { kind: 'ui', key: 'bag' },
+        text: '一键分解',
+        sub: '每个部位留最强 1 件',
+        color: '#ffd479',
+        action: { type: 'salvageAll' }
+      });
+      list.push({
+        id: 'bag:stat',
+        kind: 'button',
+        x: bagBox.x + bagHalf + bagConfig.cellGap,
+        w: bagHalf,
+        y: top,
+        h: bagConfig.bigButtonHeight,
+        pad: 0,
+        icon: { kind: 'ui', key: 'stat' },
+        text: '角色属性',
+        sub: '基础 / 装备逐项对照',
+        color: '#a9d5ff',
+        action: { type: 'open', panel: 'stat' }
+      });
+      top += bagConfig.bigButtonHeight + bagConfig.cellGap;
+      // ⑤ 属性网格（2 列）：与「角色属性」面板同一份数据（PLAYER.breakdown），只是紧凑版
+      pushTitle(list, bagBox, top, '角色属性', '点上面看完整对照');
+      top += bagConfig.titleHeight;
+      var bagStats = G.PLAYER.breakdown(view.save.level, view.save.loadout);
+      var statW = (bagBox.w - bagConfig.cellGap * (bagConfig.statColumns - 1)) / bagConfig.statColumns;
+      for (i = 0; i < bagStats.length; i += 1) {
+        list.push({
+          id: 'bag:stat:' + i,
+          kind: 'stat',
+          hit: false,
+          x: bagBox.x + (i % bagConfig.statColumns) * (statW + bagConfig.cellGap),
+          w: statW,
+          y: top + Math.floor(i / bagConfig.statColumns) * (bagConfig.statCellHeight + bagConfig.cellGap),
+          h: bagConfig.statCellHeight,
+          pad: 0,
+          iconKey: bagStats[i].icon,
+          text: bagStats[i].label,
+          value: bagStats[i].value,
+          sub: bagStats[i].sub,
+          color: bagStats[i].color || '#e8f1ff'
         });
       }
       return list;
@@ -8092,8 +11109,19 @@ G.PANELS = (function () {
         action: { type: 'buyHorn' }
       });
       list.push({
-        id: 'shop:teleport',
+        id: 'shop:stone',
         y: top + rowH,
+        h: rowH,
+        text: '强化石 ' + BAL.shop.stone.priceGold + ' 金币',
+        sub: unlocked
+          ? '已持有 ' + (view.save.stones || 0) + ' 颗 · 营地铁匠强化装备用（每级翻倍：1 / 2 / 4 …）'
+          : '需要 ' + BAL.guild.shopUnlockLevel + ' 级解锁（现在 ' + view.save.level + ' 级）',
+        color: unlocked ? '#8ce99a' : '#8d8d8d',
+        action: { type: 'buyStone' }
+      });
+      list.push({
+        id: 'shop:teleport',
+        y: top + rowH * 2,
         h: rowH,
         text: '回公会（免费）',
         sub: '冷却 ' + Math.round(BAL.guild.teleportCooldownMs / 1000) + ' 秒 · 战斗中 ' + Math.round(BAL.guild.teleportCombatLockMs / 1000) + ' 秒内不可用',
@@ -8102,68 +11130,381 @@ G.PANELS = (function () {
       });
       list.push({
         id: 'shop:note',
-        y: top + rowH * 2,
+        y: top + rowH * 3,
         h: rowH,
         text: '首版不接真实支付（决策 #3）',
-        sub: '号角只能用金币买；钻石字段保留但不投放',
+        sub: '号角 / 强化石只能用金币买；钻石字段保留但不投放',
         color: '#c7c7c7',
         action: null
       });
     }
 
+    /* ------------------------------------ 强化面板（本次新增：公会营地里的铁匠） */
+
+    /**
+     * 四个**已穿**部位各一行：装备内观图标 + 当前等级 + 下一级要几颗石头 + 强化后的战力，点一行 = 强化一次。
+     * 面板里**只读**（一行一个 action，真正的扣石头 / 加等级在 20-main 的 enhanceItem），
+     * 于是"石头不够 / 已满级 / 这个部位空着"这三种情况这里都能如实写出来。
+     */
+    if (current === 'enhance') {
+      var stones = view.save.stones || 0;
+      var maxLevel = EQUIP.maxEnhance();
+      var stepPct = Math.round(BAL.enhance.statPerLevel * 100);
+      list.push({
+        id: 'enhance:stones',
+        hit: false,
+        y: top,
+        h: rowH,
+        text: '强化石 ' + stones + ' 颗',
+        sub: '每级翻倍：+1 要 1 颗、+2 要 2 颗、+3 要 4 颗 …… 最后一行直接去商城买（' + BAL.shop.stone.priceGold + ' 金币一颗）',
+        color: stones > 0 ? '#ffd479' : '#8d8d8d'
+      });
+      var smithSlots = EQUIP.slotIds();
+      for (i = 0; i < smithSlots.length; i += 1) {
+        var smithSlotId = smithSlots[i];
+        var smithSlot = EQUIP.slotById(smithSlotId);
+        var smithItem = view.save.loadout ? view.save.loadout[smithSlotId] : null;
+        var smithLevel = EQUIP.enhanceLevel(smithItem);
+        var smithCost = EQUIP.nextEnhanceCost(smithItem);
+        var smithRow = {
+          id: 'enhance:' + smithSlotId,
+          y: top + rowH * (i + 1),
+          h: rowH,
+          action: null
+        };
+        if (!smithItem) {
+          smithRow.text = smithSlot.name + '：空';
+          smithRow.sub = '先去背包穿上这一件（只强化身上穿着的四件）';
+          smithRow.color = '#8d8d8d';
+          smithRow.icon = { kind: 'gear', slot: smithSlotId, look: null, tier: 0 };
+        } else if (smithLevel >= maxLevel) {
+          smithRow.text = smithSlot.name + '：' + EQUIP.labelOf(smithItem);
+          smithRow.sub = '已经满级 +' + maxLevel + '（主属性 +' + maxLevel * stepPct + '%）· 战力 ' + smithItem.power;
+          smithRow.color = '#ffd479';
+          smithRow.icon = { kind: 'gear', slot: smithSlotId, look: smithItem.look, tier: smithItem.tier };
+        } else {
+          // 强化后的战力是**算出来的**（浅拷贝一件、等级 +1、走同一个 powerOf）——
+          // 与真正扣完石头之后那个数逐位一致，不会有"预览 100、强化完 101"这种事
+          var preview = { main: smithItem.main, affixes: smithItem.affixes, enhance: smithLevel + 1 };
+          smithRow.text = smithSlot.name + '：' + EQUIP.labelOf(smithItem);
+          smithRow.sub =
+            '强化到 +' + (smithLevel + 1) + '：' + smithCost + ' 颗强化石（持有 ' + stones + '）· ' +
+            EQUIP.statName(smithItem.main.stat) + ' +' + (smithLevel + 1) * stepPct + '% · 战力 ' +
+            smithItem.power + ' → ' + EQUIP.powerOf(preview);
+          smithRow.color = stones >= smithCost ? '#8ce99a' : '#8d8d8d';
+          smithRow.icon = { kind: 'gear', slot: smithSlotId, look: smithItem.look, tier: smithItem.tier };
+          // 石头不够也照样给 action：点了会得到一句"还差几颗"的提示（比一个点不动的行更好懂）
+          smithRow.action = { type: 'enhance', slotId: smithSlotId };
+        }
+        list.push(smithRow);
+      }
+      list.push({
+        id: 'enhance:shop',
+        y: top + rowH * (smithSlots.length + 1),
+        h: rowH,
+        text: '去商城买强化石',
+        sub: BAL.shop.stone.priceGold + ' 金币一颗 · 公会号角也在那儿（' + BAL.guild.shopUnlockLevel + ' 级解锁）',
+        color: '#8ce99a',
+        icon: { kind: 'ui', key: 'shop' },
+        action: { type: 'open', panel: 'shop' }
+      });
+      return list;
+    }
+
+    /* ------------------ 公会（本次重做）—— 自己输入公会名建会 / 加入 / 人员 / 等级 / 公会信息 */
+
+    /**
+     * 用户要求："创建公会需要自己输入公会名，公会页面显示公会人员，公会等级，公会信息。"
+     *
+     * 这里只负责**排版**，三件事分别由别人负责：
+     *   1. **输入**：点「输入公会名」→ 20-main 的 `typeGuildName` 调平台键盘（`PLAT.editText`），
+     *      值经 `setDraftGuildName` 回到这里（模拟器没有键盘时用「随机取一个名字」兜底）；
+     *   2. **规则**：名字合不合法、等级怎么算全在 11-save 的 `G.GUILD`（validate / levelFrom）；
+     *   3. **权威**：全服唯一的名字、成员表与等级由**服务端**说了算（`/api/guild/*`）——
+     *      这里的成员表是它的**镜像**（`guild.remote`）；连不上云时本机那份照旧可用（决策 #10）。
+     */
     if (current === 'guild') {
-      var levelOk = PROG.guildUnlocked(view.save.level);
-      if (!view.save.guild) {
+      var guild = view.save.guild;
+      var guildNet = view.guild || {};
+      var guildLevelOk = PROG.guildUnlocked(view.save.level);
+      var gy = top;
+
+      // 服务端状态那一行（正在连 / 刚同步过 / 连不上）：有话说的时候才占一行
+      if (guildNet.note) {
+        list.push({
+          id: 'guild:status',
+          hit: false,
+          y: gy,
+          h: rowH,
+          icon: { kind: 'ui', key: 'guild' },
+          text: guildNet.busy ? '正在连接服务端…' : '公会服务端',
+          sub: guildNet.note,
+          color: guildNet.busy ? '#a9d5ff' : '#8ce99a'
+        });
+        gy += rowH;
+      }
+
+      if (!guild) {
+        /* ------------------ 还没有公会：输入名字 → 创建；或者加入一个已有的 ------------------ */
+        var guildDraft = draftGuildName;
+        var guildCheck = guildDraft ? GUILD.validate(guildDraft) : { ok: false, reason: 'empty' };
+        var guildReady = guildLevelOk && view.save.horns > 0 && guildCheck.ok;
         list.push({
           id: 'guild:name',
-          y: top,
+          y: gy,
           h: rowH,
-          text: '公会名：' + draftGuildName,
-          sub: '点一下换一个（canvas 里没有输入框，阶段 D 接平台键盘）',
-          color: '#a9d5ff',
-          action: { type: 'renameGuild' }
+          icon: { kind: 'ui', key: 'keyboard' },
+          text: '公会名：' + (guildDraft || '还没输入'),
+          sub: guildDraft
+            ? guildCheck.ok
+              ? '可以（' + BAL.guild.nameMin + '~' + BAL.guild.nameMax + ' 字）· 点下面「创建公会」'
+              : GUILD.reasonText(guildCheck.reason)
+            : '点这一行打字：' + BAL.guild.nameMin + '~' + BAL.guild.nameMax + ' 个字，中文 / 字母 / 数字 / 下划线',
+          color: guildCheck.ok ? '#8ce99a' : '#a9d5ff',
+          action: { type: 'typeGuildName' }
         });
+        gy += rowH;
+        pushTitle(list, contentRect(), gy, '创建公会', '消耗 1 个号角 · 据点锚点就设在你脚下');
+        gy += layout().titleHeight;
         list.push({
           id: 'guild:create',
-          y: top + rowH,
+          y: gy,
           h: rowH,
-          text: '创建公会（消耗 1 个号角）',
-          sub: !levelOk
+          icon: { kind: 'ui', key: 'guild' },
+          text: '创建「' + (guildDraft || '？') + '」（消耗 1 个号角）',
+          sub: !guildLevelOk
             ? '需要 ' + BAL.guild.unlockLevel + ' 级（现在 ' + view.save.level + ' 级）'
-            : view.save.horns > 0
-              ? '持有号角 ' + view.save.horns + ' 个'
-              : '还没有号角：商城 ' + BAL.shop.horn.priceGold + ' 金币',
-          color: levelOk && view.save.horns > 0 ? '#8ce99a' : '#8d8d8d',
+            : view.save.horns <= 0
+              ? '还没有号角：商城 ' + BAL.shop.horn.priceGold + ' 金币一个'
+              : !guildCheck.ok
+                ? GUILD.reasonText(guildCheck.reason)
+                : '持有号角 ' + view.save.horns + ' 个',
+          color: guildReady ? '#8ce99a' : '#8d8d8d',
           action: { type: 'createGuild' }
         });
+        gy += rowH;
+        list.push({
+          id: 'guild:randomName',
+          y: gy,
+          h: rowH,
+          icon: { kind: 'ui', key: 'dice' },
+          text: '随机取一个名字',
+          sub: '不想打字就点它（模拟器里没有平台键盘，这是兜底的输入方式）',
+          color: '#c7c7c7',
+          action: { type: 'renameGuild' }
+        });
+        gy += rowH;
+        pushTitle(list, contentRect(), gy, '或者加入一个已有的公会', '输入名字，或直接在下面的列表里点一行');
+        gy += layout().titleHeight;
+        list.push({
+          id: 'guild:joinName',
+          y: gy,
+          h: rowH,
+          icon: { kind: 'ui', key: 'keyboard' },
+          text: '要加入的公会名：' + (joinDraftName || '还没输入'),
+          sub: '点这一行打字（和上面的"创建"是两个名字，不会互相覆盖）',
+          color: joinDraftName ? '#a9d5ff' : '#c7c7c7',
+          action: { type: 'typeJoinName' }
+        });
+        gy += rowH;
+        list.push({
+          id: 'guild:join',
+          y: gy,
+          h: rowH,
+          icon: { kind: 'ui', key: 'guild' },
+          text: '加入「' + (joinDraftName || '？') + '」',
+          sub: joinDraftName
+            ? '你会成为它的成员（上限 ' + BAL.guild.memberCap + ' 人）'
+            : '先在上面输入公会名',
+          color: joinDraftName ? '#8ce99a' : '#8d8d8d',
+          action: { type: 'joinGuild' }
+        });
+        gy += rowH;
+        // 服务端的公会列表（点一行 = 加入它）：连不上时这里只有一行说明 —— 不假装有内容
+        var guildList = guildNet.list || [];
+        pushTitle(
+          list,
+          contentRect(),
+          gy,
+          '公会列表',
+          guildList.length ? guildList.length + ' 个 · 点一行加入' : '服务端的公会名单'
+        );
+        gy += layout().titleHeight;
+        if (!guildList.length) {
+          list.push({
+            id: 'guild:listEmpty',
+            hit: false,
+            y: gy,
+            h: rowH,
+            text: '列表还是空的',
+            sub: guildNet.listNote || '点下面「刷新公会列表」去服务端要一份（没配 cloudBase 时就一直是这样）',
+            color: '#8d8d8d'
+          });
+          gy += rowH;
+        } else {
+          for (i = 0; i < guildList.length; i += 1) {
+            var listed = guildList[i] || {};
+            list.push({
+              id: 'guild:list:' + i,
+              y: gy,
+              h: rowH,
+              icon: { kind: 'ui', key: 'guild' },
+              text: listed.name + '  Lv.' + listed.level,
+              sub: '成员 ' + listed.count + ' / ' + listed.memberCap + '　点这一行加入它',
+              color: '#a9d5ff',
+              action: { type: 'joinGuild', name: listed.name }
+            });
+            gy += rowH;
+          }
+        }
+        list.push({
+          id: 'guild:listRefresh',
+          y: gy,
+          h: rowH,
+          icon: { kind: 'ui', key: 'stat' },
+          text: '刷新公会列表',
+          sub: guildNet.listAt ? '上次刷新：' + agoText(guildNet.listAt, view) : '还没刷新过',
+          color: '#c7c7c7',
+          action: { type: 'guildList' }
+        });
+        gy += rowH;
       } else {
+        /* ------------------ 已经有公会：等级 / 公会信息 / 公会人员 ------------------ */
+        var guildLeader = GUILD.leaderOf(guild);
+        var guildLevelMax = guild.level >= guild.levelCap;
+        var guildPct = guildLevelMax
+          ? 100
+          : Math.round(Math.min(1, guild.expForNext ? guild.exp / guild.expForNext : 0) * 100);
+        pushTitle(
+          list,
+          contentRect(),
+          gy,
+          '公会「' + guild.name + '」',
+          guild.remote ? '成员表来自服务端 · 每 ' + Math.round(BAL.guild.syncIntervalMs / 1000) + ' 秒自动刷新' : '本机记录（离线时建的会）'
+        );
+        gy += layout().titleHeight;
+        // ① 公会等级（用户要"公会页面显示公会等级"）—— 由成员等级之和算出来，公式在 G.GUILD.levelFrom
+        list.push({
+          id: 'guild:level',
+          hit: false,
+          y: gy,
+          h: rowH,
+          icon: { kind: 'ui', key: 'guild' },
+          text: '公会等级 Lv.' + guild.level + (guildLevelMax ? '（满级）' : ''),
+          sub: guildLevelMax
+            ? '成员等级之和 ' + Math.round(guild.exp) + ' · 已经到 ' + guild.levelCap + ' 级上限'
+            : '升级进度 ' + Math.round(guild.exp) + ' / ' + Math.round(guild.expForNext) + '（' + guildPct + '%）· 成员等级之和每满 ' + Math.round(guild.expForNext) + ' 升 1 级',
+          color: '#ffd479'
+        });
+        gy += rowH;
+        // ② 公会信息：会长 / 我的身份 / 人数 / 锚点
         list.push({
           id: 'guild:info',
-          y: top,
+          hit: false,
+          y: gy,
           h: rowH,
-          text: view.save.guild.name,
-          sub: '会长：我 · 成员 1 / ' + BAL.guild.memberCap,
-          color: '#ffd479',
-          action: null
+          icon: { kind: 'ui', key: 'user' },
+          text: '会长：' + (guildLeader ? guildLeader.name : '？') + ' · 我的身份：' + (GUILD.isLeader(guild) ? '会长' : '成员'),
+          sub: GUILD.memberText(guild) + ' · 人数上限 ' + guild.memberCap,
+          color: '#c7c7c7'
         });
+        gy += rowH;
+        list.push({
+          id: 'guild:anchor',
+          hit: false,
+          y: gy,
+          h: rowH,
+          icon: { kind: 'ui', key: 'camp' },
+          text: '据点锚点 (' + Math.round(guild.anchor.x) + ', ' + Math.round(guild.anchor.y) + ')',
+          sub: guild.syncAt ? '最近同步：' + agoText(guild.syncAt, view) : '还没和服务端同步过',
+          color: '#c7c7c7'
+        });
+        gy += rowH;
+        // ③ 公会人员（用户要"公会页面显示公会人员"）：一行一个人，会长永远第一（顺序在 G.GUILD.sortedMembers）
+        var guildMembers = GUILD.sortedMembers(guild);
+        pushTitle(list, contentRect(), gy, '公会人员', GUILD.memberText(guild));
+        gy += layout().titleHeight;
+        for (i = 0; i < guildMembers.length; i += 1) {
+          var guildMember = guildMembers[i];
+          var isMe = guildMember.name === view.save.name;
+          list.push({
+            id: 'guild:member:' + i,
+            hit: false,
+            y: gy,
+            h: rowH,
+            icon: { kind: 'ui', key: guildMember.role === 'leader' ? 'guild' : 'user' },
+            text:
+              (guildMember.role === 'leader' ? '会长 ' : '') +
+              guildMember.name +
+              (isMe ? '（我）' : ''),
+            sub:
+              'Lv.' + guildMember.level +
+              ' · ' +
+              (guildMember.online ? '在线' : '离线') +
+              (isMe ? ' · 这是我' : ''),
+            color: guildMember.online ? '#8ce99a' : '#8d8d8d'
+          });
+          gy += rowH;
+        }
+        if (guildMembers.length < guild.memberCap) {
+          list.push({
+            id: 'guild:invite',
+            hit: false,
+            y: gy,
+            h: rowH,
+            text: '还有 ' + (guild.memberCap - guildMembers.length) + ' 个空位',
+            sub: '把公会名「' + guild.name + '」告诉朋友：TA 在公会面板里输入这个名字就能加入',
+            color: '#c7c7c7'
+          });
+          gy += rowH;
+        }
         list.push({
           id: 'guild:teleport',
-          y: top + rowH,
+          y: gy,
           h: rowH,
+          icon: { kind: 'ui', key: 'camp' },
           text: '回到公会锚点',
-          sub: '锚点 (' + Math.round(view.save.guild.anchor.x) + ', ' + Math.round(view.save.guild.anchor.y) + ')',
+          sub: '冷却 ' + Math.round(BAL.guild.teleportCooldownMs / 1000) + ' 秒 · 战斗中不可用',
           color: '#a9d5ff',
           action: { type: 'teleportGuild' }
         });
+        gy += rowH;
         list.push({
-          id: 'guild:members',
-          y: top + rowH * 2,
+          id: 'guild:sync',
+          y: gy,
           h: rowH,
-          text: '成员列表（阶段 D 上服务端）',
-          sub: '现在只有你自己；邀请码 / 申请 / 踢人都在服务端做',
-          color: '#c7c7c7',
-          action: null
+          icon: { kind: 'ui', key: 'stat' },
+          text: '向服务端要一份最新成员表',
+          sub: guild.syncAt ? '上次同步：' + agoText(guild.syncAt, view) : '还没同步过（点一下试试）',
+          color: '#8ce99a',
+          action: { type: 'guildSync' }
         });
+        gy += rowH;
+        // 退出公会：会长不能退（首版没有转让，所以如实写明为什么按钮是灰的）
+        if (!GUILD.isLeader(guild)) {
+          list.push({
+            id: 'guild:leave',
+            y: gy,
+            h: rowH,
+            icon: { kind: 'ui', key: 'trash' },
+            text: '退出「' + guild.name + '」',
+            sub: '会籍在服务端删除，本机记录一起清掉；再想回来重新加入即可',
+            color: '#ffb4b4',
+            action: { type: 'guildLeave' }
+          });
+          gy += rowH;
+        } else {
+          list.push({
+            id: 'guild:leaderNote',
+            hit: false,
+            y: gy,
+            h: rowH,
+            text: '你是会长：首版不能退会',
+            sub: '要解散就把成员都请出去（解散 / 转让留给下个阶段）',
+            color: '#8d8d8d'
+          });
+          gy += rowH;
+        }
       }
     }
 
@@ -8184,14 +11525,25 @@ G.PANELS = (function () {
         id: 'camp:shop',
         y: top + rowH,
         h: rowH,
-        text: '进商城（买公会号角）',
-        sub: '营地里的商人：号角 ' + BAL.shop.horn.priceGold + ' 金币，' + BAL.guild.shopUnlockLevel + ' 级解锁',
+        text: '进商城（号角 / 强化石）',
+        sub: '营地里的商人：号角 ' + BAL.shop.horn.priceGold + ' 金币、强化石 ' + BAL.shop.stone.priceGold + ' 金币，' + BAL.guild.shopUnlockLevel + ' 级解锁',
         color: '#ffd479',
         action: { type: 'open', panel: 'shop' }
       });
+      // 铁匠（本次新增）：这行与"走到他跟前才出现的那枚「锻」键"是同一个面板，两条路都好走
+      list.push({
+        id: 'camp:smith',
+        y: top + rowH * 2,
+        h: rowH,
+        text: '找铁匠强化装备（+' + EQUIP.maxEnhance() + ' 封顶）',
+        sub: '篝火旁那个铁砧：走到跟前屏幕上会多一枚「锻」键 · 手里 ' + (view.save.stones || 0) + ' 颗强化石',
+        color: (view.save.stones || 0) > 0 ? '#8ce99a' : '#ffd479',
+        icon: { kind: 'ui', key: 'smith' },
+        action: { type: 'open', panel: 'enhance' }
+      });
       list.push({
         id: 'camp:teleport',
-        y: top + rowH * 2,
+        y: top + rowH * 3,
         h: rowH,
         text: '回到营地中心',
         sub:
@@ -8205,7 +11557,7 @@ G.PANELS = (function () {
       });
       list.push({
         id: 'camp:guild',
-        y: top + rowH * 3,
+        y: top + rowH * 4,
         h: rowH,
         text: '回公会锚点',
         sub: view.save.guild ? '公会「' + view.save.guild.name + '」的锚点' : '还没有公会：先在商城买号角',
@@ -8214,7 +11566,7 @@ G.PANELS = (function () {
       });
       list.push({
         id: 'camp:note',
-        y: top + rowH * 4,
+        y: top + rowH * 5,
         h: rowH,
         text: '营地是安全区：怪不在这里刷新',
         sub: 'A6 起：巢穴落在营地半径 ' + BAL.world.camp.monsterFreeRadius + ' 内的怪不装载，走进来的会被推回边界并回家',
@@ -8266,9 +11618,30 @@ G.PANELS = (function () {
         color: '#ffd479',
         action: { type: 'toggleDebug' }
       });
+      // A11 之二：**视角缩放滚动轴**（用户："玩家设置中添加视角缩放滚动轴，可以缩到16-64"）。
+      // 它是设置面板里唯一"拖"出来的控件：按下即跳到手指位置、拖动不吃滚动、松手才写存档。
+      // x / w 显式给出来 —— 命中测试与轨道坐标因此读同一份几何（`sliderTilesAt` 也按它算）。
+      var zoomBox = contentRect();
+      var zoomConfig = sliderConfig();
+      var zoomNow = view.zoom && view.zoom.tiles > 0 ? view.zoom.tiles : BAL.view.zoomTiles;
+      list.push({
+        id: 'menu:zoom',
+        kind: 'slider',
+        x: zoomBox.x,
+        w: zoomBox.w,
+        y: top + rowH * 4,
+        h: rowH,
+        pad: 10,
+        text: '视角缩放',
+        sub: '拖动圆钮：一屏 ' + zoomConfig.minTiles + ' ~ ' + zoomConfig.maxTiles +
+          ' 格（左 = 拉近看细节，右 = 拉远看范围；整格走）',
+        valueText: '一屏 ' + zoomNow + ' 格' + (view.zoom && view.zoom.tileCssPx > 0 ? ' · 一格 ' + view.zoom.tileCssPx + ' CSS px' : ''),
+        color: '#ffd479',
+        tiles: zoomNow
+      });
       list.push({
         id: 'menu:sfx',
-        y: top + rowH * 4,
+        y: top + rowH * 5,
         h: rowH,
         text: '音效：' + (settings.sfx ? '开' : '关'),
         sub: '命中 / 暴击 / 击杀 / 受伤 / 升级 / 开箱（音量在 balance.audio，声音文件由工具生成）',
@@ -8277,7 +11650,7 @@ G.PANELS = (function () {
       });
       list.push({
         id: 'menu:bgm',
-        y: top + rowH * 5,
+        y: top + rowH * 6,
         h: rowH,
         text: '背景音乐：' + (settings.bgm ? '开' : '关'),
         sub: audio && audio.supported ? '首次触摸后才会响（平台要求）' : '当前环境没有音频接口（模拟器里可能如此）',
@@ -8286,7 +11659,7 @@ G.PANELS = (function () {
       });
       list.push({
         id: 'menu:vibrate',
-        y: top + rowH * 6,
+        y: top + rowH * 7,
         h: rowH,
         text: '震动：' + (settings.vibrate ? '开' : '关'),
         sub: '暴击与挨打时短震一下（暴击的手感一半在手上）',
@@ -8295,7 +11668,7 @@ G.PANELS = (function () {
       });
       list.push({
         id: 'menu:reset',
-        y: top + rowH * 7,
+        y: top + rowH * 8,
         h: rowH,
         text: '重置本地存档',
         sub: view.resetArmed ? '再点一次真的删（等级 / 装备 / 宝箱全清，角色名保留）' : '点一下先确认',
@@ -8305,17 +11678,46 @@ G.PANELS = (function () {
     }
 
     if (current === 'stat') {
-      // A6：属性面板 —— 一行一项，副行写"等级基础 vs 装备加成"，玩家才知道该练级还是该换装备
-      var statRows = G.PLAYER.breakdown(view.save.level, view.save.loadout);
-      for (i = 0; i < statRows.length; i += 1) {
+      // A10：属性面板 = 抬头（头像 / 等级 / 经验条 / 战力）+ 一行一张的属性卡。
+      // 数据仍然来自 PLAYER.breakdown（"等级基础 vs 装备加成"分开写），面板只排排版（决策 #4）
+      var statConfig = layout();
+      var statBox = contentRect();
+      var statList = G.PLAYER.breakdown(view.save.level, view.save.loadout);
+      var statNeed = PROG.xpToNext(view.save.level);
+      list.push({
+        id: 'stat:head',
+        kind: 'header',
+        hit: false,
+        x: statBox.x,
+        w: statBox.w,
+        y: top,
+        h: 150,
+        pad: 0,
+        text: view.save.name || '无名者',
+        sub: 'Lv.' + view.save.level + ' · 经验 ' + PROG.shortNumber(view.save.exp) + ' / ' + PROG.shortNumber(statNeed),
+        value: '战力 ' + view.stats.power,
+        valueText: '四件装备战力之和（不参与战斗结算）',
+        ratio: statNeed > 0 ? view.save.exp / statNeed : 0,
+        seed: G.RNG.hash32(G.ACCOUNT.nameKey(view.save.name || '').length * 31, view.save.level | 0, 0x51a7c3)
+      });
+      top += 150 + statConfig.cellGap;
+      for (i = 0; i < statList.length; i += 1) {
         list.push({
           id: 'stat:' + i,
-          y: top + i * 58,
-          h: 54,
-          text: statRows[i].label + '：' + statRows[i].value,
-          sub: statRows[i].sub,
-          color: statRows[i].color || '#e8f1ff',
-          action: null
+          kind: 'statCard',
+          hit: false,
+          action: null,
+          x: statBox.x,
+          w: statBox.w,
+          y: top + i * (statConfig.statCardHeight + statConfig.cellGap),
+          h: statConfig.statCardHeight,
+          pad: 0,
+          iconKey: statList[i].icon,
+          label: statList[i].label,
+          value: statList[i].value,
+          text: statList[i].label + '：' + statList[i].value,
+          sub: statList[i].sub,
+          color: statList[i].color || '#e8f1ff'
         });
       }
     }
@@ -8334,20 +11736,52 @@ G.PANELS = (function () {
     return list;
   }
 
-  /** 命中测试：点落在哪一行上（只认视口内的行；上下各放宽 6 设计像素，手指更好点） */
+  /**
+   * 命中测试：点落在哪一块上。只认视口里的、`hit !== false` 的块，而且**横向与纵向都要落进去**：
+   *   - 横向：块自己给了 `x` / `w` 就用它（网格里的一格），没给就默认铺满内容区（列表行）；
+   *   - 纵向：`pad` 是块底部的留白（列表行 10、格子 0），上下各放宽 6 设计像素让手指好点。
+   * A10 起面板里"大块背景"（角色预览）与"一格一格"的格子混排，这两条缺一不可：
+   * 背景块标了 `hit: false`（它不吃触摸），点击才落得到压在上面的装备槽 / 背包格上。
+   */
   function rowAt(point, view) {
     var area = viewport();
     if (point.y < area.y || point.y > area.y + area.h) return null;
+    var box = contentRect();
     var list = rows(view);
     for (var i = 0; i < list.length; i += 1) {
       var row = list[i];
-      if (point.y >= row.y - 6 && point.y <= row.y + row.h - 10 + 6) return row;
+      if (row.hit === false) continue;
+      var x = row.x === undefined ? box.x : row.x;
+      var w = row.w === undefined ? box.w : row.w;
+      var pad = row.pad === undefined ? 10 : row.pad;
+      if (point.x < x - 6 || point.x > x + w + 6) continue;
+      if (point.y >= row.y - 6 && point.y <= row.y + row.h - pad + 6) return row;
     }
     return null;
   }
 
   /**
+   * 这一点在不在**背包的格子块**里（本次新增）：翻页手势的势力范围。
+   * `bagGridRect` 来自最近一次 buildRows（`rowAt` / `rows` 都会重算它），所以判到的就是屏幕上那一块。
+   */
+  function inBagGrid(point) {
+    if (current !== 'bag' || !bagGridRect || !point) return false;
+    return (
+      point.x >= bagGridRect.x &&
+      point.x <= bagGridRect.x + bagGridRect.w &&
+      point.y >= bagGridRect.y &&
+      point.y <= bagGridRect.y + bagGridRect.h
+    );
+  }
+
+  /**
    * 按下：先判关闭键，再判卡片内的行（松手时才算点击，中途滑走 / 滚动就取消）。
+   *
+   * A11 之二：命中的是**缩放轴**时立刻把值跳到手指位置（滑块的标准手感：点轨道 = 跳到那一点），
+   * 并记下 `sliderRow` —— 后面的 move 就走"拖滑块"而不是"滚卡片"。
+   *
+   * 本次新增：命中的是**背包格那一块**时记下 `bagDrag` —— 后面的 move 走"翻页"而不是"滚卡片"
+   * （两种手势各自消费自己那一笔，互不吃；按下时先不翻页，手指动起来才翻）。
    */
   function press(point, view) {
     if (!current) return null;
@@ -8368,18 +11802,48 @@ G.PANELS = (function () {
     pressY = point.y;
     pressScroll = scroll;
     dragging = false;
+    sliderRow = null;
+    bagDrag = null;
     var row = rowAt(point, view);
     pressedRowId = row ? row.id : null;
+    if (row && row.kind === 'slider') {
+      sliderRow = row;
+      sliderTiles = sliderTilesAt(point.x);
+    } else if (inBagGrid(point)) {
+      // 按在背包格子上：这一笔手势归"翻页"（move 里改 bagRow），松手时若没拖动才算点那一格
+      bagDrag = { y: point.y, row: bagRow };
+    }
     return pressedRowId;
   }
 
   /**
-   * 拖动：卡片内上下拖 = 滚动（内容比视口长才有得滚）。
+   * 拖动：**三类手势各自消费自己那一笔**，优先级 = 缩放轴 → 背包翻页 → 卡片滚动。
+   * 缩放轴左右拖 = 改缩放；背包格子上拖 = 翻页；其余地方上下拖 = 滚卡片内容。
    * 一旦超过 `touchSlop` 就把"按下命中的那一行"作废 —— 手指滑过一行不该算点了它。
-   * 返回 true 表示这一下已经被面板消费（调用方不必再当摇杆处理）。
    */
   function move(point, view) {
     if (!current || pressedClose) return false;
+    if (sliderRow) {
+      sliderTiles = sliderTilesAt(point.x);
+      return true;
+    }
+    // 背包翻页（本次新增）：往上拖看后面的装备，**一格一格走**（半个行距翻一页），卡片不跟着滚
+    if (bagDrag) {
+      var pitch = layout().gridCellHeight + layout().cellGap;
+      var offset = bagDrag.y - point.y;
+      if (!dragging && Math.abs(offset) > BAL.view.panel.touchSlop) {
+        dragging = true;
+        pressedRowId = null;
+      }
+      var want = bagDrag.row + Math.round(offset / pitch);
+      if (want < 0) want = 0;
+      if (want > bagMaxRow) want = bagMaxRow;
+      if (want !== bagRow) {
+        bagRow = want;
+        return true;
+      }
+      return dragging;
+    }
     var dy = point.y - pressY;
     if (!dragging && Math.abs(dy) > BAL.view.panel.touchSlop) {
       dragging = true;
@@ -8390,12 +11854,33 @@ G.PANELS = (function () {
     return true;
   }
 
-  /** 松手：关闭键 → close；拖动过 → 什么都不触发；否则命中行 → 该行的 action */
+  /**
+   * 松手：关闭键 → close；拖动过 → 什么都不触发；缩放轴 → 交出拖到的格数；否则命中行 → 该行的 action。
+   * 缩放轴把 action 放在这里（而不是按下时）是有意的：**拖的过程中不写存档**，
+   * 只有松手那一下才落盘（拖动过程由 20-main 每帧静默应用，见 `sliderDrag`）。
+   * 背包翻页同理：拖过就只翻页（不触发那一格的 action），没拖过才算"点了一下那一格"。
+   */
   function release(point, view) {
     if (!current) return null;
     if (pressedClose) {
       pressedClose = false;
       return { type: 'close' };
+    }
+    if (sliderRow) {
+      var tiles = sliderTiles;
+      sliderRow = null;
+      sliderTiles = 0;
+      pressedRowId = null;
+      return { type: 'setZoomTiles', tiles: tiles };
+    }
+    if (bagDrag) {
+      var paged = dragging;
+      bagDrag = null;
+      dragging = false;
+      if (paged) {
+        pressedRowId = null;
+        return null;
+      }
     }
     if (dragging) {
       dragging = false;
@@ -8408,6 +11893,14 @@ G.PANELS = (function () {
     return null;
   }
 
+  /**
+   * 正在拖的缩放轴（A11 之二）：20-main 每帧问一次，拿它**边拖边缩放**。
+   * 返回 null = 没在拖；返回的 tiles 是"一屏几格"（整数）。
+   */
+  function sliderDrag() {
+    return sliderRow ? { id: sliderRow.id, tiles: sliderTiles } : null;
+  }
+
   /** 标题下面的一行小字：让玩家知道自己在哪个面板、身上有多少钱 */
   function headerLine(view) {
     return 'Lv.' + view.save.level + ' · 金币 ' + view.save.gold + ' · 战力 ' + view.stats.power + ' · 宝箱 ' + view.save.chests.length;
@@ -8415,7 +11908,7 @@ G.PANELS = (function () {
 
   /**
    * 面板主绘制：一层**很淡**的暗底（世界仍然看得见 —— "打开界面游戏不停止"的视觉表达）
-   * 加一张约占 1/3 屏的卡片。卡片 = 标题栏（标题 + 右上关闭键）+ 内容视口（行；超长就滚）。
+   * 加一张约占 2/3 屏高（2026-10-01 用户从 1/3 屏改过来）的卡片。卡片 = 标题栏（标题 + 右上关闭键）+ 内容视口（行；超长就滚）。
    *
    * 内容用 `moveTo/lineTo` 组成的矩形路径 clip 住：滚动时半行不会被画到卡片外的世界上。
    * 这也是"只用基础图元"约束下的正解 —— 假 canvas 只实现了 moveTo/lineTo/arc/fillRect 这一组。
@@ -8457,21 +11950,11 @@ G.PANELS = (function () {
     var list = rows(view);
     for (i = 0; i < list.length; i += 1) {
       var row = list[i];
-      // 视口外的行直接跳过（省落笔，也不让 clip 白算）
+      // 视口外的块直接跳过（省落笔，也不让 clip 白算）
       if (row.y + row.h < area.y - 4 || row.y > area.y + area.h + 4) continue;
-      var pressed = pressedRowId === row.id;
-      ctx.fillStyle = pressed ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.05)';
-      ctx.fillRect(area.x + 10, row.y, area.w - 20, row.h - 10);
-      // A6：行左侧的图标（装备 = 内观，功能 = 对应图形）；有没有图标决定文字从哪开始
-      var textX = row.icon ? iconBox(ctx, area, row) + 14 : area.x + 24;
-      G.HUD.text(ctx, row.text, textX, row.y + (row.sub ? 22 : (row.h - 10) / 2), 26, row.color, 'left');
-      if (row.sub) G.HUD.text(ctx, row.sub, textX, row.y + 44, 17, '#9fb4d8', 'left');
-      if (!row.action) {
-        // 不可点的行给个视觉标记，免得玩家一直点它
-        ctx.globalAlpha = 0.5;
-        G.HUD.text(ctx, '（说明）', area.x + area.w - 22, row.y + (row.h - 10) / 2, 17, '#8d9bb5', 'right');
-        ctx.globalAlpha = 1;
-      }
+      // A10：块的类型决定画法（值日表就是 PAINTERS）；认不出的类型退化成"行"，加新块不会白屏
+      var painter = PAINTERS[row.kind] || paintRow;
+      painter(ctx, area, row, pressedRowId === row.id);
     }
 
     if (current === 'selftest' && view.selftest) {
@@ -8539,6 +12022,7 @@ G.PANELS = (function () {
     if (panel === 'bag') return '背包 / 装备';
     if (panel === 'stat') return '角色属性';
     if (panel === 'shop') return '商城';
+    if (panel === 'enhance') return '铁匠 · 强化';
     if (panel === 'guild') return '公会';
     if (panel === 'camp') return '营地';
     if (panel === 'menu') return '设置 / 调试';
@@ -8554,12 +12038,15 @@ G.PANELS = (function () {
     buttons: buttons,
     rows: rows,
     buildRows: buildRows,
+    sliderDrag: sliderDrag,
+    sliderTilesAt: sliderTilesAt,
     rect: rect,
     viewport: viewport,
     contains: contains,
     maxScroll: maxScroll,
     setScroll: setScroll,
     scrollOffset: scrollOffset,
+    bagScroll: bagScroll,
     press: press,
     move: move,
     release: release,
@@ -8571,6 +12058,14 @@ G.PANELS = (function () {
     setDraftGuildName: function (name) {
       draftGuildName = name;
     },
+    /** 加入公会那一行的名字草稿（本次新增：与创建的草稿分开存） */
+    joinDraftName: function () {
+      return joinDraftName;
+    },
+    setJoinDraftName: function (name) {
+      joinDraftName = name;
+    },
+    agoText: agoText,
     draw: draw
   };
 })();
@@ -8911,6 +12406,9 @@ G.SELFTEST = (function () {
   var TERRAIN = G.TERRAIN;
   var PROG = G.PROG;
   var LOOT = G.LOOT;
+  /** 公会的规则与记录（本次新增）—— 名字 / 等级 / 成员表的唯一实现 */
+  var GUILD = G.GUILD;
+  var SAVE = G.SAVE;
 
   /** 世界指纹基准：与 tools\test-logic.mjs 的 GOLDEN_FINGERPRINT 必须是同一个字符串 */
   var GOLDEN_FINGERPRINT = 'e9802f11';
@@ -9024,7 +12522,42 @@ G.SELFTEST = (function () {
     );
     eq('装备目录 60 件（六阶 × 10 件）', BAL.equipment.catalog.length, 60);
     eq('营地不刷怪的半径 = 石砖地半径', BAL.world.camp.monsterFreeRadius, BAL.world.camp.radius);
-    between('视角倍率在 0.5~1（拉远看得更多，又不会小到看不清）', BAL.view.cameraZoom, 0.5, 1);
+    // A11：视角倍率不再是一个数，而是**三档表**（远 128 格 / 中 64 格 / 近 32 格）——
+    // 每档的 zoom 必须等于 designWidth / (tiles × tileSize)，否则"一屏几格"这句话就是假的。
+    var tierCount = BAL.view.cameraTiers.length;
+    eq('视角档位三档（远 / 中 / 近）', tierCount, 3);
+    var tierMathOk = true;
+    var tierAscending = true;
+    var tierNames = [];
+    var ti;
+    for (ti = 0; ti < tierCount; ti += 1) {
+      var tierEntry = BAL.view.cameraTiers[ti];
+      if (Math.abs(BAL.view.designWidth / (tierEntry.zoom * BAL.world.tileSize) - tierEntry.tiles) > 0.05) tierMathOk = false;
+      if (ti > 0 && tierEntry.zoom <= BAL.view.cameraTiers[ti - 1].zoom) tierAscending = false;
+      tierNames.push(tierEntry.name + tierEntry.tiles);
+      between('第 ' + (ti + 1) + ' 档 zoom 在 0.1~1（< 1 = 拉远、看得更广）', tierEntry.zoom, 0.1, 1);
+    }
+    eq('三档的名字与格数', tierNames.join(' / '), '远128 / 中64 / 近32');
+    ok('每档的 zoom = designWidth / (tiles × tileSize)（"一屏几格"只有这一种算法）', tierMathOk);
+    ok('越拉近倍率越大（远 < 中 < 近）', tierAscending);
+    near(
+      '远档就是 A8 标准：横向正好 128 格',
+      BAL.view.designWidth / (BAL.view.cameraTiers[0].zoom * BAL.world.tileSize),
+      128,
+      0.05
+    );
+    ok(
+      '启动档位在表内，而且默认不是远档（A11 用户：要更清晰 → 默认中档）',
+      BAL.view.cameraTier >= 0 && BAL.view.cameraTier < tierCount && BAL.view.cameraTier > 0,
+      String(BAL.view.cameraTier)
+    );
+    ok(
+      '省笔档阈值只对远 / 中生效（两档都在它以下），近档走逐格档',
+      BAL.view.lodZoom > BAL.view.cameraTiers[0].zoom &&
+        BAL.view.lodZoom > BAL.view.cameraTiers[1].zoom &&
+        BAL.view.lodZoom <= BAL.view.cameraTiers[2].zoom,
+      BAL.view.lodZoom + ' vs ' + tierNames.join(' / ')
+    );
     eq('装备词条数 1/2/3/4/5/5', BAL.equipment.tiers.map(function (t) { return t.affixes; }).join(','), '1,2,3,4,5,5');
     eq('装备末阶倍率 5.3', BAL.equipment.tiers[5].multiplier, 5.3);
     eq('公会人数上限 20', BAL.guild.memberCap, 20);
@@ -9092,7 +12625,11 @@ G.SELFTEST = (function () {
       decorations.every(function (d) { return TERRAIN.DECOR_ORDER.indexOf(d.kind) >= 0; }),
       true
     );
-    eq('地表色块网格 8×8', TERRAIN.tileCountPerChunk(), 8);
+    eq(
+      '地表色块网格 16×16（A7 修订：world.tileSize = 32，块从 102 世界单位缩到 51，肉眼不再是一格一格的方块）',
+      TERRAIN.tileCountPerChunk(),
+      16
+    );
 
     eq(
       'band 决定主题：0 草原 / 1 荒漠 / 4 虚境',
@@ -9108,11 +12645,71 @@ G.SELFTEST = (function () {
       decorations.map(function (d) { return d.x.toFixed(3) + ',' + d.y.toFixed(3); }).join(';')
     );
 
-    var variants = {};
-    for (var tileX = 0; tileX < 8; tileX += 1) {
-      for (var tileY = 0; tileY < 8; tileY += 1) variants[TERRAIN.groundVariant(seed, 0, 0, tileX, tileY)] = true;
+    /* A9：宏观斑（远距档用聚合出来的"草甸 / 石滩 / 林地"代替逐件装饰）。
+       命门是**同一片地**：斑必须是从同一条装饰流里算出来的（主种类与质心都对得上），
+       而不是另画一套示意 —— 否则"远看有林子、走过去树没了"。 */
+    var blobs = TERRAIN.decorBlobs(seed, 3, 3, 0, 2);
+    ok('宏观斑画得出来（远距档不是一片纯色）', blobs.length > 0, 'blobs=' + blobs.length);
+    ok('宏观斑最多 maxBlobs 个', blobs.length <= 2, 'blobs=' + blobs.length);
+    ok(
+      '宏观斑的种类都来自这个 chunk 的真实装饰',
+      blobs.every(function (b) { return TERRAIN.DECOR_ORDER.indexOf(b.kind) >= 0; }),
+      true
+    );
+    same('同 chunk 两次聚合一致（确定性）', TERRAIN.decorBlobs(seed, 3, 3, 0, 2), blobs);
+    ok(
+      '斑半径落在 48~150 世界单位（远距档 ≈ 4~14 CSS px：看得见又不糊成一团）',
+      blobs.every(function (b) { return b.r >= 48 && b.r <= 150; }),
+      blobs.map(function (b) { return b.r.toFixed(1); }).join(',')
+    );
+    ok(
+      '斑的件数不超过真实装饰数（聚合不会"生"出装饰）',
+      blobs.every(function (b) { return b.count >= 2 && b.count <= decorations.length; }),
+      true
+    );
+
+    // 主种类与质心必须与真实装饰一致（这才是"聚合"而不是"另画一套"）
+    var countByKind = { grass: 0, rock: 0, tree: 0 };
+    var di;
+    for (di = 0; di < decorations.length; di += 1) countByKind[decorations[di].kind] += 1;
+    var topKind = TERRAIN.DECOR_ORDER[0];
+    for (di = 1; di < TERRAIN.DECOR_ORDER.length; di += 1) {
+      if (countByKind[TERRAIN.DECOR_ORDER[di]] > countByKind[topKind]) topKind = TERRAIN.DECOR_ORDER[di];
     }
-    eq('地表色块在 8×8 网格上取到 3 种颜色', Object.keys(variants).length, 3);
+    eq('最大那个斑的种类 = 真实装饰里最多的那种（远看那片林子就是那片林子）', blobs[0].kind, topKind);
+    var sumX2 = 0;
+    var sumY2 = 0;
+    var count2 = 0;
+    for (di = 0; di < decorations.length; di += 1) {
+      if (decorations[di].kind !== blobs[0].kind) continue;
+      sumX2 += decorations[di].x;
+      sumY2 += decorations[di].y;
+      count2 += 1;
+    }
+    near('斑的横坐标 = 那种装饰的质心', blobs[0].x, sumX2 / count2, 0.001);
+    near('斑的纵坐标 = 那种装饰的质心', blobs[0].y, sumY2 / count2, 0.001);
+
+    var grid = TERRAIN.tileCountPerChunk();
+    var variants = {};
+    var shades = {};
+    var structureMismatch = 0;
+    for (var tileX = 0; tileX < grid; tileX += 1) {
+      for (var tileY = 0; tileY < grid; tileY += 1) {
+        var variant = TERRAIN.groundVariant(seed, 0, 0, tileX, tileY);
+        var level = G.RENDER.groundLevel(seed, 0, 0, tileX, tileY);
+        variants[variant] = true;
+        shades[level] = true;
+        if (Math.floor(level / 2) !== variant) structureMismatch += 1;
+      }
+    }
+    eq('地表色块在 16×16 网格上取到 3 种结构色', Object.keys(variants).length, 3);
+    eq('每张块再分亮 / 暗两档 → 6 档色（16-render.GROUND_LEVELS）', Object.keys(shades).length, 6);
+    eq('色档的高位就是 groundVariant（结构不随亮暗档漂移）', structureMismatch, 0);
+    eq(
+      '同一张块两次取档一致（纯哈希，画面不会闪）',
+      G.RENDER.groundLevel(seed, 0, 0, 5, 9),
+      G.RENDER.groundLevel(seed, 0, 0, 5, 9)
+    );
   }
 
   /* ---------------------------------------- 4. 怪与地标的播种 */
@@ -9263,11 +12860,23 @@ G.SELFTEST = (function () {
     var near2 = { id: 3, x: 120, y: 0, state: 'idle' };
     var far = { id: 1, x: 900, y: 0, state: 'idle' };
     var dead = { id: 2, x: 90, y: 0, state: 'dead' };
-    eq('选目标：视野内最近的活怪', COMBAT_.pickTarget(0, 0, [far, near2, near1, dead], 540).id, 7);
+    eq('选目标：范围内最近的活怪（死的跳过）', COMBAT_.pickTarget(0, 0, [far, near2, near1, dead], 540).id, 7);
     var tieA = { id: 9, x: 50, y: 0, state: 'idle' };
     var tieB = { id: 4, x: 50, y: 0, state: 'idle' };
     eq('同距取 ID 小的（确定性，帧率变了目标也不跳）', COMBAT_.pickTarget(0, 0, [tieA, tieB], 540).id, 4);
-    eq('视野外没有目标', COMBAT_.pickTarget(0, 0, [far], 540), null);
+    eq('给了距离上限时，上限之外的怪不算目标', COMBAT_.pickTarget(0, 0, [far], 540), null);
+
+    // A7 修订（用户要求"自动战斗盯全地图最近的怪"）：默认 targetRange = 0 = **不限距离**。
+    // 写死 540 时屏幕外的怪一个都选不到，自动走位就停在原地发呆。
+    eq('选目标距离上限默认 0（0 = 不限距离）', BAL.combat.targetRange, 0);
+    var beyondScreen = { id: 11, x: 3000, y: 0, state: 'idle' };
+    eq('旧上限（540）下，3000 外的怪选不到', COMBAT_.pickTarget(0, 0, [beyondScreen], 540), null);
+    eq(
+      '默认规则下，3000 外的怪照样是目标（全地图）',
+      COMBAT_.pickTarget(0, 0, [beyondScreen], COMBAT_.targetRange()).id,
+      11
+    );
+    eq('不限距离时仍然"最近的"优先', COMBAT_.pickTarget(0, 0, [beyondScreen, near1], COMBAT_.targetRange()).id, 7);
 
     var monster = { id: 1, hpMax: 100, damageBy: {}, state: 'idle' };
     COMBAT_.creditHit(monster, 1, 30, 0);
@@ -9321,6 +12930,19 @@ G.SELFTEST = (function () {
     eq('抽过一箱保底计数就 +1', small.epic, 1);
     eq('箱子名带阶名', LOOT.tierName(4), '传说宝箱');
     eq('分解价值按阶给（4 阶 900 金币）', LOOT.salvageGold(4), 900);
+
+    // A13：宝箱背包按阶计数（面板上那一列「× 数量」只读这一个数）
+    var bagCounts = LOOT.countByTier([
+      { tier: 1, level: 3 },
+      { tier: 1, level: 9 },
+      { tier: 6, level: 9 },
+      { tier: 6, level: 1 },
+      { tier: 4, level: 2 }
+    ]);
+    eq('按阶计数：普通 2 / 传说 1 / 天赐 2，其余 0（与袋子顺序无关）', bagCounts.join(','), '2,0,0,1,0,2');
+    eq('一串数正好六阶（清单恒六行就靠它）', bagCounts.length, BAL.chests.tiers.length);
+    eq('坏阶号与空记录不占位（只有合法阶号算数）', LOOT.countByTier([{ tier: 0 }, { tier: 7 }, null, { tier: 3, level: 1 }]).join(','), '0,0,1,0,0,0');
+    eq('空袋子 → 六阶全是 0（清单照样六行）', LOOT.countByTier([]).join(','), '0,0,0,0,0,0');
   }
 
   /* ---------------------------------------- 8. 装备生成 / 词条 / 战力 */
@@ -9461,6 +13083,208 @@ G.SELFTEST = (function () {
     eq('饰品主属性是暴击率（A6：四部位各有各的定位）', EQUIP_.slotById('trinket').mainStat, 'critChance');
   }
 
+  /* ---------------------------------------- 8b. 开箱必出装备（A7 修订 2） */
+
+  /**
+   * 开箱必出装备（用户原话："打开宝箱必定出装备"）。
+   *
+   * 代码里本来就**每箱生成一件装备**（设计 §7：开箱 = 抽装备等阶 → 生成具体装备），这一组把
+   * "必有产出"锁成断言，顺带守住两条容易出事的边：
+   *   ① **不吞箱**：装备先生成、箱子后扣（生成失败时箱子原样还在）；开 N 箱箱数正好减 N；
+   *   ② **不吞装备**：每件产出都必须落在"身上或背包里"（换装时旧件折算成金币是允许的，新件不许凭空消失）；
+   * 再加两条坏数据兜底：箱阶越界（99）/ tier 缺失时也照样出装备，不许空手。
+   */
+  function checkChestOpen() {
+    section('开箱必出装备（20-main 的 openOneChest / openChests）');
+    var GAME = G.GAME;
+    if (!GAME || typeof GAME.openOneChest !== 'function') {
+      ok('G.GAME 的 openOneChest 可用（20-main.js 已拼入）', false, '拿不到 GAME');
+      return;
+    }
+    G.SAVE.clear();
+    GAME.boot();
+    // **不要**在这里调 beginPlaying：它会注册本机账号并把 G.LOGIN 的 hasAccount 置 true，
+    // 而后面的 checkUi 有一条"欢迎页按钮写「登录 / 开始游戏」"的断言依赖此刻还没有账号
+    // （本组排在 checkUi 前面，踩过一次）。boot() 已经给齐 state.save / player / stats，
+    // 开箱这条链只需要这三样。
+    var save = GAME.state.save;
+    var i;
+
+    save.chests = [];
+    for (i = 1; i <= 6; i += 1) save.chests.push({ tier: i, level: 5 });
+    var openedBefore = save.stats.opened;
+
+    var produced = 0; // 真的出装备的箱数（要等于 6）
+    var missing = 0; // 一件都没出的箱数（要等于 0）
+    var kept = 0; // 产出落在"身上或背包里"的件数（要等于 6）
+    var higherTier = 0; // 产出等阶不低于箱阶的件数（要等于 6）
+    for (i = 0; i < 6; i += 1) {
+      var chestTier = save.chests[0].tier;
+      var result = GAME.openOneChest();
+      if (!result || !result.item) {
+        missing += 1;
+        continue;
+      }
+      produced += 1;
+      if (result.item.tier >= chestTier) higherTier += 1;
+      if (save.items.indexOf(result.item) >= 0 || save.loadout[result.item.slotId] === result.item) kept += 1;
+    }
+    eq('六阶各开一箱：一件都没漏（没有空箱）', produced, 6);
+    eq('也没出现"箱没了、装备也没有"的情况', missing, 0);
+    eq('箱数正好减 6（不多扣）', save.chests.length, 0);
+    eq('每件产出都落在身上或背包里（不吞装备）', kept, 6);
+    eq('产出等阶不低于箱阶（六阶各一件都守规则）', higherTier, 6);
+    eq('开箱流水计数 +6', save.stats.opened - openedBefore, 6);
+
+    eq('背包里没箱时开箱返回 null（不白扣）', GAME.openOneChest(), null);
+
+    // 坏数据兜底：这两种脏箱在老存档 / 改包里都可能出现，必须照样出装备
+    save.chests.push({ tier: 99, level: 7 });
+    var weird = GAME.openOneChest();
+    ok(
+      '箱阶越界照样出装备（回落合法阶，不许空手）',
+      !!weird && !!weird.item,
+      weird && weird.item ? 'tier ' + weird.item.tier : 'null'
+    );
+    save.chests.push({ level: 7 });
+    var dirty = GAME.openOneChest();
+    ok(
+      'tier 缺失的脏箱也照样出装备',
+      !!dirty && !!dirty.item,
+      dirty && dirty.item ? 'tier ' + dirty.item.tier : 'null'
+    );
+    eq('脏箱也照样从背包里扣掉（箱子数对得上）', save.chests.length, 0);
+
+    // 箱不够时的开 10 箱：只开现有的，不空转也不报错
+    save.chests = [{ tier: 3, level: 9 }];
+    GAME.openChests(10);
+    eq('要开 10 箱但只剩 1 箱 → 开完为止，不报错', save.chests.length, 0);
+    eq('累计开箱计数 = 6 + 2 + 1', save.stats.opened - openedBefore, 9);
+  }
+
+  /* ---------------------------------------- 8c. 按阶开箱与自动开启（A14） */
+
+  /**
+   * A14（用户："宝箱可以设置是否自动开启——对应不同等阶不同的开启按钮"）。
+   *
+   * 界面上那两枚按阶控件（清单每行的「全开」+「自动」勾选）画得对不对、点得到点不到，
+   * 在 `checkPanelLayout` 里断言；这一组管**逻辑与存档**：
+   *   ① `settings.chestAuto` 的形状（一阶一枚）：新号全关、老存档没有这个字段 → 全关、
+   *      坏值一律当**关**（宁可不开，也别替玩家把箱子花掉）；
+   *   ② 「全开」= 只开这一阶：开 N 箱正好扣掉这一阶的 N 口，别的阶一口都不动，
+   *      这一阶空了就开 0 箱（不报错、也不误开别的阶）；
+   *   ③ 「自动开启」= 箱子掉出来就**当场开**：不进背包、不占 bagCap，
+   *      入账走和手点开箱同一个 `grantEquipment`；
+   *   ④ 掉箱那条路的接线：勾上 → 箱子直接开掉不进背包；没勾 → 照旧进背包（升级前后行为只差一个勾）。
+   */
+  function checkChestAuto() {
+    section('按阶开箱与自动开启（A14：清单每行的「全开」+「自动」勾选）');
+    var GAME = G.GAME;
+    var LOOT_ = G.LOOT;
+    if (
+      !GAME ||
+      !LOOT_ ||
+      typeof GAME.openChestsOfTier !== 'function' ||
+      typeof GAME.autoOpenChest !== 'function' ||
+      typeof GAME.toggleChestAuto !== 'function' ||
+      typeof LOOT_.autoEnabled !== 'function'
+    ) {
+      ok('GAME.openChestsOfTier / autoOpenChest / toggleChestAuto / LOOT.autoEnabled 可用（A14 的入口都导出了）', false, '拿不到入口');
+      return;
+    }
+    var tierTotal = BAL.chests.tiers.length;
+    var allOff = 'false,false,false,false,false,false';
+
+    // 1. 纯函数：一阶一枚、默认全关；坏数据一律当关
+    eq('默认勾选表 = 一阶一枚、全关', LOOT_.defaultAutoFlags().join(','), allOff);
+    eq('默认勾选表长度 = 阶数（改阶数不会让两边对不上）', LOOT_.defaultAutoFlags().length, tierTotal);
+    eq('「自动开启」判定：勾上的那一阶为真 / 没勾的为假', LOOT_.autoEnabled([false, true], 2) + ',' + LOOT_.autoEnabled([false, true], 1), 'true,false');
+    eq(
+      '老存档没有这个字段 / 不是数组 / 值不是 true → 一律当关',
+      LOOT_.autoEnabled(null, 1) + ',' + LOOT_.autoEnabled('x', 1) + ',' + LOOT_.autoEnabled([1, 'yes'], 1) + ',' + LOOT_.autoEnabled([undefined, true], 1),
+      'false,false,false,false'
+    );
+    eq('阶号离谱（0 / 越界）也当关', LOOT_.autoEnabled([true], 0) + ',' + LOOT_.autoEnabled([true], 99), 'false,false');
+    eq('勾了几阶（清单小标题读它）', LOOT_.autoCount([true, false, true]), 2);
+
+    // 2. 存档：新号全关、老存档补齐全关、坏值当关，长度永远跟阶数对齐
+    eq('新号的设置里就有这个字段，且全关', G.SAVE.defaultSettings().chestAuto.join(','), allOff);
+    eq('老存档没有 chestAuto → 迁移成"全关"（升级后行为与 A13 一模一样）', G.SAVE.normalizeSettings({ sfx: true }).chestAuto.join(','), allOff);
+    eq(
+      '存档里明确的 true 原样保留，其余当关',
+      G.SAVE.normalizeSettings({ chestAuto: [true, false, 'yes'] }).chestAuto.join(','),
+      'true,false,false,false,false,false'
+    );
+    eq('坏值（不是数组）当全关', G.SAVE.normalizeSettings({ chestAuto: 'x' }).chestAuto.join(','), allOff);
+    eq('长度永远 = 阶数（多给的项丢掉）', G.SAVE.normalizeSettings({ chestAuto: [true, true, true, true, true, true, true, true] }).chestAuto.length, tierTotal);
+
+    // 3. 运行时：「自动」勾选写进存档（重开还记得）
+    G.SAVE.clear();
+    GAME.boot();
+    var save = GAME.state.save;
+    var openedBefore = save.stats.opened;
+    eq('开机后六个勾选全关', GAME.chestAutoFlags().join(','), allOff);
+    GAME.toggleChestAuto(3);
+    eq('切换第三阶 = 勾上（勾选表按阶号对齐）', GAME.chestAutoFlags().join(','), 'false,false,true,false,false,false');
+    eq('勾选写进存档（重开还记得）', G.SAVE.load(BAL.season.worldSeed, 1).settings.chestAuto.join(','), 'false,false,true,false,false,false');
+    GAME.toggleChestAuto(3);
+    eq('再点一下又关掉', GAME.chestAutoFlags().join(','), allOff);
+    var threwToggle = '';
+    try {
+      GAME.toggleChestAuto(0);
+      GAME.toggleChestAuto(99);
+      GAME.toggleChestAuto('x');
+      GAME.toggleChestAuto();
+    } catch (error) {
+      threwToggle = String(error && error.message ? error.message : error);
+    }
+    eq('越界 / 非数字 / 缺参的阶号都不炸（界面上按空不该炸）', threwToggle, '');
+
+    // 4. 「全开」只开这一阶：别的阶一口都不动
+    save.chests = [{ tier: 2, level: 4 }, { tier: 5, level: 6 }, { tier: 2, level: 7 }, { tier: 2, level: 4 }];
+    eq('「全开」返回真开了几箱（三口二阶）', GAME.openChestsOfTier(2), 3);
+    eq('别的阶一口都不动（还剩那口五阶的）', save.chests.length + ':' + save.chests[0].tier, '1:5');
+    eq('开箱流水只 +3', save.stats.opened - openedBefore, 3);
+    eq('这一阶空了 → 再点「全开」开 0 箱（不报错）', GAME.openChestsOfTier(2), 0);
+    eq('阶号离谱也是 0（按钮越界点不出来，这里兜底）', GAME.openChestsOfTier(0) + ',' + GAME.openChestsOfTier(99), '0,0');
+    eq('「全开」不会顺手开别的阶（五阶那口还在）', save.chests.length, 1);
+
+    // 5. 「自动开启」：没进过背包的箱子也能开（掉出来就当场开）
+    save.chests = [];
+    save.settings.chestAuto = LOOT_.defaultAutoFlags();
+    var autoed = GAME.autoOpenChest(4, 8);
+    ok('自动开启一阶 → 直接开出一件装备（背包里本来就没有箱子）', !!autoed && !!autoed.item, autoed && autoed.item ? 'tier ' + autoed.item.tier : 'null');
+    ok('产出的等阶不低于箱阶（同一条 rollEquipmentTier 规则）', !!autoed && autoed.item.tier >= 4, autoed && autoed.item ? 'tier ' + autoed.item.tier : 'null');
+    ok(
+      '产出落在身上或背包里（与手点开箱共用 grantEquipment）',
+      !!autoed && (save.items.indexOf(autoed.item) >= 0 || save.loadout[autoed.item.slotId] === autoed.item)
+    );
+    eq('自动开箱照样计入开箱流水', save.stats.opened - openedBefore, 4);
+    eq('阶号离谱的自动开启开不出东西（不白给装备）', GAME.autoOpenChest(0, 5), null);
+
+    // 6. 掉箱那条路的接线：勾上 → 箱子不进背包；没勾 → 照旧进背包
+    var realDropChance = LOOT_.dropChance;
+    LOOT_.dropChance = function () {
+      return 1; // 强制掉箱（chance(1) 恒真，见 02-rng）
+    };
+    var killed = { mine: true, monster: { name: '测试怪', level: 6, band: 1, elite: false } };
+    var openedOff = save.stats.opened;
+    save.chests = [];
+    GAME.applyKill(killed);
+    eq('没勾自动开启：箱子照旧进背包（满包的自动分解那条老路一个字都没动）', save.chests.length, 1);
+    eq('没勾自动开启：开箱流水不动', save.stats.opened - openedOff, 0);
+    save.settings.chestAuto = [true, true, true, true, true, true];
+    save.chests = [];
+    var openedOn = save.stats.opened;
+    GAME.applyKill(killed);
+    eq('勾上自动开启：箱子**不进背包**（不掉出来就进包）', save.chests.length, 0);
+    eq('勾上自动开启：当场开掉（开箱流水 +1）', save.stats.opened - openedOn, 1);
+    LOOT_.dropChance = realDropChance;
+    save.settings.chestAuto = LOOT_.defaultAutoFlags();
+    eq('还原之后又回到"进背包"（勾选是唯一的开关）', GAME.state.save.settings.chestAuto.join(','), allOff);
+  }
+
+
   /* ---------------------------------------- 9. 玩家属性 / 移动 / 死亡 */
 
   function checkPlayer() {
@@ -9543,6 +13367,7 @@ G.SELFTEST = (function () {
     eq('新号无宝箱', fresh.chests.length, 0);
     eq('新号保底计数为 0', fresh.pity.epic + fresh.pity.mythic, 0);
     eq('新号有 4 个装备栏（武器 / 衣服 / 鞋子 / 饰品）', Object.keys(fresh.loadout).length, 4);
+    eq('新号没有强化石（本次新增：商城买的）', fresh.stones, 0);
     ok('出生点可用（决策 #5：首次随机出生）', G.SPAWN.isUsableSpawn(fresh.x, fresh.y), fresh.x + ',' + fresh.y);
 
     var broken = SAVE_.normalize({ v: 1, level: 99, x: NaN, y: 0, chests: [{ tier: 9 }, { tier: 3, level: 8 }] }, seed, 1);
@@ -9551,6 +13376,26 @@ G.SELFTEST = (function () {
     eq('存档修复：坏坐标回退到随机出生点', G.SPAWN.isUsableSpawn(broken.x, broken.y), true);
     eq('存档版本不符 → 当新号处理', SAVE_.normalize({ v: 0, level: 50 }, seed, 1).level, 1);
     eq('null 存档 → 当新号处理', SAVE_.normalize(null, seed, 1).level, 1);
+
+    // 强化石 / 强化等级（本次新增）：都是"可选字段 + 默认值"，所以 v2 的老存档照样读得进来
+    eq('缺 stones 字段的 v2 老存档 → 0 颗', SAVE_.normalize({ v: 2, level: 5 }, seed, 1).stones, 0);
+    eq('存档里的强化石能读回', SAVE_.normalize({ v: 2, stones: 12 }, seed, 1).stones, 12);
+    eq('负的强化石被夹回 0', SAVE_.normalize({ v: 2, stones: -5 }, seed, 1).stones, 0);
+    eq('离谱的强化石被夹回上限', SAVE_.normalize({ v: 2, stones: 1e9 }, seed, 1).stones, 999999);
+    var badGear = SAVE_.normalize(
+      {
+        v: 2,
+        items: [{ id: 1, slotId: 'weapon', main: { stat: 'attack', value: 5 }, affixes: [], enhance: 999 }],
+        loadout: {
+          weapon: { id: 2, slotId: 'weapon', main: { stat: 'attack', value: 5 }, affixes: [], enhance: -3 }
+        }
+      },
+      seed,
+      1
+    );
+    eq('背包里那件的坏强化等级被夹到上限（不许白送 +999）', badGear.items[0].enhance, G.EQUIP.maxEnhance());
+    eq('身上那件的负强化等级夹回 0', badGear.loadout.weapon.enhance, 0);
+    eq('老存档没有 enhance 字段 → 0 级（不炸）', G.EQUIP.enhanceLevel({ main: { stat: 'attack', value: 5 }, affixes: [] }), 0);
 
     var save = SAVE_.create(seed, 2);
     save.level = 7;
@@ -9687,18 +13532,199 @@ G.SELFTEST = (function () {
 
     /* ---------------------------------------------- A6：视角倍率 / Q版外观 / 图标 */
 
-    // 视角倍率：viewRect 必须跟着放大，否则边缘会缺一块（最容易漏的一条）
+    // 视角倍率：viewRect 必须跟着放大，否则边缘会缺一块（最容易漏的一条）。
+    // A11 之二起倍率的唯一来源是**缩放轴**（`view.zoomTiles`，默认 22 格），档位只提供"落在档位上时的精确值"。
     var camRect = R.viewRect({ x: 0, y: 0 });
     var k = R.zoom();
-    eq('视角倍率取自 balance', k, BAL.view.cameraZoom);
+    var camTier = R.tier();
+    var camTiles = Math.round(BAL.view.zoomTiles);
+    eq(
+      '视角倍率取自缩放轴（designWidth / (格数 × tileSize)；正落在档位上时取表里的精确值）',
+      k,
+      camTiles === camTier.tiles ? camTier.zoom : BAL.view.designWidth / (camTiles * BAL.world.tileSize)
+    );
+    eq(
+      'tier() 给出的就是离当前格数最近的那一档（宏观规格 / 装载环挂在它上面）',
+      camTier.tiles,
+      BAL.view.cameraTiers[BAL.view.cameraTier].tiles
+    );
     near('视野宽 = 屏宽 / 倍率', camRect.width, G.SCREEN.width() / k, 1e-9);
     near('视野高 = 屏高 / 倍率', camRect.height, G.SCREEN.height() / k, 1e-9);
+    // A6 的原意是"拉远之后视野比屏幕大"。默认改成 22 格（略近：zoom 1.0227）之后这条不再恒真，
+    // 所以按**倍率**验这条更普适的规律：zoom < 1 → 视野比屏幕大，zoom > 1 → 比屏幕小
+    // （一屏 22.5 格才是 1:1；拉远到 64 / 128 格时视野才真的比屏幕大）。
     ok(
-      '拉远之后视野比屏幕大（"扩大视角"真的生效了）',
-      camRect.maxX - camRect.minX > G.SCREEN.width(),
-      Math.round(camRect.maxX - camRect.minX) + ' vs ' + Math.round(G.SCREEN.width())
+      '视野随倍率走：倍率 < 1 时视野比屏幕大、> 1 时比屏幕小（"扩大视角"真的生效）',
+      (k < 1) === (camRect.width > G.SCREEN.width()) && (k > 1) === (camRect.width < G.SCREEN.width()),
+      'zoom=' + k.toFixed(4) + ' 视野=' + Math.round(camRect.width) + ' 屏宽=' + G.SCREEN.width()
     );
+
+    /* A8 / A11：一屏几格由**缩放轴**说了算（默认 22 格，滑块 16~64，预设档位 128 / 64 / 32），
+       竖屏永远不可能是正方形：横向 = 格数，竖向 = 格数 × 手机长宽比。 */
+    near('视野宽 = 当前格数 × tileSize（世界单位）', camRect.width, camTiles * BAL.world.tileSize, 1e-6);
+    ok(
+      '竖屏下竖向视野必然更长（格数是短边，不是正方形）',
+      camRect.height > camRect.width,
+      Math.round(camRect.height) + ' vs ' + Math.round(camRect.width)
+    );
+    eq('0.8 倍率 = 全细节档（A6 的观感就是逐格档）', R.groundDetailAt(0.8), 'high');
+    eq('远档 = 宏观档（省笔档）', R.groundDetailAt(BAL.view.cameraTiers[0].zoom), 'low');
+    eq('中档 = 宏观档', R.groundDetailAt(BAL.view.cameraTiers[1].zoom), 'low');
+    eq('近档 = 逐格档（一格 22.5 设计 px，够画 16×16 色格）', R.groundDetailAt(BAL.view.cameraTiers[2].zoom), 'high');
+    eq(
+      '宏观色格边长按档位给（远 4 格 / 中 1 格 / 近 1 格地表）',
+      R.lodBlockTiles(),
+      BAL.view.cameraTiers[BAL.view.cameraTier].lodBlockTiles
+    );
+    eq('每 chunk 的色格数 = 每 chunk 的格数 ÷ 色格边长', R.lodBlocks(), G.TERRAIN.tileCountPerChunk() / R.lodBlockTiles());
+
+    // 宏观档的账：低倍率下地表按"同 band 跨 chunk 批量落笔"，fill 次数比 chunk 数还少；
+    // 把阈值压到 0（= 关掉宏观档）立刻回到逐格档（每 chunk 一次 fillRect + 6 档路径）。
+    // 相机取在很远的地方，营地石砖的视野粗判会直接返回，于是这里数的正好只有"地表"这一层。
+    // A11：这一段量的是 A9 的账（"一整屏 171 个 chunk 的落笔比 chunk 数还少"），所以显式切到**远档**来数 ——
+    // 默认档已经换成中档（视野小 4 倍），拿它去比"落笔比 chunk 少"就不公平了：那是批量化的功劳，不是视野的。
+    var savedTierForLod = BAL.view.cameraTier;
+    var savedTilesForLod = BAL.view.zoomTiles;
+    // A11 之二：倍率由**缩放轴**（`view.zoomTiles`）说了算，档位只负责"宏观规格 / 装载环" ——
+    // 所以这里要同时把缩放轴放到远档的格数上（真机上切档走 GAME.setZoomTier，它一次写两处）。
+    BAL.view.cameraTier = 0;
+    BAL.view.zoomTiles = BAL.view.cameraTiers[0].tiles;
+    var farCam = { x: 200000, y: 200000 };
+    var farRect = R.viewRect(farCam);
+    var farChunks = G.CHUNK.chunksInRect(farRect.minX, farRect.minY, farRect.maxX, farRect.maxY, 0).length;
+    var lowGround = countGroundFills(farCam);
+    var lowMacro = R.macroStats();
+    log(
+      '  info  宏观档（一屏 ' + farChunks + ' 个 chunk）：落笔 ' + lowGround.fills +
+        ' 次、建路径 ' + lowGround.all + ' 次；调色板槽 ' + lowMacro.slots + ' 组、装饰斑 ' + lowMacro.blobs + ' 个'
+    );
+    ok(
+      '宏观档：地表按同 band 跨 chunk 批量落笔（一整屏 171 个 chunk 的落笔比 chunk 数还少）',
+      lowGround.fills > 0 && lowGround.fills < farChunks,
+      'fills=' + lowGround.fills + ' chunks=' + farChunks
+    );
+    ok(
+      '宏观档的落笔上限 = 调色板槽 ×（6 档地表 + 3 种斑）—— 随 band 组数走，不随 chunk 数走',
+      lowGround.fills <= lowMacro.slots * 9,
+      'fills=' + lowGround.fills + ' slots=' + lowMacro.slots
+    );
+    ok(
+      '宏观档：粗色格真的建了路径（地表有纹理，不是每 chunk 一片纯色）',
+      lowGround.all >= farChunks * 4,
+      'all=' + lowGround.all + ' chunks=' + farChunks
+    );
+    ok(
+      '宏观档的调色板槽 = 视野里的 band 组数（同 band 才共用一次落笔）',
+      lowMacro.slots >= 1 && lowMacro.slots <= 40,
+      'slots=' + lowMacro.slots
+    );
+    ok(
+      '宏观装饰斑：整屏至少一半的 chunk 有可读的"草甸 / 石滩 / 林地"',
+      lowMacro.blobs >= farChunks / 2,
+      'blobs=' + lowMacro.blobs + ' chunks=' + farChunks
+    );
+    var savedBlobs = BAL.view.lodDecorBlobs;
+    BAL.view.lodDecorBlobs = 0;
+    countGroundFills(farCam);
+    var noBlobs = R.macroStats().blobs;
+    BAL.view.lodDecorBlobs = savedBlobs;
+    eq('宏观装饰斑也是一个数就能关掉（lodDecorBlobs = 0 → 一个斑都不画）', noBlobs, 0);
+    var savedLodZoom = BAL.view.lodZoom;
+    BAL.view.lodZoom = 0;
+    var highGround = countGroundFills(farCam);
+    BAL.view.lodZoom = savedLodZoom;
+    ok(
+      '关掉宏观档（lodZoom = 0）后地表回到逐格档（每 chunk 一次 fillRect + 6 档路径）',
+      highGround.rects >= farChunks && highGround.fills >= farChunks,
+      'rects=' + highGround.rects + ' fills=' + highGround.fills + ' chunks=' + farChunks
+    );
+    var decorCtx = fakeContext();
+    R.drawDecor(decorCtx, farCam, [{ x: 200000, y: 200000, kind: 'grass', size: 1, flip: false, band: 0 }]);
+    eq('省笔档：装饰整层跳过（拉远后一件装饰只剩 1~2 CSS px）', decorCtx.calls.count, 0);
+    eq('省笔档阈值已复位（自检不许把 balance 改坏给后面的组看）', BAL.view.lodZoom, savedLodZoom);
+    BAL.view.cameraTier = savedTierForLod;
+    BAL.view.zoomTiles = savedTilesForLod;
+    eq('临时切到远档量完就切回来（自检不许把 balance 改坏给后面的组看）', BAL.view.cameraTier, savedTierForLod);
     ok('世界层缩放包夹成对出现（beginWorld / endWorld）', typeof R.beginWorld === 'function' && typeof R.endWorld === 'function');
+
+    /* ---------------------------------------------- A9：演员层最小观感尺寸（view.actorMinZoom） */
+
+    // 用户："还有人物的大小"。一屏 128 格（远档）把世界压缩了 4.55 倍，角色（半径 24）只剩 ~4 CSS px；
+    // 这一层给"点状的东西"一个观感下限：屏幕上的半径 = 世界半径 × actorMinZoom。
+    // A11 之二起倍率的唯一来源是**缩放轴**（`view.zoomTiles`），所以这里显式把倍率放到**远档**那一格数上
+    // —— A9 讲的账本来就是那个最大压缩比下的账，量完再放回去。
+    var savedTilesForActor = BAL.view.zoomTiles;
+    var savedTierForActor = BAL.view.cameraTier;
+    BAL.view.cameraTier = 0;
+    BAL.view.zoomTiles = BAL.view.cameraTiers[0].tiles;
+    var kActor = R.zoom();
+    var actorScale = R.actorScale();
+    near('演员层放大倍数 = actorMinZoom / zoom', actorScale, BAL.view.actorMinZoom / kActor, 1e-9);
+    near(
+      '角色在屏幕上的半径（设计 px）= 半径 × actorMinZoom',
+      BAL.player.radius * actorScale * kActor,
+      BAL.player.radius * BAL.view.actorMinZoom,
+      1e-9
+    );
+    ok(
+      '角色在屏幕上的观感尺寸有 A6 同款（>= 18 设计 px 半径 ≈ 手机 9 CSS px）',
+      BAL.player.radius * actorScale * kActor >= 18 && BAL.player.radius * actorScale * kActor <= 24,
+      (BAL.player.radius * actorScale * kActor).toFixed(1) + ' 设计 px = ' + (BAL.player.radius * actorScale * kActor * 0.52).toFixed(1) + ' CSS px'
+    );
+    var savedActorMin = BAL.view.actorMinZoom;
+    var savedTierZoom = BAL.view.cameraTiers[0].zoom;
+    BAL.view.cameraTiers[0].zoom = savedActorMin; // 把远档的倍率抬到 0.8（= actorMinZoom）
+    eq('倍率抬到 actorMinZoom 时这一层完全不生效（就是 1 倍，观感本来就够）', R.actorScale(), 1);
+    BAL.view.cameraTiers[0].zoom = savedTierZoom;
+    BAL.view.actorMinZoom = 0; // 关掉演员层
+    eq('actorMinZoom = 0 → 一个像素都不放大（可一键回退到"角色 4 CSS px"）', R.actorScale(), 1);
+    BAL.view.actorMinZoom = savedActorMin;
+    near(
+      '演员层与档位倍率都复位（自检不许把 balance 改坏给后面的组看）',
+      BAL.view.actorMinZoom + R.zoom(),
+      savedActorMin + savedTierZoom,
+      1e-12
+    );
+    BAL.view.cameraTier = savedTierForActor;
+    BAL.view.zoomTiles = savedTilesForActor;
+    eq(
+      '默认 ' + BAL.view.zoomTiles + ' 格时倍率已高于 actorMinZoom → 演员层不放大（角色按世界尺寸画，A11 之三 近距离视角的顺带好处）',
+      R.actorScale(),
+      1
+    );
+
+    // 演员层是"成对 save / restore"的：不配平的话缩放会漏给后面的怪 / 名牌 / HUD（画面会整体错位）
+    var depthCtx = fakeContext();
+    var depth = 0;
+    var rawSave = depthCtx.save;
+    var rawRestore = depthCtx.restore;
+    depthCtx.save = function () {
+      depth += 1;
+      return rawSave.apply(this, arguments);
+    };
+    depthCtx.restore = function () {
+      depth -= 1;
+      return rawRestore.apply(this, arguments);
+    };
+    var depthCam = { x: 0, y: 0 };
+    R.drawPlayer(
+      depthCtx,
+      depthCam,
+      { x: 0, y: 0, radius: BAL.player.radius, facing: { x: 1, y: 0 }, moving: false, hp: 10, hpMax: 10, hurtUntil: 0 },
+      { attackSpeed: 1.2 },
+      1000,
+      null
+    );
+    eq('玩家画完 save / restore 配平（演员层缩放不许漏出去）', depth, 0);
+    R.drawMonsters(
+      depthCtx,
+      depthCam,
+      [{ id: 7, kindId: 'brute', x: 60, y: 0, radius: 30, dirX: -1, dirY: 0, state: 'chase', hp: 5, hpMax: 10, level: 3, name: '石拳巨怪', elite: true, hurtUntil: 0 }],
+      7,
+      1000
+    );
+    eq('怪画完 save / restore 配平（含精英圈 / 王冠 / 血条 / 名字）', depth, 0);
+    ok('演员层的身体真的画了（不是空转）', depthCtx.calls.count > 0, 'calls=' + depthCtx.calls.count);
     var zoomCtx = fakeContext();
     R.beginWorld(zoomCtx);
     R.endWorld(zoomCtx);
@@ -9759,9 +13785,10 @@ G.SELFTEST = (function () {
     }
     ok('四个部位的内观与空位剪影都画得出来', itemMiss.length === 0, itemMiss.join(','));
     var frameCtx = fakeContext();
-    G.ICONS.frame(frameCtx, 0, 0, 44, 6);
+    G.ICONS.frame(frameCtx, 0, 0, 44, 6, false, 0);
     ok('阶色边框画得出来', frameCtx.calls.count >= 2, 'calls=' + frameCtx.calls.count);
     eq('阶色只有一份（面板转发 icons 那份）', G.PANELS.tierColor(6), G.ICONS.TIER_COLORS[5]);
+    eq('发光色也只有一份（icons 读 balance.equipment.tiers[].glow）', G.ICONS.tierGlow(6).join(','), BAL.equipment.tiers[5].glow.join(','));
   }
 
   /* ---------------------------------------- 13. 账号 / 昵称 / 界面 / 自动战斗（A4） */
@@ -9829,6 +13856,7 @@ G.SELFTEST = (function () {
       chests: [{ tier: 3, level: 5 }],
       pity: { epic: 4, mythic: 5 },
       horns: 2,
+      stones: 3,
       stats: { kills: 7 }
     };
     var migrated = G.SAVE.normalize(v1, BAL.season.worldSeed, 1);
@@ -9837,6 +13865,7 @@ G.SELFTEST = (function () {
     eq('迁移不丢金币', migrated.gold, 456);
     eq('迁移不丢宝箱', migrated.chests.length, 1);
     eq('迁移不丢号角', migrated.horns, 2);
+    eq('迁移不丢强化石（本次新增的字段，v1 存档里其实不会有）', migrated.stones, 3);
     eq('迁移补上角色名（空 = 还没建角色）', migrated.name, '');
     eq('迁移补上设置项（自动战斗默认关）', migrated.settings.autoBattle, false);
     eq('认不出的版本照样开新号（不白屏）', G.SAVE.normalize({ v: 99, level: 5 }, BAL.season.worldSeed, 1).level, 1);
@@ -9846,33 +13875,104 @@ G.SELFTEST = (function () {
   }
 
   /**
-   * 界面（用户要求三条）：面板只占 1/3 屏、有关闭按钮、打开时游戏不停止；
-   * 另外验证登录 / 创建角色界面的按钮能产生正确的 action（界面逻辑不能只靠肉眼）。
+   * 界面（用户要求三条）：面板只占一部分屏（A4 是 1/3 屏，2026-10-01 改成 2/3 屏高）、
+   * 有关闭按钮、打开时游戏不停止；另外验证登录 / 创建角色界面的按钮能产生正确的 action
+   * （界面逻辑不能只靠肉眼）。
    */
   function checkUi() {
     section('界面：卡片大小 / 关闭键 / 滚动 / 登录界面（A4）');
     var card = G.PANELS.rect();
     var ratio = (card.w * card.h) / (G.SCREEN.width() * G.SCREEN.height());
-    between('面板卡片面积约为 1/3 屏', ratio, 0.28, 0.38);
+    // 2026-10-01 用户布局改动（`tools\hud-preview.html` 拖出来后跑 `tools\apply-hud-layout.cmd` 写回）：
+    // 卡片从"约 1/3 屏"（屏高 0.42 ≈ 面积 0.38）改成"约 2/3 屏高"—— 目的很直白：背包内容约 1492
+    // 设计 px，卡片高一点就少滚一截（视口 ~580 → ~964）。面积跟着 balance 走，所以这条断言
+    // 只是"别把卡片拖到铺满屏幕"的看门狗。**本次改动：下限从 0.52 放到 0.44** ——
+    // 卡片左边让出了 `view.panel.leftReserve`（左侧边栏的宽度，见 balance.view.sideBar），
+    // 于是它是"窄一点的 2/3 屏高"（720x1600 下 0.4877），高度那一维没变。
+    between('面板卡片面积约为 2/3 屏高（用户 2026-10-01 从 1/3 屏改过来）', ratio, 0.44, 0.66);
     ok(
       '卡片完整落在屏幕内',
       card.x >= 0 && card.y >= 0 && card.x + card.w <= G.SCREEN.width() && card.y + card.h <= G.SCREEN.height(),
       JSON.stringify(card)
     );
-    ok('卡片没有铺满屏幕', card.w < G.SCREEN.width() * 0.9 && card.h < G.SCREEN.height() * 0.6);
+    ok(
+      '卡片没有铺满屏幕（左右留着边距、下面留着整条吸底动作栏）',
+      card.w < G.SCREEN.width() * 0.95 && card.h < G.SCREEN.height() * 0.7,
+      Math.round(card.w) + 'x' + Math.round(card.h) + ' / ' + G.SCREEN.width() + 'x' + Math.round(G.SCREEN.height())
+    );
 
     var hudButtons = G.HUD.buttons({ save: { chests: [], items: [], guild: null, settings: { autoBattle: false } } });
-    eq('右下功能键 5 个（多了「自动」）', hudButtons.length, 5);
-    eq('「自动」按钮在最下（拇指位）', hudButtons[4].id, 'auto');
-    var leftmost = hudButtons[0].x - hudButtons[0].r;
-    ok('卡片与功能键不重叠', card.x + card.w <= leftmost + 1, Math.round(card.x + card.w) + ' vs ' + Math.round(leftmost));
-    var expTop = G.SCREEN.height() - G.SCREEN.safeBottom() - BAL.view.hud.expBarHeight;
+    // 本次改动：底部那一行只剩 箱 / 包 / 会 / 设 / 自动（「商」挪进左边侧边栏），
+    // 侧边栏的两枚键追加在**最后**（自检与预览都在数这份表，追加最安全）
+    eq('底部功能图标 5 枚 + 左侧边栏 2 枚', hudButtons.length, 7);
+    eq('「自动」仍是底部那一行的最后一枚', hudButtons[4].id, 'auto');
+    var hudRow = hudButtons.filter(function (button) { return button.kind !== 'side'; });
+    var hudSide = hudButtons.filter(function (button) { return button.kind === 'side'; });
+    eq('底部那一行是 5 枚（箱 / 包 / 会 / 设 / 自动）', hudRow.length, 5);
+    eq('侧边栏是 2 枚（商 / 营）', hudSide.length, 2);
+    eq('侧边栏第一枚是「商」（商城）', hudSide[0].id, 'sideShop');
+    eq('侧边栏第二枚是「营」（回到营地）', hudSide[1].id, 'sideCamp');
     ok(
-      '经验条在最下方（在功能键下面）',
-      expTop >= hudButtons[0].y + hudButtons[0].r,
-      expTop + ' vs ' + Math.round(hudButtons[0].y + hudButtons[0].r)
+      '「商」在「营」上面（用户要求：回到营地按钮放在商城下面）',
+      hudSide[1].y > hudSide[0].y + hudSide[0].r && hudSide[0].x === hudSide[1].x,
+      '商 y=' + Math.round(hudSide[0].y) + ' 营 y=' + Math.round(hudSide[1].y)
     );
-    ok('自动按钮带状态（开着会点亮）', hudButtons[4].state === 'off' && hudButtons[4].label.length > 0, hudButtons[4].label);
+    ok(
+      '侧边栏贴左边缘、整条在屏内，且两枚圆之间塞得下说明文字',
+      hudSide[0].x - hudSide[0].r >= 0 &&
+        hudSide[1].x + hudSide[1].r < G.SCREEN.width() / 2 &&
+        hudSide[1].y - hudSide[1].r >
+          hudSide[0].y + hudSide[0].r + BAL.view.hud.captionGap + G.ICONS.size('captionSize') - 1,
+      Math.round(hudSide[0].x) + ',' + Math.round(hudSide[0].y) + ' / ' + Math.round(hudSide[1].x) + ',' + Math.round(hudSide[1].y)
+    );
+    ok(
+      '侧边栏的底板把两枚键都框住了（HUD.sideBarRect）',
+      (function () {
+        var rail = G.HUD.sideBarRect();
+        return (
+          !!rail &&
+          rail.x <= hudSide[0].x - hudSide[0].r &&
+          rail.x + rail.w >= hudSide[0].x + hudSide[0].r &&
+          rail.y <= hudSide[0].y - hudSide[0].r &&
+          rail.y + rail.h >= hudSide[1].y + hudSide[1].r
+        );
+      })(),
+      JSON.stringify(G.HUD.sideBarRect())
+    );
+    ok(
+      '侧边栏整条都在面板卡片左边（否则面板打开时那两枚键会被卡片吃掉触摸）',
+      G.HUD.sideBarRect().x + G.HUD.sideBarRect().w <= card.x,
+      Math.round(G.HUD.sideBarRect().x + G.HUD.sideBarRect().w) + ' <= ' + Math.round(card.x)
+    );
+    // 角标读的还是手里的强化石（跟着「商」一起挪进了侧边栏）
+    eq('「商」的角标读的就是手里的强化石（0 颗时没有角标）', hudSide[0].badge, 0);
+    var hudWithStones = G.HUD.buttons({
+      save: { chests: [], items: [], guild: null, stones: 7, settings: { autoBattle: false } }
+    });
+    eq('手里有石头时「商」的角标就是石头的数量', hudWithStones[5].badge, 7);
+    eq('底部那一行没有「商」了（同一个商城不会出现两次）', hudRow.map(function (b) { return b.id; }).indexOf('shop'), -1);
+    var lastHudButton = hudRow[hudRow.length - 1];
+    ok(
+      '功能图标排成一行（A7 换位：从右侧竖列改成底部一行）',
+      hudRow[0].y === lastHudButton.y && hudRow[0].x < lastHudButton.x,
+      hudRow.map(function (button) { return Math.round(button.x); }).join(',')
+    );
+    ok(
+      '功能图标整排在屏幕内（7 槽 + gap 20 收窄后的账）',
+      hudRow[0].x - hudRow[0].r >= 0 && lastHudButton.x + lastHudButton.r <= G.SCREEN.width(),
+      Math.round(hudRow[0].x - hudRow[0].r) + ' .. ' + Math.round(lastHudButton.x + lastHudButton.r)
+    );
+    ok(
+      '卡片与整条吸底动作栏不重叠（卡片底边压在它上面）',
+      card.y + card.h <= G.HUD.bottomBarTop(),
+      Math.round(card.y + card.h) + ' <= ' + Math.round(G.HUD.bottomBarTop())
+    );
+    ok(
+      '经验条在最下方（在两行键下面）',
+      G.HUD.expTop() >= hudRow[0].y + hudRow[0].r + BAL.view.hud.captionGap + G.ICONS.size('captionSize'),
+      Math.round(G.HUD.expTop()) + ' vs ' + Math.round(hudRow[0].y + hudRow[0].r)
+    );
+    ok('自动按钮带状态（开着会点亮）', hudRow[4].state === 'off' && hudRow[4].label.length > 0, hudRow[4].label);
 
     // 假存档（12 件装备 → 背包内容一定比卡片长，才测得出滚动）
     var items = [];
@@ -10140,6 +14240,48 @@ G.SELFTEST = (function () {
     }
     ok('坐标没有 NaN / Infinity', isFinite(player.x) && isFinite(player.y));
 
+    // A7 修订（用户要求"自动战斗找全地图最近的怪"）：把玩家丢到离**所有**已装载的怪都超过 3000 的地方
+    // —— 旧规则（上限 540）这里一定是 null，自动走位会站着发呆；新规则照样盯住最近那只并走过去。
+    var loaded = G.WORLD.allMonsters();
+    var alive = [];
+    var maxMonsterX = -Infinity;
+    var maxMonsterY = -Infinity;
+    for (var mi = 0; mi < loaded.length; mi += 1) {
+      if (loaded[mi].state === 'dead') continue;
+      alive.push(loaded[mi]);
+      if (loaded[mi].x > maxMonsterX) maxMonsterX = loaded[mi].x;
+      if (loaded[mi].y > maxMonsterY) maxMonsterY = loaded[mi].y;
+    }
+    ok('已装载的怪里至少有一只活的（下面几条全靠它）', alive.length > 0, 'alive=' + alive.length);
+    if (alive.length) {
+      var backX = player.x;
+      var backY = player.y;
+      player.x = maxMonsterX + 3000;
+      player.y = maxMonsterY + 3000;
+      ok('旧上限（540）在这个位置一个目标都选不到', G.COMBAT.pickTarget(player.x, player.y, alive, 540) === null);
+      var farTarget = G.WORLD.pickTarget(player);
+      ok('不限距离时仍盯住最近的那只怪', !!farTarget, farTarget ? 'id=' + farTarget.id : 'null');
+      if (farTarget) {
+        var farBefore = Math.sqrt(
+          (farTarget.x - player.x) * (farTarget.x - player.x) + (farTarget.y - player.y) * (farTarget.y - player.y)
+        );
+        ok('  —— 距离确实在 3000 那一档（真的是"全地图"）', farBefore > 540, Math.round(farBefore));
+        player.targetId = 0; // 清掉上一个目标，逼 autoStep 重新选（== "目标死了 / 丢了"那条路）
+        for (var fk = 0; fk < 120; fk += 1) GAME.autoStep(player, stats, 1000 / 60);
+        var farAfter = Math.sqrt(
+          (farTarget.x - player.x) * (farTarget.x - player.x) + (farTarget.y - player.y) * (farTarget.y - player.y)
+        );
+        ok(
+          '自动走位朝 3000 外的那只怪走（距离变小）',
+          farAfter < farBefore,
+          Math.round(farBefore) + ' -> ' + Math.round(farAfter)
+        );
+      }
+      player.x = backX;
+      player.y = backY;
+      player.targetId = 0;
+    }
+
     // 手动优先：摇杆推着的时候，step() 不该走"自动走位"那条分支
     GAME.state.save.settings.autoBattle = true;
     var stick = G.INPUT.state.stick;
@@ -10173,7 +14315,12 @@ G.SELFTEST = (function () {
       BAL.view.hitStopMs.normal < BAL.view.hitStopMs.crit && BAL.view.hitStopMs.normal >= 20 && BAL.view.hitStopMs.crit <= 150,
       BAL.view.hitStopMs.normal + ' / ' + BAL.view.hitStopMs.crit
     );
-    ok('暴击震屏幅度 > 挨打震屏幅度', BAL.view.shake.critPower > BAL.view.shake.hurtPower);
+    ok('暴击震屏有一档设定值（幅度 > 0）', BAL.view.shake.critPower > 0 && BAL.view.shake.critMs > 0);
+    ok(
+      'A7 修订 2：balance 里已没有"挨打震屏"字段（受伤不抖屏）',
+      BAL.view.shake.hurtMs === undefined && BAL.view.shake.hurtPower === undefined,
+      JSON.stringify(BAL.view.shake)
+    );
     ok('挨打顿帧不长于普通命中（挨打只要一顿，不要卡）', BAL.view.hitStopMs.hurt <= BAL.view.hitStopMs.normal);
 
     if (!GAME || typeof GAME.applyHitFeedback !== 'function') {
@@ -10205,9 +14352,11 @@ G.SELFTEST = (function () {
     eq('震屏到点归零（y）', gone.y, 0);
 
     GAME.state.hitStopMs = 0;
+    GAME.state.shake.power = 0;
     var hurt = GAME.applyHitFeedback({ hits: [], playerHits: [{ damage: 5 }] });
     eq('挨打也有顿帧', hurt.stop, BAL.view.hitStopMs.hurt);
-    eq('挨打震一下（幅度更小）', GAME.state.shake.power, BAL.view.shake.hurtPower);
+    eq('A7 修订 2：挨打不再震屏（震屏只留给暴击）', GAME.state.shake.power, 0);
+    eq('挨打也不许把相机的震屏偏移带起来', GAME.shakeOffset(GAME.state.now).x, 0);
 
     // 顿帧真的会冻住世界
     GAME.state.hitStopMs = 100;
@@ -10317,6 +14466,401 @@ G.SELFTEST = (function () {
    * 三件事都能断言：治疗按缺失血量收钱、满血不收、钱不够不给治；
    * 传送会把人放到原点、短冷却内第二次被拒；「营」按钮只在营地里出现。
    */
+  /* ------------------- 14b. 铁匠强化 + 商城的强化石 + 背包分页（本次新增） */
+
+  /**
+   * 用户要求三件事：① 商城里能买到强化石（100 金币一颗，越往上强化吃的石头越多）；
+   * ② 公会营地里有一个铁匠NPC；③ 他给**已穿**的装备强化（+1 → +10，每级翻倍）；
+   * 顺带把 A 版背包那句"只列出前 15 件"改成**一页 15 件、拖格子翻页**。
+   *
+   * 这一组盯四件事：
+   *   ① 规则只有一份（`balance.enhance`）：成本 = baseStones x growth^等级，坏数据（+999 / 负数 /
+   *      字符串）不许白送等级 —— 改包与坏存档都拦在这里；
+   *   ② 改存档只有两条入口（`buyStone` / `enhanceItem`）：金币与石头只在它们里面动，强化只动
+   *      **身上那一件**，别的部位与背包一个字节都不变；
+   *   ③ 界面：强化面板（四行 + 石头 + 去商城）、商城的强化石行、营地面板的铁匠行，点了要开对面板；
+   *   ④ 入口：走到铁匠跟前才多出那枚「锻」键 —— **走远了必须消失**，否则在野外摸到那一块屏幕
+   *      会莫名其妙弹出强化面板（这类"按钮钉在世界上"的 bug 只能靠断言盯住）。
+   */
+  function checkEnhance() {
+    section('铁匠强化 / 强化石 / 背包分页（本次新增）');
+    var rule = BAL.enhance;
+    var E = G.EQUIP;
+    var GAME = G.GAME;
+
+    function rowById(list, id) {
+      for (var n = 0; n < list.length; n += 1) {
+        if (list[n].id === id) return list[n];
+      }
+      return null;
+    }
+
+    /* ---- ① 数值规则：全在 balance，代码里没有第二个数 ---- */
+    eq('上限 = balance.enhance.maxLevel（用户要求 +1 到 +10）', E.maxEnhance(), rule.maxLevel);
+    eq('上限就是 10', rule.maxLevel, 10);
+    eq('每级翻倍（growth = 2）', rule.growth, 2);
+    eq('+1 要 1 颗（baseStones = 1）', rule.baseStones, 1);
+    ok('每级都给主属性加成（statPerLevel > 0）', rule.statPerLevel > 0, String(rule.statPerLevel));
+    eq('强化石 100 金币一颗（用户给的价）', BAL.shop.stone.priceGold, 100);
+    eq('号角没被顺手改价（还是 500）', BAL.shop.horn.priceGold, 500);
+    var costs = [];
+    for (var k = 0; k < rule.maxLevel; k += 1) costs.push(E.enhanceCost(k));
+    eq('每级成本 = 1,2,4,...,512（用户："+1 一个、+2 两个、+3 四个，依此类推"）', costs.join(','), '1,2,4,8,16,32,64,128,256,512');
+    eq('满级后没得升（成本 0）', E.enhanceCost(rule.maxLevel), 0);
+    eq('负等级按 0 算（不炸也不白送）', E.enhanceCost(-3), 1);
+
+    /* ---- ② 坏数据：缺字段 / 字符串 / NaN / 负数 / 越界 ---- */
+    eq('没有 enhance 字段 = 0 级', E.enhanceLevel({}), 0);
+    eq('null = 0 级', E.enhanceLevel(null), 0);
+    eq('字符串 = 0 级（改包改不出等级）', E.enhanceLevel({ enhance: '3' }), 0);
+    eq('NaN = 0 级', E.enhanceLevel({ enhance: NaN }), 0);
+    eq('负数 = 0 级', E.enhanceLevel({ enhance: -4 }), 0);
+    eq('超出上限 = 上限', E.enhanceLevel({ enhance: 999 }), rule.maxLevel);
+    eq('小数向下取整（2.7 → 2）', E.enhanceLevel({ enhance: 2.7 }), 2);
+
+    /* ---- ③ 加成 / 战力 / 文案：同一个倍率，主属性涨、词条不动 ---- */
+    var sword = E.generate(1, 1, new G.RNG.Rng(9), 0);
+    eq('刚掉出来的装备是 0 级（generate 里就写死）', sword.enhance, 0);
+    var baseMain = sword.main.value;
+    var basePower = sword.power;
+    var baseAffix = sword.affixes.length ? sword.affixes[0].value : 0;
+    var baseAttack = E.totalsOf({ weapon: sword }).attack;
+    eq('0 级的强化标记是空串（所有拼接都不用先判断）', E.enhanceTag(sword), '');
+    eq('0 级时 labelOf 与以前逐字一样（老断言与老界面都不受影响）', E.labelOf(sword), E.tierById(1).name + ' ' + sword.name);
+    eq('applyEnhance 返回新的等级', E.applyEnhance(sword), 1);
+    eq('等级写在装备自己身上', E.enhanceLevel(sword), 1);
+    eq('主属性数值没被就地改掉（改的是倍率）', sword.main.value, baseMain);
+    ok('战力涨了（powerOf 也吃强化）', sword.power > basePower, basePower + ' → ' + sword.power);
+    ok('属性汇总按同一个倍率涨（applyTo 与 powerOf 同源）', E.totalsOf({ weapon: sword }).attack > baseAttack, baseAttack + ' → ' + E.totalsOf({ weapon: sword }).attack);
+    eq('词条一个字没动', sword.affixes.length ? sword.affixes[0].value : 0, baseAffix);
+    eq('强化标记变成 +1', E.enhanceTag(sword), ' +1');
+    ok('labelOf 也带上 +1（背包 / 装备槽 / 提示一次到位）', E.labelOf(sword).indexOf(' +1') > 0, E.labelOf(sword));
+    eq('下一级要 2 颗', E.nextEnhanceCost(sword), 2);
+    while (E.canEnhance(sword)) E.applyEnhance(sword);
+    eq('一路升到 +10 就停', E.enhanceLevel(sword), rule.maxLevel);
+    eq('满级后再调也还是 10（不越界）', E.applyEnhance(sword), rule.maxLevel);
+    eq('满级时 nextEnhanceCost = 0', E.nextEnhanceCost(sword), 0);
+    eq('满级主属性倍率 = 1 + 10 x statPerLevel', E.enhanceMul(sword), 1 + rule.maxLevel * rule.statPerLevel);
+    eq('canEnhance 对空装备返回 false', E.canEnhance(null), false);
+
+    /* ---- ④ 强化面板：四行 + 石头一行 + 去商城一行 ---- */
+    G.PANELS.open('enhance');
+    var smithView = {
+      save: {
+        level: 12,
+        gold: 500,
+        exp: 0,
+        name: '铁匠面板测试者',
+        chests: [],
+        items: [],
+        pity: { epic: 0, mythic: 0 },
+        guild: null,
+        stones: 3,
+        loadout: E.emptyLoadout(),
+        settings: { autoBattle: false },
+        stats: { kills: 0, eliteKills: 0, opened: 0 }
+      },
+      player: { x: 0, y: 0, hp: 100, dead: false },
+      stats: { power: 0, hpMax: 100 },
+      now: 0
+    };
+    smithView.save.loadout.weapon = E.generate(1, 3, new G.RNG.Rng(21), 0);
+    var smithRows = G.PANELS.rows(smithView);
+    var smithIds = smithRows.map(function (row) { return row.id; }).join(',');
+    ok('强化面板有"强化石 N 颗"那一行', smithIds.indexOf('enhance:stones') >= 0, smithIds);
+    ok(
+      '四个部位各一行（武器 / 衣服 / 鞋子 / 饰品）',
+      smithIds.indexOf('enhance:weapon') >= 0 &&
+        smithIds.indexOf('enhance:armor') >= 0 &&
+        smithIds.indexOf('enhance:boots') >= 0 &&
+        smithIds.indexOf('enhance:trinket') >= 0,
+      smithIds
+    );
+    ok('末尾一行跳去商城买石头', smithIds.indexOf('enhance:shop') >= 0, smithIds);
+    var enhanceWeaponRow = rowById(smithRows, 'enhance:weapon');
+    ok(
+      '穿了装备的那一行可以点（action = enhance + 部位）',
+      !!enhanceWeaponRow.action &&
+        enhanceWeaponRow.action.type === 'enhance' &&
+        enhanceWeaponRow.action.slotId === 'weapon',
+      JSON.stringify(enhanceWeaponRow.action)
+    );
+    ok(
+      '行里写清了下一级要几颗、以及强化后的战力',
+      enhanceWeaponRow.sub.indexOf('1 颗强化石') >= 0 && enhanceWeaponRow.sub.indexOf('战力') >= 0,
+      enhanceWeaponRow.sub
+    );
+    ok(
+      '那一行带装备内观图标（与背包格同一套画法）',
+      !!enhanceWeaponRow.icon && enhanceWeaponRow.icon.kind === 'gear',
+      JSON.stringify(enhanceWeaponRow.icon)
+    );
+    var enhanceArmorRow = rowById(smithRows, 'enhance:armor');
+    ok(
+      '空部位那一行不可点，并直说先去背包穿上',
+      enhanceArmorRow.action === null && enhanceArmorRow.sub.indexOf('穿上') >= 0,
+      enhanceArmorRow.sub
+    );
+    smithView.save.stones = 0;
+    var brokeRow = rowById(G.PANELS.rows(smithView), 'enhance:weapon');
+    ok('石头不够时那一行照样能点（点了会提示还差几颗）', !!brokeRow.action, JSON.stringify(brokeRow.action));
+    var maxedItem = E.generate(1, 3, new G.RNG.Rng(21), 0);
+    while (E.canEnhance(maxedItem)) E.applyEnhance(maxedItem);
+    smithView.save.loadout.weapon = maxedItem;
+    var maxedRow = rowById(G.PANELS.rows(smithView), 'enhance:weapon');
+    ok('满级那一行不可点，并写明已满级', maxedRow.action === null && maxedRow.sub.indexOf('满级') >= 0, maxedRow.sub);
+    smithView.save.loadout.weapon = null;
+    var noneRow = rowById(G.PANELS.rows(smithView), 'enhance:weapon');
+    ok('没穿装备那一行也画得出来（不炸）', !!noneRow && noneRow.text.indexOf('空') > 0, noneRow ? noneRow.text : 'null');
+    var smithCtx = fakeContext();
+    G.PANELS.draw(smithCtx, smithView);
+    ok('强化面板画得出来', smithCtx.calls.count > 20, 'calls=' + smithCtx.calls.count);
+    G.PANELS.close();
+
+    /* ---- ⑤ 两条"改存档"的入口：商城买石头 / 铁匠强化 ---- */
+    G.SAVE.clear();
+    GAME.boot();
+    GAME.beginPlaying('强化入口测试者');
+    var save = GAME.state.save;
+    eq('开局没有强化石', save.stones, 0);
+    save.level = BAL.guild.shopUnlockLevel;
+    save.gold = 1000;
+    GAME.buyStone();
+    eq('买一颗扣 100 金币', save.gold, 900);
+    eq('手里有 1 颗', save.stones, 1);
+    GAME.buyStone();
+    eq('再买一颗还是 100 金币（不是越买越贵）', save.gold, 800);
+    save.gold = 0;
+    GAME.buyStone();
+    eq('金币不够就买不到（数量不变）', save.stones, 2);
+    eq('买不起时金币不会被扣成负的', save.gold, 0);
+    save.level = BAL.guild.shopUnlockLevel - 1;
+    GAME.buyStone();
+    eq('没到解锁等级时商城是锁着的', save.stones, 2);
+
+    save.level = 3;
+    var worn = E.generate(1, 3, new G.RNG.Rng(31), 0);
+    var spare = E.generate(1, 3, new G.RNG.Rng(32), 0);
+    save.loadout.weapon = worn;
+    save.items = [spare];
+    GAME.state.stats = G.PLAYER.statsOf(save.level, save.loadout);
+    // 抽到的可能是武器 / 衣服 / 鞋子 / 饰品里任意一件，所以断言按**它自己的主属性**来
+    // （主属性 → 属性快照里的字段名只差一个 hp → hpMax）
+    var statsKey = worn.main.stat === 'hp' ? 'hpMax' : worn.main.stat;
+    var powerBefore = GAME.state.stats.power;
+    var mainStatBefore = GAME.state.stats[statsKey];
+    save.stones = 1;
+    eq('强化 +1 成功', GAME.enhanceItem('weapon'), true);
+    eq('石头扣掉了', save.stones, 0);
+    eq('等级记在装备上', worn.enhance, 1);
+    ok('战力涨了（属性快照跟着重算）', GAME.state.stats.power > powerBefore, powerBefore + ' → ' + GAME.state.stats.power);
+    ok(
+      '那条主属性也涨了（' + worn.main.stat + '）',
+      GAME.state.stats[statsKey] > mainStatBefore,
+      mainStatBefore + ' → ' + GAME.state.stats[statsKey]
+    );
+    eq('背包里那件一个字没动（等级不会被继承）', spare.enhance, 0);
+    eq('石头不够时强化被拒', GAME.enhanceItem('weapon'), false);
+    eq('被拒时等级没变', worn.enhance, 1);
+    eq('被拒时一颗石头也不倒扣', save.stones, 0);
+    eq('部位不存在时直接返回 false', GAME.enhanceItem('helmet'), false);
+    eq('空部位强化被拒（不花石头）', GAME.enhanceItem('armor'), false);
+    save.stones = 5000;
+    for (var n = 0; n < 20; n += 1) GAME.enhanceItem('weapon');
+    eq('连点 20 次也只到 +' + rule.maxLevel, worn.enhance, rule.maxLevel);
+    eq('满级后再点：返回 false（不扣石头）', GAME.enhanceItem('weapon'), false);
+    ok('满级后的误点没吃掉石头', save.stones > 0, String(save.stones));
+    // 面板发出来的 action 也走同一条路：handleAction({type:'unequip'}) → 20-main 的 unequipSlot
+    // （equip / unequip 都没有单独导出：界面永远只发 action，这两条也顺便验了）
+    GAME.handleAction({ type: 'unequip', slotId: 'weapon' });
+    var backInBag = null;
+    for (var b = 0; b < save.items.length; b += 1) {
+      if (save.items[b].id === worn.id) backInBag = save.items[b];
+    }
+    ok(
+      '脱下来：等级跟着这件装备走（存在装备身上，不存部位）',
+      !!backInBag && backInBag.enhance === rule.maxLevel,
+      backInBag ? String(backInBag.enhance) : 'null'
+    );
+    eq('脱下后那个部位空了', save.loadout.weapon, null);
+    GAME.handleAction({ type: 'equip', itemId: worn.id });
+    // 注意：equip 会把它放回**它自己的部位**（slotId），而上面是硬塞进 weapon 槽的 —— 所以这里按 slotId 查
+    eq('再穿回去：还是 +' + rule.maxLevel, E.enhanceLevel(save.loadout[worn.slotId]), rule.maxLevel);
+    save.stones = 5;
+    var stonesBeforeEmptyAction = save.stones;
+    GAME.handleAction({ type: 'enhance', slotId: 'boots' });
+    eq('强化面板的 action 走通（空部位只提示、不扣石头）', save.stones, stonesBeforeEmptyAction);
+
+    /* ---- ⑥ 营地铁匠：摆位 / 距离 / 那枚「锻」键 ---- */
+    var smith = G.TERRAIN.smithSpot();
+    ok('营地摆位表里有一个铁匠（kind = forge）', !!smith && smith.kind === 'forge', JSON.stringify(smith));
+    ok('铁匠站在营地砖地里', !!smith && G.TERRAIN.isInCamp(smith.x, smith.y), smith ? smith.x + ',' + smith.y : 'null');
+    ok(
+      'talkRadius 是正数（balance.world.camp.smith —— 数值只有那一份）',
+      BAL.world.camp.smith.talkRadius > 0,
+      String(BAL.world.camp.smith.talkRadius)
+    );
+    GAME.state.player.x = smith.x + 30;
+    GAME.state.player.y = smith.y + 40;
+    GAME.state.camera.x = GAME.state.player.x;
+    GAME.state.camera.y = GAME.state.player.y;
+    ok('走到跟前：nearSmith = true', GAME.nearSmith() === true);
+    var smithButton = GAME.smithButton();
+    ok(
+      '跟前多出一枚「锻」键（挂在铁匠头顶，按相机投影算）',
+      !!smithButton && smithButton.id === 'smith' && smithButton.label === '锻' && smithButton.r > 0,
+      JSON.stringify(smithButton)
+    );
+    var nearIds = GAME.uiView().buttons.map(function (btn) { return btn.id; }).join(',');
+    ok('这枚键真的进了 uiView 的按钮表（输入层只认那一份）', nearIds.indexOf('smith') >= 0, nearIds);
+    GAME.onHudButton('smith');
+    eq('点「锻」打开的是强化面板', G.PANELS.panelId(), 'enhance');
+    G.PANELS.close();
+    GAME.state.player.x = smith.x + BAL.world.camp.smith.talkRadius + 60;
+    ok('走远一点：nearSmith = false', GAME.nearSmith() === false);
+    eq('走远了那枚键就不见了（野外不会误弹面板）', GAME.smithButton(), null);
+    var farIds = GAME.uiView().buttons.map(function (btn) { return btn.id; }).join(',');
+    ok('按钮表里也没有 smith', farIds.indexOf('smith') < 0, farIds);
+
+    /* ---- ⑦ 三个界面入口：营地面板的铁匠行 / 商城的强化石行 ---- */
+    G.PANELS.open('camp');
+    var campRows = G.PANELS.rows(GAME.uiView());
+    var campIds = campRows.map(function (row) { return row.id; }).join(',');
+    ok('营地面板有铁匠那一行', campIds.indexOf('camp:smith') >= 0, campIds);
+    var campSmithRow = rowById(campRows, 'camp:smith');
+    ok(
+      '那一行点了开的是强化面板（走不到他跟前也能开）',
+      !!campSmithRow.action && campSmithRow.action.type === 'open' && campSmithRow.action.panel === 'enhance',
+      JSON.stringify(campSmithRow ? campSmithRow.action : null)
+    );
+    G.PANELS.close();
+    G.PANELS.open('shop');
+    var shopRows = G.PANELS.rows(GAME.uiView());
+    var stoneRow = rowById(shopRows, 'shop:stone');
+    ok(
+      '商城里有强化石那一行（写着 100 金币）',
+      !!stoneRow && stoneRow.text.indexOf(String(BAL.shop.stone.priceGold)) >= 0,
+      stoneRow ? stoneRow.text : 'null'
+    );
+    ok(
+      '那一行点了买到的是石头（action = buyStone）',
+      !!stoneRow.action && stoneRow.action.type === 'buyStone',
+      JSON.stringify(stoneRow ? stoneRow.action : null)
+    );
+    G.PANELS.close();
+
+    /* ---- ⑧ 背包分页：一页 15 件，拖格子上下翻页 ---- */
+    var pagingItems = [];
+    for (var p = 0; p < 40; p += 1) {
+      pagingItems.push({
+        id: p + 1,
+        tier: (p % 6) + 1,
+        slotId: 'weapon',
+        slotName: '武器',
+        power: 10 + p,
+        reqLevel: 1,
+        name: '分页测试剑' + (p + 1),
+        look: null,
+        enhance: 0,
+        main: { stat: 'attack', value: 5 },
+        affixes: []
+      });
+    }
+    var layout = BAL.view.panel.layout;
+    var pagingView = {
+      save: {
+        level: 30,
+        gold: 0,
+        exp: 0,
+        name: '分页测试者',
+        chests: [],
+        items: pagingItems,
+        loadout: E.emptyLoadout(),
+        pity: { epic: 0, mythic: 0 },
+        guild: null,
+        stones: 0,
+        settings: { autoBattle: false },
+        stats: { kills: 0, eliteKills: 0, opened: 0 }
+      },
+      player: { x: 0, y: 0, hp: 100, dead: false },
+      stats: { power: 0, hpMax: 100 },
+      skills: { slots: [] },
+      now: 0
+    };
+    function pageItems(list) {
+      var out = [];
+      for (var q = 0; q < list.length; q += 1) {
+        if (list[q].id.indexOf('bag:item:') === 0) out.push(list[q]);
+      }
+      return out;
+    }
+    G.PANELS.open('bag');
+    var page1 = G.PANELS.rows(pagingView);
+    var pageState = G.PANELS.bagScroll();
+    eq('一页 15 件（gridColumns x gridRows）', pageState.columns * pageState.visibleRows, 15);
+    eq('40 件 = 8 排 → 最多能翻到第 6 排开头', pageState.maxRow, 5);
+    eq('打开背包时在第一页', pageState.row, 0);
+    var pagingTitle = rowById(page1, 'title:背包');
+    ok(
+      '标题写清了这一页是哪几排（不再说只列出前 15 件）',
+      !!pagingTitle && pagingTitle.sub.indexOf('共 8 排') >= 0 && pagingTitle.sub.indexOf('第 1–3') >= 0,
+      pagingTitle ? pagingTitle.sub : 'null'
+    );
+    var page1Items = pageItems(page1);
+    eq('第一页正好 15 件', page1Items.length, 15);
+    eq('第一页从第 1 件开始', page1Items[0].id, 'bag:item:1');
+    var grid = pageState.gridRect;
+    ok('算出了格子那一块（翻页手势的势力范围）', !!grid && grid.w > 0 && grid.h > 0, JSON.stringify(grid));
+    var pitch = layout.gridCellHeight + layout.cellGap;
+    var midX = grid.x + grid.w / 2;
+    G.PANELS.press({ x: midX, y: grid.y + 30 }, pagingView);
+    G.PANELS.move({ x: midX, y: grid.y + 30 - pitch * 2 }, pagingView);
+    eq('往上拖两行 → 从第 3 排开头开始（bagRow = 2）', G.PANELS.bagScroll().row, 2);
+    eq(
+      '拖过之后松手不触发任何 action（手指滑过不该把装备穿上）',
+      G.PANELS.release({ x: midX, y: grid.y + 30 - pitch * 2 }, pagingView),
+      null
+    );
+    eq('翻页后列的是第 11 件开头（2 排 x 5 列 = 10 件之后）', pageItems(G.PANELS.rows(pagingView))[0].id, 'bag:item:11');
+    G.PANELS.press({ x: midX, y: grid.y + 30 }, pagingView);
+    G.PANELS.move({ x: midX, y: grid.y + 30 + pitch * 6 }, pagingView);
+    eq('往下拖到头：夹回第 1 排', G.PANELS.bagScroll().row, 0);
+    G.PANELS.release({ x: midX, y: grid.y + 30 + pitch * 6 }, pagingView);
+    G.PANELS.press({ x: midX, y: grid.y + 30 }, pagingView);
+    G.PANELS.move({ x: midX, y: grid.y + 30 - pitch * 60 }, pagingView);
+    eq('往上拖到底：夹在最后一排开头（8 排 - 3 排 = 第 6 排）', G.PANELS.bagScroll().row, 5);
+    G.PANELS.release({ x: midX, y: grid.y + 30 - pitch * 60 }, pagingView);
+    var lastPageItems = pageItems(G.PANELS.rows(pagingView));
+    eq('最后一页从第 26 件开始（40 件只剩 15 件可列）', lastPageItems[0].id, 'bag:item:26');
+    eq('最后一页把剩下的都列出来了', lastPageItems.length, 15);
+    var tapRow = rowById(G.PANELS.rows(pagingView), 'bag:item:26');
+    var tapPoint = { x: tapRow.x + tapRow.w / 2, y: tapRow.y + tapRow.h / 2 - 4 };
+    G.PANELS.press(tapPoint, pagingView);
+    var tapAction = G.PANELS.release(tapPoint, pagingView);
+    ok('格子上点一下（没拖）= 穿上那一件（老手感没变）', !!tapAction && tapAction.type === 'equip', JSON.stringify(tapAction));
+    eq('这一下没改动页码', G.PANELS.bagScroll().row, 5);
+    var bagPanelCtx = fakeContext();
+    G.PANELS.draw(bagPanelCtx, pagingView);
+    ok('翻到最后一页的背包画得出来', bagPanelCtx.calls.count > 40, 'calls=' + bagPanelCtx.calls.count);
+    G.PANELS.close();
+    G.PANELS.open('bag');
+    eq('关掉再打开 → 回到第一页（看最新的装备）', G.PANELS.bagScroll().row, 0);
+    G.PANELS.close();
+
+    /* ---- ⑨ 装备变少时页码要夹回来（穿了 / 分解了之后不该停在空页上） ---- */
+    G.PANELS.open('bag');
+    G.PANELS.rows(pagingView);
+    G.PANELS.press({ x: midX, y: grid.y + 30 }, pagingView);
+    G.PANELS.move({ x: midX, y: grid.y + 30 - pitch * 60 }, pagingView);
+    G.PANELS.release({ x: midX, y: grid.y + 30 - pitch * 60 }, pagingView);
+    eq('先翻到最后一页', G.PANELS.bagScroll().row, 5);
+    pagingView.save.items = pagingItems.slice(0, 12);
+    G.PANELS.rows(pagingView);
+    eq('背包只剩 12 件 → 页码夹回第 1 排', G.PANELS.bagScroll().row, 0);
+    eq('12 件就一排都不用翻（maxRow = 0）', G.PANELS.bagScroll().maxRow, 0);
+    G.PANELS.close();
+  }
+
   function checkCamp() {
     section('营地交互入口：治疗 / 商店 / 传送（A4）');
     var GAME = G.GAME;
@@ -10362,12 +14906,34 @@ G.SELFTEST = (function () {
     eq('金币不够时治疗被拒', GAME.campHeal(), false);
     eq('被拒时血量没变', player.hp, 1);
 
-    // HUD 的「营」按钮只在营地里出现（否则右下一列会一直多一个键）
+    // HUD 的「营」按钮只在营地里出现（否则底部那一行会一直多一个键）
     var inside = G.HUD.buttons({ save: GAME.state.save, inCamp: true });
     var outside = G.HUD.buttons({ save: GAME.state.save, inCamp: false });
-    eq('营地内多一个功能键', inside.length, 6);
-    eq('营地外的功能键还是 5 个', outside.length, 5);
+    // 底部那一行：营地外 5 枚（箱 / 包 / 会 / 设 / 自动），营地里多一枚「营」；
+    // 侧边栏的 2 枚（商 / 营）在两种情况下都在，追加在最后 —— 本次改动
+    eq('营地内多一个功能键', inside.length, 8);
+    eq('营地外的功能键是 7 个（5 枚底部 + 侧边栏 2 枚）', outside.length, 7);
     ok('多出来的那个是「营」', inside[5].id === 'camp' && inside[5].label === '营');
+    ok(
+      '「营」占最左那个固定槽位（进出营地时其余键一个都不动）',
+      inside[5].x < inside[0].x && inside[0].x === outside[0].x && inside[0].y === outside[0].y,
+      Math.round(inside[5].x) + ' < ' + Math.round(inside[0].x)
+    );
+    ok(
+      '「营」不伸到屏幕外（gap 收窄到 20 之后的最左那枚键）',
+      inside[5].x - inside[5].r >= 0 && inside[4].x === outside[4].x,
+      Math.round(inside[5].x - inside[5].r) + ' .. ' + Math.round(inside[4].x + inside[4].r)
+    );
+    ok(
+      '侧边栏两枚键在两种情况下坐标一模一样（它不属于底部那一行）',
+      inside[6].id === 'sideShop' &&
+        outside[5].id === 'sideShop' &&
+        inside[6].x === outside[5].x &&
+        inside[6].y === outside[5].y &&
+        inside[7].id === 'sideCamp' &&
+        outside[6].id === 'sideCamp',
+      inside[6].id + '/' + inside[7].id + ' vs ' + outside[5].id + '/' + outside[6].id
+    );
     ok('uiView 会带上 inCamp（供 HUD 判断）', GAME.uiView().inCamp === true);
 
     // 营地面板：治疗 / 商店 / 传送三行都在，而且能画出来
@@ -10720,25 +15286,42 @@ G.SELFTEST = (function () {
       hud.buttons[0].x - hud.buttons[0].r >= 0 && hud.buttons[3].x + hud.buttons[3].r <= G.SCREEN.width(),
       Math.round(hud.buttons[0].x - hud.buttons[0].r) + ' .. ' + Math.round(hud.buttons[3].x + hud.buttons[3].r)
     );
+    // A7：技能栏下沉到屏幕最底，功能图标占它原来那一行
+    var functionButtons = G.HUD.buttons({ save: GAME.state.save });
     ok(
-      '技能栏排在功能键左边（两排按钮不打架）',
-      hud.buttons[3].x + hud.buttons[3].r <= G.HUD.functionColumnLeft(),
-      Math.round(hud.buttons[3].x + hud.buttons[3].r) + ' <= ' + Math.round(G.HUD.functionColumnLeft())
+      '技能行在功能图标行下面（A7 换位：技能下沉到最底）',
+      hud.buttons[0].y - hud.buttons[0].r > functionButtons[0].y + functionButtons[0].r,
+      Math.round(hud.buttons[0].y - hud.buttons[0].r) + ' > ' + Math.round(functionButtons[0].y + functionButtons[0].r)
     );
     ok(
-      '技能栏在经验条上方（没被吸底条压住）',
-      hud.buttons[0].y + hud.buttons[0].r < G.SCREEN.height() - G.SCREEN.safeBottom() - BAL.view.hud.expBarHeight
+      '两行之间刚好空出一行说明（功能键的字 + 技能键的字，谁也不压谁）',
+      functionButtons[0].y + functionButtons[0].r + BAL.view.hud.captionGap + G.ICONS.size('captionSize') <=
+        hud.buttons[0].y - hud.buttons[0].r - BAL.view.hud.captionGap - BAL.view.skillBar.nameSize,
+      Math.round(functionButtons[0].y + functionButtons[0].r) + ' / ' + Math.round(hud.buttons[0].y - hud.buttons[0].r)
     );
+    ok(
+      '技能栏贴屏幕最底（圆的下沿离经验条只有 barGap）',
+      Math.abs(hud.buttons[0].y + hud.buttons[0].r + BAL.view.hud.barGap - G.HUD.expTop()) < 0.01,
+      Math.round(hud.buttons[0].y + hud.buttons[0].r) + ' + ' + BAL.view.hud.barGap + ' = ' + Math.round(G.HUD.expTop())
+    );
+    ok('技能名画在圆上方（A7：下面那一线留给经验条）', hud.buttons[0].captionAbove === true);
     var uiButtons = GAME.uiView().buttons;
+    // 功能键 5（营地内 6）+ 侧边栏 2 + 铁匠那枚「锻」（只在跟前才有）+ 勾选框 4 + 技能键 4
+    var expectedUiButtons = 4 + 4 + 5 + 2 + (GAME.inCamp() ? 1 : 0) + (GAME.smithButton() ? 1 : 0);
     ok(
-      'uiView 把技能键并进同一份按钮表（输入层只认这一份）',
-      uiButtons.length === 4 + 5 + (GAME.inCamp() ? 1 : 0),
-      String(uiButtons.length)
+      'uiView 把技能键与自动释放勾选框并进同一份按钮表（输入层只认这一份）',
+      uiButtons.length === expectedUiButtons,
+      String(uiButtons.length) + ' / ' + expectedUiButtons
     );
     eq(
       '按钮表末尾四个就是技能栏',
       uiButtons[uiButtons.length - 4].id + '..' + uiButtons[uiButtons.length - 1].id,
       'skill0..skill3'
+    );
+    eq(
+      '四枚勾选框排在技能键前面（命中取第一个 → 点框不会顺手放技能）',
+      uiButtons[uiButtons.length - 8].id + '..' + uiButtons[uiButtons.length - 5].id,
+      'skillAuto0..skillAuto3'
     );
     var skillCtx = fakeContext();
     G.HUD.drawButtons(skillCtx, hud);
@@ -10773,6 +15356,1069 @@ G.SELFTEST = (function () {
     var expiredCtx = fakeContext();
     G.RENDER.drawEffects(expiredCtx, { x: 0, y: 0 }, [{ kind: 'ring', x: 0, y: 0, radius: 210, startAt: 0, until: 1 }], now);
     eq('过期技能特效不画任何东西（省落笔）', expiredCtx.calls.count, 0);
+  }
+
+  /**
+   * A10 之一：技能键右上角的「自动释放」勾选（用户要求"给四个技能位置做一个是否自动释放的勾选位置"）。
+   *
+   * 断言点：默认全开（于是 A5 的行为不变）、老存档 / 坏值不炸、四枚框的几何贴着技能圆（斜对角 ≈ r）、
+   * 点框只切换勾选而**不会顺手放技能**（id 前缀的分派顺序）、勾选写进存档、
+   * 关掉之后自动战斗真的不再放它、而手动点那个键仍然能放。
+   */
+  function checkSkillAuto() {
+    section('技能自动释放勾选（A10：四个技能位各一枚勾选框）');
+    var GAME = G.GAME;
+    var SK = G.SKILLS;
+    if (!GAME || !SK || typeof GAME.toggleSkillAuto !== 'function') {
+      ok('GAME.toggleSkillAuto 可用（20-main 已导出）', false, '拿不到入口');
+      return;
+    }
+
+    // 1. 存档：默认全开、缺项补齐、坏值不炸
+    G.SAVE.clear();
+    GAME.boot();
+    GAME.beginPlaying('勾选测试');
+    eq('新号默认：四个技能都勾上自动释放（A5 的行为一个字都不变）', GAME.skillAutoFlags().join(','), 'true,true,true,true');
+    eq('勾选表长度 = 技能表长度', GAME.state.save.settings.skillAuto.length, SK.count());
+    eq('老存档没有 skillAuto → 迁移补齐全开', G.SAVE.normalizeSettings({ sfx: true }).skillAuto.join(','), 'true,true,true,true');
+    eq('坏值（不是数组）不炸 → 回全开', G.SAVE.normalizeSettings({ skillAuto: 'nope' }).skillAuto.length, SK.count());
+    eq('只有明确写了 false 才算关', G.SAVE.normalizeSettings({ skillAuto: [false] }).skillAuto.join(','), 'false,true,true,true');
+    eq('缺项当"勾上"（坏数据不该悄悄改玩家的自动释放）', SK.autoEnabled([false], 2), true);
+    eq('autoCount 数得对', SK.autoCount([false, true, false, true]), 2);
+
+    // 2. 四枚勾选框的几何：与技能键同一份出处（balance.view.skillBar.autoBox）
+    var hud = { save: GAME.state.save, skills: GAME.skillView(), now: G.WORLD.now() };
+    var skillButtons = G.HUD.skillButtons(hud);
+    var autoButtons = G.HUD.skillAutoButtons(hud);
+    eq('HUD 给出四枚勾选框', autoButtons.length, 4);
+    eq(
+      '勾选框 id = skillAuto0..3（与 onHudButton 的分派一致）',
+      autoButtons.map(function (button) { return button.id; }).join(','),
+      'skillAuto0,skillAuto1,skillAuto2,skillAuto3'
+    );
+    ok(
+      '框心在技能圆的右上角（+x / −y）',
+      autoButtons[0].x > skillButtons[0].x && autoButtons[0].y < skillButtons[0].y,
+      Math.round(autoButtons[0].x) + ',' + Math.round(autoButtons[0].y)
+    );
+    var boxDx = autoButtons[0].x - skillButtons[0].x;
+    var boxDy = autoButtons[0].y - skillButtons[0].y;
+    var boxDistance = Math.sqrt(boxDx * boxDx + boxDy * boxDy);
+    ok(
+      '框心正好落在圆周附近（既显眼，又不吃掉圆里的图标）',
+      Math.abs(boxDistance - skillButtons[0].r) < skillButtons[0].r * 0.06,
+      boxDistance.toFixed(1) + ' vs r=' + skillButtons[0].r
+    );
+    ok(
+      '四枚框整排在屏幕里，而且都在吸底动作栏里（不压摇杆区、不压功能键）',
+      autoButtons[0].x - autoButtons[0].r >= 0 &&
+        autoButtons[3].x + autoButtons[3].r <= G.SCREEN.width() &&
+        autoButtons[0].y - autoButtons[0].r > G.HUD.bottomBarTop(),
+      Math.round(autoButtons[0].y - autoButtons[0].r) + ' > ' + Math.round(G.HUD.bottomBarTop())
+    );
+    var boxView = { save: GAME.state.save, skills: GAME.skillView(), now: G.WORLD.now() };
+    boxView.buttons = G.HUD.skillButtons(boxView);
+    var boxOnCtx = fakeContext();
+    G.HUD.drawButtons(boxOnCtx, boxView);
+    boxView.skills.slots[0].auto = false;
+    boxView.buttons = G.HUD.skillButtons(boxView);
+    var boxOffCtx = fakeContext();
+    G.HUD.drawButtons(boxOffCtx, boxView);
+    hud.skills.slots[0].auto = true;
+    ok(
+      '勾上与没勾两条分支都画得出来（对勾 / 「自」）',
+      boxOnCtx.calls.count > 20 && boxOffCtx.calls.count > 20,
+      'on=' + boxOnCtx.calls.count + ' off=' + boxOffCtx.calls.count
+    );
+    // 勾选框**只在按钮表里占命中位置**，画法归技能键那一趟（否则会多画 4 个圆按钮压上去，还白花落笔）
+    var autoOnly = G.HUD.skillAutoButtons(boxView);
+    var bothCtx = fakeContext();
+    G.HUD.drawButtons(bothCtx, {
+      save: GAME.state.save,
+      skills: GAME.skillView(),
+      now: G.WORLD.now(),
+      buttons: autoOnly.concat(G.HUD.skillButtons(boxView))
+    });
+    var onlyCtx = fakeContext();
+    G.HUD.drawButtons(onlyCtx, {
+      save: GAME.state.save,
+      skills: GAME.skillView(),
+      now: G.WORLD.now(),
+      buttons: G.HUD.skillButtons(boxView)
+    });
+    var boxCost = bothCtx.calls.count - onlyCtx.calls.count;
+    eq('勾选框只画一次（按钮表里那 4 个只占命中位置：两张按钮表的落笔数一模一样）', boxCost, 0);
+
+    // 3. 点框 = 切换勾选（不是放技能），而且写进存档
+    var castsBeforeAuto = GAME.state.save.stats.skillCasts || 0;
+    GAME.onHudButton('skillAuto0');
+    eq('点勾选框 → 那个技能关掉自动释放', GAME.skillAutoFlags().join(','), 'false,true,true,true');
+    eq('点勾选框没有放技能（前缀先判 skillAuto 的顺序是对的）', GAME.state.save.stats.skillCasts || 0, castsBeforeAuto);
+    eq('勾选写进存档（重开还记得）', G.SAVE.load(BAL.season.worldSeed, 1).settings.skillAuto.join(','), 'false,true,true,true');
+    eq('skillView 把勾选带给界面', GAME.skillView().slots[0].auto, false);
+    eq('autoCount 跟着一起变（调试面板读它）', GAME.skillView().autoCount, 3);
+    GAME.onHudButton('skillAuto0');
+    eq('再点一下又勾上', GAME.skillAutoFlags().join(','), 'true,true,true,true');
+    var threwAuto = '';
+    try {
+      GAME.onHudButton('skillAuto9');
+    } catch (error) {
+      threwAuto = String(error && error.message ? error.message : error);
+    }
+    eq('越界的勾选框 id 不炸', threwAuto, '');
+
+    // 4. 纯逻辑：autoChoice 跳过没勾的技能（没传勾选表 = 全勾，老调用方行为不变）
+    var close = { id: 1, x: 60, y: 0, radius: 20, state: 'idle' };
+    eq(
+      '关掉横扫 → 自动挑下一个能用的（穿刺）',
+      SK.autoChoice({ cooldowns: [0, 0, 0, 0], globalAt: 0, nowMs: 1000, level: 20, auto: [false, true, true, true], hpRatio: 1, x: 0, y: 0, monsters: [close] }),
+      2
+    );
+    eq(
+      '四个都没勾 → 一个都不放（连治疗也不放）',
+      SK.autoChoice({ cooldowns: [0, 0, 0, 0], globalAt: 0, nowMs: 1000, level: 20, auto: [false, false, false, false], hpRatio: 0.2, x: 0, y: 0, monsters: [close] }),
+      -1
+    );
+    eq(
+      '没传勾选表 = 全勾',
+      SK.autoChoice({ cooldowns: [0, 0, 0, 0], globalAt: 0, nowMs: 1000, level: 20, hpRatio: 1, x: 0, y: 0, monsters: [close] }),
+      0
+    );
+
+    // 5. 运行时：关掉之后自动战斗不再放它，手动点仍然能放
+    GAME.state.save.level = 20;
+    GAME.state.stats = G.PLAYER.statsOf(20, GAME.state.save.loadout);
+    GAME.state.save.settings.autoBattle = true;
+    GAME.state.save.settings.skillAuto = [false, false, false, false];
+    GAME.state.skillCooldowns = [];
+    GAME.state.skillGlobalAt = 0;
+    var ticksBefore = GAME.state.save.stats.skillCasts || 0;
+    for (var autoTicks = 0; autoTicks < 300; autoTicks += 1) GAME.step(1000 / 60);
+    eq('四个都关掉后，自动战斗不再自动放技能', GAME.state.save.stats.skillCasts || 0, ticksBefore);
+    GAME.state.player.dead = false;
+    GAME.state.player.hp = GAME.state.stats.hpMax;
+    var manual = GAME.castSkillSlot(2);
+    ok('手动点那个键照样能放（勾选只管自动释放）', manual.ok === true, JSON.stringify(manual.reason));
+    GAME.state.save.settings.autoBattle = false;
+    GAME.onHudButton('skillAuto2');
+    eq('从勾选框重新勾上', GAME.skillAutoFlags()[2], true);
+  }
+
+  /**
+   * A11：相机与视角（用户："地图、相机视角还需要优化，需要让地图更加细节，玩家视角更加清晰"）。
+   *
+   * 断言点：档位切换与持久化（`settings.zoomTier` ↔ `view.cameraTier`）、越界夹取、
+   * 装载环跟着档位走、**相机锁定以角色为中心**（A11 之三，用户："视角没有锁定以角色为中心"：
+   * 前瞻已关 = 0、跟随是每帧贴合、跑起来相机与玩家逐字节相等、角色画在屏幕正中，
+   * 而且逻辑层的玩家坐标一个字节都没被改）、**玩家标记**（屏幕尺寸恒定，与档位无关）、
+   * **小地图**（半径永远比一屏宽一点 + 视野框跟着相机与档位走）。
+   */
+  function checkCamera() {
+    section('相机与视角（A11 之三：锁定以角色为中心 / 三档 / 玩家标记 / 小地图视野框）');
+    var GAME = G.GAME;
+    var R = G.RENDER;
+    if (!GAME || typeof GAME.setZoomTier !== 'function' || typeof R.lodBlockTiles !== 'function') {
+      ok('GAME.setZoomTier / RENDER.lodBlockTiles 可用（A11 的入口都导出了）', false, '拿不到入口');
+      return;
+    }
+    var savedTier = BAL.view.cameraTier;
+    var savedTiles = BAL.view.zoomTiles;
+    var tierTotal = BAL.view.cameraTiers.length;
+    G.SAVE.clear();
+    GAME.boot();
+    GAME.beginPlaying('相机测试');
+    GAME.state.player.x = 0;
+    GAME.state.player.y = 0;
+
+    // 1. 开机时应用存档里的档位（boot 里走的就是 setZoomTier）
+    eq('新号默认档 = balance.view.cameraTier（' + BAL.view.cameraTiers[BAL.view.cameraTier].name + '档）', GAME.state.save.settings.zoomTier, BAL.view.cameraTier);
+    eq('开机后渲染层倍率 = 默认格数的倍率（A11 之三：默认一屏 ' + BAL.view.zoomTiles + ' 格）', R.zoom(), BAL.view.designWidth / (BAL.view.zoomTiles * BAL.world.tileSize));
+    eq('老存档没有 zoomTier → 迁移成默认档', G.SAVE.normalizeSettings({ sfx: true }).zoomTier, BAL.view.cameraTier);
+    eq('坏档位（越界）夹到合法范围', G.SAVE.normalizeSettings({ zoomTier: 99 }).zoomTier, tierTotal - 1);
+
+    // 2. 三档都能切：写 view.cameraTier + 写存档 + 倍率跟着变
+    var i;
+    var seen = [];
+    for (i = 0; i < tierTotal; i += 1) {
+      GAME.setZoomTier(i, true);
+      seen.push(GAME.zoomView().name + ':' + R.zoom());
+    }
+    ok(
+      '三档的倍率逐档变大（档名与倍率对得上）',
+      BAL.view.cameraTiers[0].zoom < BAL.view.cameraTiers[1].zoom && BAL.view.cameraTiers[1].zoom < BAL.view.cameraTiers[2].zoom,
+      seen.join(' / ')
+    );
+    eq('越界档位（大）夹到最后一档', GAME.setZoomTier(9, true), tierTotal - 1);
+    eq('越界档位（小）夹到第一档', GAME.setZoomTier(-5, true), 0);
+    GAME.setZoomTier(2, true);
+    eq('切档写回 view.cameraTier（渲染层读的就是它）', BAL.view.cameraTier, 2);
+    eq('切档也写进存档（重开还记得）', GAME.state.save.settings.zoomTier, 2);
+    var zoomInfo = GAME.zoomView();
+    ok(
+      'zoomView 给出人话（档名 / 一屏几格 / 一格几 CSS px）',
+      !!zoomInfo.name && zoomInfo.tiles > 0 && zoomInfo.tileCssPx > 0,
+      JSON.stringify(zoomInfo)
+    );
+
+    // 3. 装载环跟着档位走（近档视野小，同样的环就能把屏幕填满）
+    var rings = [];
+    for (i = 0; i < tierTotal; i += 1) {
+      GAME.setZoomTier(i, true);
+      rings.push(G.WORLD.loadRing());
+    }
+    eq(
+      '装载环跟着档位走（表里写几就是几）',
+      rings.join(','),
+      BAL.view.cameraTiers.map(function (tier) { return tier.loadRing; }).join(',')
+    );
+    GAME.setZoomTiles(BAL.view.zoomTiles, true);
+
+    // 4. A11 之三：**视角锁定以角色为中心**（用户："视角没有锁定以角色为中心"）
+    var player = GAME.state.player;
+    eq('前瞻关掉了（balance 里的 cameraLookAhead = 0）', BAL.view.cameraLookAhead, 0);
+    ok('相机跟随是锁定（cameraLerpPerTick >= 1 = 每逻辑帧直接贴合）', BAL.view.cameraLerpPerTick >= 1, String(BAL.view.cameraLerpPerTick));
+    eq('初始前瞻为 0（镜头正对人物）', Math.abs(GAME.state.cameraLook.x) + Math.abs(GAME.state.cameraLook.y), 0);
+    var playerXBefore = player.x;
+    var stick = G.INPUT.state.stick;
+    stick.active = true;
+    stick.dx = 1;
+    stick.dy = 0;
+    stick.magnitude = 1;
+    for (i = 0; i < 120; i += 1) GAME.step(1000 / 60);
+    stick.active = false;
+    stick.dx = 0;
+    stick.dy = 0;
+    stick.magnitude = 0;
+    ok(
+      '推满摇杆也不产生前瞻（锁定：前瞻恒为 0，不是"慢慢衰减"）',
+      GAME.state.cameraLook.x === 0 && GAME.state.cameraLook.y === 0,
+      GAME.state.cameraLook.x + ',' + GAME.state.cameraLook.y
+    );
+    eq(
+      '跑起来相机与玩家**逐字节相等**（镜头不落后）',
+      GAME.state.camera.x + ',' + GAME.state.camera.y,
+      player.x + ',' + player.y
+    );
+    ok(
+      '锁定只动相机：玩家坐标该走还是走（逻辑没被污染）',
+      player.x > playerXBefore,
+      Math.round(player.x) + ' > ' + Math.round(playerXBefore)
+    );
+    var center = R.toScreen(GAME.state.camera, player.x, player.y);
+    ok(
+      '角色画在屏幕正中（锁定以角色为中心：' + Math.round(G.SCREEN.width() / 2) + ',' + Math.round(G.SCREEN.height() / 2) + '）',
+      Math.abs(center.x - G.SCREEN.width() / 2) < 1e-9 && Math.abs(center.y - G.SCREEN.height() / 2) < 1e-9,
+      center.x + ',' + center.y
+    );
+    for (i = 0; i < 900; i += 1) GAME.step(1000 / 60);
+    eq(
+      '停下来之后照样逐字节贴合（不飘）',
+      GAME.state.camera.x + ',' + GAME.state.camera.y,
+      player.x + ',' + player.y
+    );
+    // 自动战斗（镜头朝目标跑）也锁定：A11 那种"朝要打的那只前移"不再有
+    var savedAutoBattle = GAME.state.save.settings.autoBattle;
+    GAME.state.save.settings.autoBattle = true;
+    for (i = 0; i < 120; i += 1) GAME.step(1000 / 60);
+    GAME.state.save.settings.autoBattle = savedAutoBattle;
+    eq(
+      '自动战斗里也锁定（镜头不朝着目标偏）',
+      GAME.state.cameraLook.x + ',' + GAME.state.cameraLook.y + '|' + GAME.state.camera.x + ',' + GAME.state.camera.y,
+      '0,0|' + player.x + ',' + player.y
+    );
+    GAME.state.cameraLook.x = 123;
+    GAME.state.cameraLook.y = 456;
+    GAME.setZoomTier(0, true);
+    ok(
+      '换档时相机归位（前瞻清零 + 相机贴合玩家）',
+      GAME.state.cameraLook.x === 0 && GAME.state.cameraLook.y === 0 && Math.abs(GAME.state.camera.x - GAME.state.player.x) < 1e-9,
+      GAME.state.cameraLook.x + ',' + GAME.state.cameraLook.y
+    );
+    // 5. 玩家标记：屏幕尺寸恒定（与档位无关），死了画成灰的
+    var markRadii = [];
+    for (i = 0; i < tierTotal; i += 1) {
+      GAME.setZoomTier(i, true);
+      var markCtx = fakeContext();
+      var arcs = [];
+      var rawArc = markCtx.arc;
+      markCtx.arc = function (x, y, r) {
+        arcs.push(r);
+        return rawArc.apply(this, arguments);
+      };
+      R.drawPlayerMark(markCtx, { x: 100, y: 100 }, 0, false);
+      var maxR = 0;
+      for (var a = 0; a < arcs.length; a += 1) {
+        if (arcs[a] > maxR) maxR = arcs[a];
+      }
+      markRadii.push(Math.round(maxR));
+      ok('第 ' + (i + 1) + ' 档：玩家标记画得出来（一圈细环）', markCtx.calls.count > 0, 'calls=' + markCtx.calls.count);
+    }
+    eq(
+      '玩家标记的屏幕尺寸恒定（换档不变：' + BAL.view.playerMarkRadius + ' 设计 px 半径）',
+      markRadii.join(','),
+      [BAL.view.playerMarkRadius, BAL.view.playerMarkRadius, BAL.view.playerMarkRadius].join(',')
+    );
+    var deadMarkCtx = fakeContext();
+    R.drawPlayerMark(deadMarkCtx, { x: 0, y: 0 }, 0, true);
+    ok('倒地时标记照样画（画成灰的：还看得见"我躺哪"）', deadMarkCtx.calls.count > 0, 'calls=' + deadMarkCtx.calls.count);
+    var playerLayerCtx = fakeContext();
+    R.drawPlayer(playerLayerCtx, { x: 0, y: 0 }, GAME.state.player, GAME.state.stats, 0, null);
+    ok('玩家那一层整体画得出来（标记 + 影子 + 身体）', playerLayerCtx.calls.count > 20, 'calls=' + playerLayerCtx.calls.count);
+
+    // 6. 小地图：半径必须装得下整屏；视野框跟着相机与档位走
+    var frameWidths = [];
+    for (i = 0; i < tierTotal; i += 1) {
+      GAME.setZoomTier(i, true);
+      var radius = G.HUD.minimapRadius();
+      var covered = radius * 2 * G.CHUNK.CHUNK_SIZE;
+      var span = G.RENDER.viewRect({ x: 0, y: 0 });
+      var need = span.width > span.height ? span.width : span.height;
+      ok(
+        '第 ' + (i + 1) + ' 档：小地图覆盖 ' + covered + ' 单位 ≥ 一屏的 ' + Math.round(need) + '（横竖都装得下）',
+        covered >= need,
+        covered + ' vs ' + Math.round(need)
+      );
+      var frame = G.HUD.minimapViewRect(GAME.uiView());
+      frameWidths.push(Math.round(frame.w));
+      ok(
+        '第 ' + (i + 1) + ' 档：视野框画得进小地图（宽高都不超）',
+        frame.w <= BAL.view.minimap.size + 1 && frame.h <= BAL.view.minimap.size + 1,
+        Math.round(frame.w) + 'x' + Math.round(frame.h) + ' vs ' + BAL.view.minimap.size
+      );
+    }
+    ok(
+      '越拉近视野框越小（屏幕上看到的世界确实变少了）',
+      frameWidths[0] > frameWidths[1] && frameWidths[1] > frameWidths[2],
+      frameWidths.join(' > ')
+    );
+    var baseFrame = G.HUD.minimapViewRect(GAME.uiView());
+    var savedCameraX = GAME.state.camera.x;
+    GAME.state.camera.x = savedCameraX + 400;
+    var shiftedFrame = G.HUD.minimapViewRect(GAME.uiView());
+    GAME.state.camera.x = savedCameraX;
+    ok(
+      '视野框跟着相机走（相机前移 → 框也前移）',
+      Math.abs(shiftedFrame.x - baseFrame.x) > 1,
+      Math.round(baseFrame.x) + ' → ' + Math.round(shiftedFrame.x)
+    );
+
+    GAME.setZoomTier(savedTier, true);
+    GAME.setZoomTiles(savedTiles, true);
+    eq('自检跑完把档位还原（不许把 balance 改坏给后面的组看）', BAL.view.cameraTier, savedTier);
+    eq('自检跑完也把缩放轴还原（下一组看到的还是默认那一格数）', BAL.view.zoomTiles, savedTiles);
+  }
+
+  /**
+   * A11 之二：设置面板里的**视角缩放滚动轴**（用户："玩家设置中添加视角缩放滚动轴，可以缩到16-64"）。
+   *
+   * 断言点分三层，正好是它要经过的三层：
+   *   1. **数值层**：范围就是用户说的 16 ~ 64 格，**默认值 = 用户指定的 22 格**（A11 之三：比近档 32 格
+   *      再近一点；22 不是预设档位，档名如实显示「自定义」）；倍率满足唯一的等式 `designWidth / (格数 × tileSize)`；
+   *      落在预设档位上时与表里的数**精确相等**（128 / 64 / 32 不漂）；最近的档位跟着走（宏观规格不乱跳）；
+   *      越界一律夹回 16 ~ 128。
+   *   2. **存档层**：老存档没有 `zoomTiles` → 跟着档位迁移；坏值 / 小数 / 越界各自夹对；
+   *      松手（非静默）落盘，**重开还记得**（`GAME.boot` 会把它应用回渲染层）。
+   *   3. **界面层**：设置面板里真有这一行（`kind = 'slider'`、落在卡片视口里、读数写得出来）；
+   *      按最左 / 最右 = 16 / 64 格；**拖动不吃滚动**；拖动中 `sliderDrag()` 报当前格数；
+   *      松手才产出 `{ type: 'setZoomTiles' }`，执行后立刻生效。
+   */
+  function checkZoomSlider() {
+    section('视角缩放滚动轴（A11 之二 / 之三：设置面板里的滑块，默认一屏 22 格，范围 16~64 格）');
+    var GAME = G.GAME;
+    var R = G.RENDER;
+    var config = BAL.view.zoomSlider;
+    if (!GAME || typeof GAME.setZoomTiles !== 'function' || typeof G.PANELS.sliderDrag !== 'function') {
+      ok('GAME.setZoomTiles / PANELS.sliderDrag 可用（A11 之二的入口都导出了）', false, '拿不到入口');
+      return;
+    }
+
+    // 1. 数值层：范围 / 口径 / 夹取
+    eq('缩放轴范围 = 用户指定的 16 ~ 64 格', config.minTiles + '~' + config.maxTiles, '16~64');
+    ok(
+      '滑块上限不超过表里最远那一档（一屏 128 格仍由预设提供，不进滑块）',
+      config.maxTiles <= BAL.view.cameraTiers[0].tiles,
+      config.maxTiles + ' vs ' + BAL.view.cameraTiers[0].tiles
+    );
+    ok('轨道两端留的余量放得下圆钮（滑到头圆钮也不越出轨道）', config.endPad >= config.knobRadius, config.endPad + ' vs ' + config.knobRadius);
+
+    var savedTier = BAL.view.cameraTier;
+    var savedTiles = BAL.view.zoomTiles;
+    G.SAVE.clear();
+    GAME.boot();
+    GAME.beginPlaying('缩放轴测试');
+    eq('新号默认缩放轴 = balance.view.zoomTiles（用户指定的 22 格）', GAME.state.save.settings.zoomTiles, BAL.view.zoomTiles);
+    eq('开机后渲染层倍率就是这一格数的倍率', R.zoom(), BAL.view.designWidth / (BAL.view.zoomTiles * BAL.world.tileSize));
+
+    // A11 之三：默认值就是用户要的 22 格 —— 而且它一路走到界面上（不是只改了表）
+    eq('默认格数 = 用户指定的 22 格', BAL.view.zoomTiles, 22);
+    ok(
+      '默认 22 格落在滑块范围里（拖到两头都不用改默认）',
+      BAL.view.zoomTiles >= config.minTiles && BAL.view.zoomTiles <= config.maxTiles,
+      BAL.view.zoomTiles + ' vs ' + config.minTiles + '~' + config.maxTiles
+    );
+    eq('默认档 = 离默认格数最近的那一档（近档）', GAME.state.save.settings.zoomTier, GAME.nearestZoomTier(BAL.view.zoomTiles));
+    ok(
+      '默认 22 格不是预设档位 → 档名如实显示「自定义」（不硬套一个「近」）',
+      GAME.zoomView().custom === true && GAME.zoomView().name === '自定义',
+      GAME.zoomView().name + ' / tiles=' + GAME.zoomView().tiles
+    );
+    G.PANELS.open('menu');
+    var bootRows = G.PANELS.rows(GAME.uiView());
+    var bootRow = null;
+    for (var k = 0; k < bootRows.length; k += 1) {
+      if (bootRows[k].id === 'menu:zoom') bootRow = bootRows[k];
+    }
+    ok(
+      '开机时那一行写的就是默认 22 格（默认值真的走到界面上了）',
+      !!bootRow && String(bootRow.valueText).indexOf('一屏 22 格') >= 0,
+      bootRow ? bootRow.valueText : '缺这一行'
+    );
+    G.PANELS.close();
+
+    var i;
+    var stepTiles = [config.minTiles, 32, 45, config.maxTiles];
+    var mathBad = [];
+    for (i = 0; i < stepTiles.length; i += 1) {
+      var applied = GAME.setZoomTiles(stepTiles[i], true);
+      var expect = BAL.view.designWidth / (stepTiles[i] * BAL.world.tileSize);
+      if (applied !== stepTiles[i]) mathBad.push('set ' + stepTiles[i] + ' -> ' + applied);
+      if (Math.abs(R.zoom() - expect) > 1e-12) mathBad.push(stepTiles[i] + ' 格: zoom ' + R.zoom() + ' != ' + expect);
+      if (Math.abs(R.viewRect({ x: 0, y: 0 }).width - stepTiles[i] * BAL.world.tileSize) > 1e-6) {
+        mathBad.push(stepTiles[i] + ' 格: 视野宽不是 ' + stepTiles[i] + ' 格');
+      }
+    }
+    ok('拖到任何一格：倍率 = designWidth / (格数 × tileSize)，视野宽 = 格数 × tileSize', mathBad.length === 0, mathBad.join('; '));
+
+    var exact = true;
+    for (i = 0; i < BAL.view.cameraTiers.length; i += 1) {
+      GAME.setZoomTiles(BAL.view.cameraTiers[i].tiles, true);
+      if (R.zoom() !== BAL.view.cameraTiers[i].zoom) exact = false;
+    }
+    ok('落在预设档位上时倍率与表里的数**精确相等**（128 / 64 / 32 不会漂成小数）', exact, String(R.zoom()));
+
+    GAME.setZoomTiles(64, true);
+    eq('拖到 64 格 → 最近的档位是「中」（宏观规格取中档）', BAL.view.cameraTier, 1);
+    eq('正好落在档位上时档名照旧', GAME.zoomView().name, BAL.view.cameraTiers[1].name);
+    GAME.setZoomTiles(40, true);
+    eq('拖到 40 格（两档之间）→ 最近的档位是「近」', BAL.view.cameraTier, 2);
+    eq('两档之间时档名不再冒充一档，显示「自定义」', GAME.zoomView().name, '自定义');
+    eq('自定义视角报出的格数就是滑块上的格数', GAME.zoomView().tiles, 40);
+    eq(
+      '拖到两档之间：存档里的档位也跟着写成最近的档（两个字段永远自洽，不会一个说「中」一个说 40 格）',
+      GAME.state.save.settings.zoomTier,
+      GAME.nearestZoomTier(40)
+    );
+    eq(
+      '两档之间时宏观色格 / 装载环按最近的档位走（不会每拖一下乱跳）',
+      R.lodBlockTiles() + ',' + G.WORLD.loadRing(),
+      BAL.view.cameraTiers[2].lodBlockTiles + ',' + BAL.view.cameraTiers[2].loadRing
+    );
+    eq('越界（3 格）夹到下限', GAME.setZoomTiles(3, true), config.minTiles);
+    eq('越界（999 格）夹到上限 = 表里最远那一档', GAME.setZoomTiles(999, true), BAL.view.cameraTiers[0].tiles);
+
+    // 2. 存档层：迁移 / 夹取 / 重开还记得
+    GAME.setZoomTiles(64, true);
+    eq('老存档没有 zoomTiles → 跟着档位迁移（近档 = 32）', G.SAVE.normalizeSettings({ zoomTier: 2 }).zoomTiles, BAL.view.cameraTiers[2].tiles);
+    eq('坏值（字符串）→ 用 balance 里的当前值', G.SAVE.normalizeSettings({ zoomTiles: 'x' }).zoomTiles, BAL.view.zoomTiles);
+    eq('越界（3 格）在存档层也夹到下限', G.SAVE.normalizeSettings({ zoomTiles: 3 }).zoomTiles, config.minTiles);
+    eq('越界（999 格）在存档层也夹到上限', G.SAVE.normalizeSettings({ zoomTiles: 999 }).zoomTiles, BAL.view.cameraTiers[0].tiles);
+    eq('小数取整（37.4 → 37 格：界面上的数永远是整的）', G.SAVE.normalizeSettings({ zoomTiles: 37.4 }).zoomTiles, 37);
+    eq('默认设置里就有缩放轴（新号 / 迁移都不会缺字段）', G.SAVE.defaultSettings().zoomTiles, BAL.view.zoomTiles);
+
+    GAME.setZoomTiles(48, false);
+    var reloaded = G.SAVE.load(BAL.season.worldSeed, 1);
+    eq('松手（非静默）才写存档：一屏 48 格', reloaded.settings.zoomTiles, 48);
+    GAME.boot();
+    eq('重开还记得缩放轴（boot 把它应用回了渲染层）', BAL.view.zoomTiles, 48);
+    eq('重开后倍率还是同一个', R.zoom(), BAL.view.designWidth / (48 * BAL.world.tileSize));
+    GAME.beginPlaying('缩放轴测试');
+
+    // 3. 界面层：设置面板里那一行真的能拖
+    var view = GAME.uiView();
+    G.PANELS.open('menu');
+    var vp = G.PANELS.viewport();
+    var sliderRow = null;
+    var menuRows = G.PANELS.rows(view);
+    for (i = 0; i < menuRows.length; i += 1) {
+      if (menuRows[i].id === 'menu:zoom') sliderRow = menuRows[i];
+    }
+    ok('设置面板里有「视角缩放」这一行', !!sliderRow && sliderRow.kind === 'slider', sliderRow ? sliderRow.kind : '缺这一行');
+    if (sliderRow) {
+      // 行被滚动挡在视口外就先滚进来（真机上玩家也是先滚到它）
+      if (sliderRow.y < vp.y || sliderRow.y + sliderRow.h > vp.y + vp.h) {
+        G.PANELS.setScroll(G.PANELS.maxScroll(view), view);
+        menuRows = G.PANELS.rows(view);
+        for (i = 0; i < menuRows.length; i += 1) {
+          if (menuRows[i].id === 'menu:zoom') sliderRow = menuRows[i];
+        }
+      }
+      ok(
+        '滑块那一行在卡片视口里（用户真的点得到）',
+        sliderRow.y >= vp.y - 6 && sliderRow.y + sliderRow.h <= vp.y + vp.h + 6,
+        Math.round(sliderRow.y) + '..' + Math.round(sliderRow.y + sliderRow.h) + ' vs ' + Math.round(vp.y) + '..' + Math.round(vp.y + vp.h)
+      );
+      ok(
+        '读数写得出来（一屏 48 格 + 一格几 CSS px）',
+        String(sliderRow.valueText).indexOf('一屏 48 格') >= 0 && String(sliderRow.valueText).indexOf('CSS px') > 0,
+        sliderRow.valueText
+      );
+      ok('那一行的副标题写清了范围（16 ~ 64 格）', String(sliderRow.sub).indexOf('16 ~ 64') > 0, sliderRow.sub);
+
+      var trackX = vp.x + 10 + config.endPad;
+      var trackW = vp.w - 20 - config.endPad * 2;
+      var trackY = sliderRow.y + sliderRow.h / 2;
+      var scrollBefore = G.PANELS.scrollOffset();
+      G.PANELS.press({ x: trackX, y: trackY }, view);
+      var dragLeft = G.PANELS.sliderDrag();
+      eq('按在轨道最左 → 立刻是下限 16 格（点轨道就跳到那一点）', dragLeft ? dragLeft.tiles : -1, config.minTiles);
+      G.PANELS.move({ x: trackX + trackW, y: trackY }, view);
+      eq('往右拖到最右 → 上限 64 格', G.PANELS.sliderDrag().tiles, config.maxTiles);
+      eq('拖滑块不吃滚动（卡片内容原地不动）', G.PANELS.scrollOffset(), scrollBefore);
+      var dragAction = G.PANELS.release({ x: trackX + trackW, y: trackY }, view);
+      ok(
+        '松手才产出 action（拖到哪就是哪）',
+        !!dragAction && dragAction.type === 'setZoomTiles' && dragAction.tiles === config.maxTiles,
+        JSON.stringify(dragAction)
+      );
+      eq('松手后拖动状态归零', G.PANELS.sliderDrag(), null);
+      GAME.handleAction(dragAction);
+      eq('松手交出 action → 真机上立刻生效（一屏 64 格）', BAL.view.zoomTiles, config.maxTiles);
+      eq('执行 action 也写进存档', GAME.state.save.settings.zoomTiles, config.maxTiles);
+
+      // 点轨道中间 = 跳到中间那一格（不必拖）
+      G.PANELS.press({ x: trackX + trackW / 2, y: trackY }, view);
+      var midAction = G.PANELS.release({ x: trackX + trackW / 2, y: trackY }, view);
+      eq(
+        '点轨道正中 → 取中间那一格（16 + (64-16)/2 = 40）',
+        midAction ? midAction.tiles : -1,
+        Math.round(config.minTiles + (config.maxTiles - config.minTiles) / 2)
+      );
+    }
+
+    // 画得出来：圆钮按 knobRadius 画（画法与命中共用一份规格）
+    var knobRadii = [];
+    var sliderCtx = fakeContext();
+    var rawArc = sliderCtx.arc;
+    sliderCtx.arc = function (x, y, r) {
+      knobRadii.push(r);
+      return rawArc.apply(this, arguments);
+    };
+    G.PANELS.draw(sliderCtx, view);
+    ok('设置面板（含缩放轴）画得出来', sliderCtx.calls.count > 40, 'calls=' + sliderCtx.calls.count);
+    ok('圆钮按 balance 里的 knobRadius 画', knobRadii.indexOf(config.knobRadius) >= 0, knobRadii.join(','));
+    G.PANELS.close();
+
+    BAL.view.cameraTier = savedTier;
+    BAL.view.zoomTiles = savedTiles;
+    eq('自检跑完把缩放轴还原（不许把 balance 改坏给后面的组看）', BAL.view.zoomTiles, savedTiles);
+  }
+
+  /**
+  /**
+   * 装备等阶的发光（用户：给不同等阶的装备添加发光颜色，分别为白色，蓝色，紫色，金色，红色，炫彩）。
+   * 只验**本机能验的部分**：颜色表在 balance 且顺序与用户点名的六色一致、画法规格齐全、
+   * 有货就发光 / 空位与等级不够的不发光 / 关掉开关退回阶色描边、炫彩随时间换色、
+   * 角色预览那束光取身上最高那一阶、图例每一格带自己的阶号、面板画布上真的落了这些笔。
+   */
+  function checkTierGlow() {
+    section('装备等阶发光（用户：白 / 蓝 / 紫 / 金 / 红 / 炫彩）');
+    var tiers = BAL.equipment.tiers;
+    var config = BAL.view.iconGlow;
+    var i;
+    if (!config || typeof G.ICONS.tierGlow !== 'function' || typeof G.ICONS.heroGlow !== 'function') {
+      ok('balance.view.iconGlow 与 G.ICONS 的发光入口都在（不然界面上只剩阶色描边）', false, '拿不到配置或入口');
+      return;
+    }
+
+    // 1. 颜色表：在 balance、与用户点名的六色一一对应、末阶是炫彩
+    eq('六阶各有一个 glow（一阶一色，末阶一串）', tiers.map(function (t) { return t.glow.length; }).join(','), '1,1,1,1,1,6');
+    eq(
+      '发光色 = 白 / 蓝 / 紫 / 金 / 红 / 炫彩（用户点名的顺序）',
+      tiers.map(function (t) { return t.glow[0]; }).join(','),
+      '#ffffff,#3f8cff,#a855f7,#ffd479,#ff4d4d,#ff4d4d'
+    );
+    var badColor = [];
+    for (i = 0; i < tiers.length; i += 1) {
+      for (var j = 0; j < tiers[i].glow.length; j += 1) {
+        if (!/^#[0-9a-f]{6}$/.test(tiers[i].glow[j])) badColor.push(tiers[i].id + ':' + tiers[i].glow[j]);
+      }
+    }
+    eq('每个发光色都是 #rrggbb 写法（画布认得）', badColor.join(','), '');
+    ok('末阶是炫彩（是一串颜色，不是一种）', G.ICONS.tierGlow(6).length >= 3, String(G.ICONS.tierGlow(6).length));
+    eq('icons 读的就是 balance 那一份（颜色不许两处各写一套）', G.ICONS.tierGlow(6).join(','), tiers[5].glow.join(','));
+    eq('前五阶也转发同一份', G.ICONS.tierGlow(3).join(','), tiers[2].glow.join(','));
+    eq(
+      '认不出的阶退化成第一阶（99 / 0 都不炸）',
+      G.ICONS.tierGlow(99).join(',') + '|' + G.ICONS.tierGlow(0).join(','),
+      '#ffffff|#ffffff'
+    );
+
+    // 2. 画法规格：尺寸与节奏只在 balance
+    ok(
+      '发光规格全在 balance.view.iconGlow（代码不写死数字）',
+      config.layers >= 2 && config.spreadRatio > 0 && config.alpha > 0 && config.pulseMs > 0 && config.spinMs > 0,
+      JSON.stringify(config)
+    );
+    eq('总开关默认开着（enabled = true）', config.enabled, true);
+
+    // 3. 画：有货就发光、空位 / 等级不够的不发光、关掉开关就退回阶色描边
+    var shineCtx = fakeContext();
+    eq('发光层数 = balance.view.iconGlow.layers', G.ICONS.glowRing(shineCtx, 0, 0, 44, 6, 0), config.layers);
+    ok('发光真的落笔了（每层一条描边）', shineCtx.calls.count >= config.layers * 2, 'calls=' + shineCtx.calls.count);
+    var litCtx = fakeContext();
+    G.ICONS.frame(litCtx, 0, 0, 44, 6, false, 0);
+    var dimCtx = fakeContext();
+    G.ICONS.frame(dimCtx, 0, 0, 44, 6, true, 0);
+    var savedEnabled = config.enabled;
+    config.enabled = false;
+    var offCtx = fakeContext();
+    G.ICONS.frame(offCtx, 0, 0, 44, 6, false, 0);
+    var offDimCtx = fakeContext();
+    G.ICONS.frame(offDimCtx, 0, 0, 44, 6, true, 0);
+    config.enabled = savedEnabled;
+    ok('有装的格子比空位多画发光那几笔', litCtx.calls.count > dimCtx.calls.count, litCtx.calls.count + ' vs ' + dimCtx.calls.count);
+    eq('空位 / 等级不够的格子不发光（落笔 = 关掉发光时一样多）', dimCtx.calls.count, offDimCtx.calls.count);
+    eq('关掉开关也等于空位的落笔（一个发光笔数都不多）', offCtx.calls.count, dimCtx.calls.count);
+    ok('开关是可回滚的：开回来的落笔又比关掉时多', litCtx.calls.count > offCtx.calls.count, litCtx.calls.count + ' vs ' + offCtx.calls.count);
+    eq('自检跑完把开关还原（不许改坏给后面的组看）', config.enabled, savedEnabled);
+
+    // 4. 呼吸与炫彩流动（纯函数，逐点断言）
+    between('呼吸夹在 [1 - pulseAmp, 1]（最暗到最亮）', G.ICONS.glowPulse(config.pulseMs / 2), 1 - config.pulseAmp - 1e-9, 1);
+    ok(
+      '周期整数倍处亮度相同（是周期呼吸，不会越走越暗）',
+      G.ICONS.glowPulse(0) === G.ICONS.glowPulse(config.pulseMs * 3),
+      G.ICONS.glowPulse(0) + ' vs ' + G.ICONS.glowPulse(config.pulseMs * 3)
+    );
+    ok(
+      '一个周期里真的在变（不是恒等式）',
+      G.ICONS.glowPulse(0) !== G.ICONS.glowPulse(config.pulseMs / 2),
+      G.ICONS.glowPulse(0) + ' vs ' + G.ICONS.glowPulse(config.pulseMs / 2)
+    );
+    ok('炫彩同一时刻每层颜色不同（三层挂三色）', G.ICONS.glowColorAt(6, 0, 0) !== G.ICONS.glowColorAt(6, 1, 0));
+    ok(
+      '炫彩随时间换格（过一个 spinMs 就换色）',
+      G.ICONS.glowColorAt(6, 0, 0) !== G.ICONS.glowColorAt(6, 0, config.spinMs),
+      G.ICONS.glowColorAt(6, 0, 0) + ' vs ' + G.ICONS.glowColorAt(6, 0, config.spinMs)
+    );
+    ok('炫彩只在末阶那串颜色里取（不跑出颜色表）', tiers[5].glow.indexOf(G.ICONS.glowColorAt(6, 2, config.spinMs * 7)) >= 0);
+    ok('单色阶不随时间变（白就是白）', G.ICONS.glowColorAt(1, 0, 0) === G.ICONS.glowColorAt(1, 0, 12345));
+
+    // 5. 角色预览那束光：取身上最高那一阶
+    eq('光身板 → 不发光', G.ICONS.lookTier(G.EQUIP.emptyLook()), 0);
+    var mixedLook = { weapon: { tier: 2 }, armor: null, boots: { tier: 5 }, trinket: { tier: 1 } };
+    eq('四件里取最高那一阶（神话 > 专家）', G.ICONS.lookTier(mixedLook), 5);
+    var bareCtx = fakeContext();
+    eq('光身板不画光晕（返回 0）', G.ICONS.heroGlow(bareCtx, 0, 0, 70, G.EQUIP.emptyLook(), 0), 0);
+    eq('光身板一个圆都不画', bareCtx.calls.count, 0);
+    var heroCtx = fakeContext();
+    eq('预览给角色画光晕，并返回发光用的阶', G.ICONS.heroGlow(heroCtx, 0, 0, 70, mixedLook, 0), 5);
+    ok(
+      '光晕真的落笔了（每层 3 笔：beginPath / arc / fill）',
+      heroCtx.calls.count >= config.haloLayers * 3,
+      'calls=' + heroCtx.calls.count
+    );
+
+    // 6. 界面接线：宝箱清单每行带阶号、面板画布上真的落了这些笔
+    var GAME = G.GAME;
+    if (!GAME || typeof GAME.boot !== 'function') return;
+    G.SAVE.clear();
+    GAME.boot();
+    GAME.beginPlaying('发光测试');
+    // 六阶各放一口箱（A13 的清单本来就恒六行；"每阶都有货"= 六行都该发光）
+    for (i = 1; i <= 6; i += 1) GAME.state.save.chests.push({ tier: i, level: 9 });
+    G.PANELS.open('chest');
+    var chestRows = G.PANELS.rows(GAME.uiView());
+    var chestTierIds = [];
+    for (i = 0; i < chestRows.length; i += 1) {
+      if (chestRows[i].id.indexOf('chest:tier:') === 0) chestTierIds.push(chestRows[i].tier);
+    }
+    eq('宝箱清单每一行都带自己的阶号（发光色从阶号取）', chestTierIds.join(','), '1,2,3,4,5,6');
+    var chestCtx = fakeContext();
+    G.PANELS.draw(chestCtx, GAME.uiView());
+    var chestLit = chestCtx.calls.count;
+    config.enabled = false;
+    var chestOffCtx = fakeContext();
+    G.PANELS.draw(chestOffCtx, GAME.uiView());
+    config.enabled = savedEnabled;
+    ok('宝箱面板的画布上真的落了发光笔（清单 6 行的小箱）', chestLit > chestOffCtx.calls.count, chestLit + ' vs ' + chestOffCtx.calls.count);
+
+    G.PANELS.close();
+
+    // 7. 背包：四个装备槽 + 背包格都带阶号（发光就按它取），面板也画得出来
+    GAME.state.save.items.push({ id: 1, tier: 6, slotId: 'weapon', power: 99, reqLevel: 1, look: null, main: { stat: 'attack', value: 5 }, affixes: [] });
+    GAME.state.save.items.push({ id: 2, tier: 1, slotId: 'boots', power: 5, reqLevel: 1, look: null, main: { stat: 'attack', value: 1 }, affixes: [] });
+    G.PANELS.open('bag');
+    var bagRows = G.PANELS.rows(GAME.uiView());
+    var glowCells = 0;
+    for (i = 0; i < bagRows.length; i += 1) {
+      if ((bagRows[i].kind || 'row') === 'cell' && bagRows[i].tier > 0 && bagRows[i].dim !== true) glowCells += 1;
+    }
+    ok('背包里有货的格子都带阶号（发光按它取；空位不带）', glowCells >= 2, 'glowing=' + glowCells);
+    var bagCtx = fakeContext();
+    G.PANELS.draw(bagCtx, GAME.uiView());
+    var bagLit = bagCtx.calls.count;
+    config.enabled = false;
+    var bagOffCtx = fakeContext();
+    G.PANELS.draw(bagOffCtx, GAME.uiView());
+    config.enabled = savedEnabled;
+    G.PANELS.close();
+    ok('背包面板的画布上也落了发光笔（背包格 + 有装的装备槽）', bagLit > bagOffCtx.calls.count, bagLit + ' vs ' + bagOffCtx.calls.count);
+    ok('背包面板画得出来（新版面 + 发光）', bagLit > 200, 'calls=' + bagLit);
+    eq('自检跑完把发光开关还原（enabled = true）', BAL.view.iconGlow.enabled, true);
+  }
+
+  /**
+   * A10 之二：背包 / 宝箱 / 属性三个面板的新版面。用户的原话就是验收标准：
+   * "上方放置角色预览图，预览图四角放四个装备槽，下面三排做背包栏格子，背包栏格子下方显示角色属性"。
+   *
+   * 断言点照着这句话拆：预览块在不在、四角是不是四个装备槽、背包格是不是三排、属性网格在不在；
+   * 再加宝箱的两个大按钮 / 两条保底条 / 六阶宝箱清单（A13：一阶一行 × 数量），以及"大块背景吃不到触摸、
+   * 格子只命中自己那一格"这条最容易写错的交互（A10 的面板第一次出现"背景 + 格子"混排）。
+   */
+  function checkPanelLayout() {
+    section('面板版面（A10：背包 / 宝箱 / 属性照参考图重排）');
+    var config = BAL.view.panel.layout;
+    ok(
+      '版面尺寸全在 balance.view.panel.layout（代码不写死数字）',
+      !!config && config.gridRows === 3 && config.gridColumns === 5 && config.statColumns === 2 && config.chestTierHeight > 0,
+      JSON.stringify(config)
+    );
+
+    // 一份"有货"的假存档：4 件穿在身上 + 12 件背包 + 两档箱子 + 保底计数
+    var layoutSlots = G.EQUIP.SLOT_IDS;
+    var loadout = G.EQUIP.emptyLoadout();
+    var i;
+    for (i = 0; i < layoutSlots.length; i += 1) {
+      loadout[layoutSlots[i]] = {
+        id: 100 + i,
+        tier: i + 1,
+        slotId: layoutSlots[i],
+        power: 20 + i,
+        reqLevel: 1,
+        look: null,
+        main: { stat: 'attack', value: 5 },
+        affixes: []
+      };
+    }
+    var layoutItems = [];
+    for (i = 0; i < 12; i += 1) {
+      layoutItems.push({
+        id: i + 1,
+        tier: (i % 6) + 1,
+        slotId: layoutSlots[i % 4],
+        power: 10 + i,
+        reqLevel: 1,
+        look: null,
+        main: { stat: 'attack', value: 3 },
+        affixes: []
+      });
+    }
+    var save = {
+      level: 12,
+      gold: 1234,
+      exp: 40,
+      name: '版面测试者',
+      chests: [{ tier: 1, level: 3 }, { tier: 6, level: 9 }],
+      items: layoutItems,
+      loadout: loadout,
+      pity: { epic: 12, mythic: 340 },
+      guild: null,
+      settings: { autoBattle: false },
+      stats: { kills: 0, eliteKills: 0, opened: 0 }
+    };
+    var layoutSkills = [];
+    for (i = 0; i < 4; i += 1) {
+      layoutSkills.push({ index: i, name: '技能' + (i + 1), key: '斩', unlocked: true, auto: i !== 3, cool: 0, remainMs: 0 });
+    }
+    var view = {
+      save: save,
+      player: { x: 0, y: 0, hp: 100, dead: false },
+      stats: { power: 120, hpMax: 900 },
+      skills: { level: 12, unlocked: 4, total: 4, autoCount: 3, slots: layoutSkills },
+      now: 0
+    };
+
+    function firstOf(list, prefix) {
+      for (var k = 0; k < list.length; k += 1) {
+        if (list[k].id.indexOf(prefix) === 0) return list[k];
+      }
+      return null;
+    }
+    function kindCount(list, kind) {
+      var total = 0;
+      for (var k = 0; k < list.length; k += 1) {
+        if ((list[k].kind || 'row') === kind) total += 1;
+      }
+      return total;
+    }
+
+    /* ---- 背包：角色预览（四角四个装备槽）→ 技能条 → 三排背包格 → 属性网格 ---- */
+    G.PANELS.open('bag');
+    var bagRows = G.PANELS.rows(view);
+    var preview = firstOf(bagRows, 'bag:preview');
+    ok('背包顶部是角色预览块', !!preview && preview.kind === 'preview' && bagRows[0].id === 'bag:preview');
+    ok('预览块自己不吃触摸（点了不会穿透到压在上面的格子）', preview.hit === false);
+    var layoutSlotRows = [];
+    for (i = 0; i < bagRows.length; i += 1) {
+      if (bagRows[i].id.indexOf('bag:slot:') === 0) layoutSlotRows.push(bagRows[i]);
+    }
+    eq('四角的四个装备槽（武器 / 衣服 / 鞋子 / 饰品）', layoutSlotRows.length, 4);
+    ok(
+      '四个槽真的落在预览图的四个角',
+      layoutSlotRows[0].x < preview.x + preview.w / 2 &&
+        layoutSlotRows[1].x > preview.x + preview.w / 2 &&
+        layoutSlotRows[0].y < preview.y + preview.h / 2 &&
+        layoutSlotRows[2].y > preview.y + preview.h / 2,
+      layoutSlotRows.map(function (row) { return Math.round(row.x) + ',' + Math.round(row.y); }).join(' | ')
+    );
+    eq('三排五列 = 15 个背包格（有货的是真格子，其余画空框）', kindCount(bagRows, 'cell') - 4, 15);
+    eq('技能条四个技能（每个带一枚自动释放勾选）', kindCount(bagRows, 'chip'), 4);
+    eq('属性网格与属性面板是同一份数据（PLAYER.breakdown）', kindCount(bagRows, 'stat'), G.PLAYER.breakdown(12, loadout).length);
+    ok(
+      '背包里仍然有「角色属性」入口与一键分解（A6 的入口不丢）',
+      !!firstOf(bagRows, 'bag:stat') && !!firstOf(bagRows, 'bag:salvageAll')
+    );
+    var bagCtx = fakeContext();
+    G.PANELS.draw(bagCtx, view);
+    ok('背包新版面画得出来（含角色预览）', bagCtx.calls.count > 200, 'calls=' + bagCtx.calls.count);
+
+    // 命中①：预览里角色身上不吃触摸（背景块的 hit: false）
+    var heroPoint = { x: preview.x + preview.w / 2, y: preview.y + preview.h / 2 };
+    G.PANELS.press(heroPoint, view);
+    eq('点预览里角色身上什么都不触发', G.PANELS.release(heroPoint, view), null);
+    // 命中②：四角的装备槽（压在预览之上，点得到）
+    var slotPoint = { x: layoutSlotRows[0].x + layoutSlotRows[0].w / 2, y: layoutSlotRows[0].y + layoutSlotRows[0].w / 2 };
+    G.PANELS.press(slotPoint, view);
+    var unequipAction = G.PANELS.release(slotPoint, view);
+    ok('点四角的装备槽 → { type: unequip }', !!unequipAction && unequipAction.type === 'unequip', JSON.stringify(unequipAction));
+    // 命中③：背包格只命中自己那一格（先把那一排滚进视口 —— 内容本来就比卡片长）
+    var bagArea = G.PANELS.viewport();
+    var firstCell = firstOf(G.PANELS.buildRows(view), 'bag:item:');
+    G.PANELS.setScroll(firstCell.y - bagArea.y - 10, view);
+    var scrolledRows = G.PANELS.rows(view);
+    var targetCell = null;
+    for (i = 0; i < scrolledRows.length; i += 1) {
+      if (scrolledRows[i].id.indexOf('bag:item:') === 0 && scrolledRows[i].y + scrolledRows[i].h < bagArea.y + bagArea.h - 6) targetCell = scrolledRows[i];
+    }
+    ok('滚到背包格那一排后，至少有一格完整落在视口里', !!targetCell);
+    var cellPoint = { x: targetCell.x + targetCell.w / 2, y: targetCell.y + 20 };
+    var equipAction = G.PANELS.release(cellPoint, view);
+    ok('点背包格 → { type: equip }', !!equipAction && equipAction.type === 'equip', JSON.stringify(equipAction));
+    G.PANELS.setScroll(0, view);
+    /* ---- 宝箱：两个大按钮 → 两条保底条 → 六阶宝箱清单（A13：一阶一行 × 数量）→ 点开箱 ---- */
+    G.PANELS.open('chest');
+    var chestRows = G.PANELS.rows(view);
+    var openOne = firstOf(chestRows, 'chest:open1');
+    var openTen = firstOf(chestRows, 'chest:open10');
+    ok(
+      '两个大按钮（开 1 个 / 开 10 个：一整块能按的板，不再是一行字）',
+      !!openOne && !!openTen && openOne.kind === 'button' && openTen.kind === 'button' && openTen.x > openOne.x
+    );
+    var pityEpic = firstOf(chestRows, 'chest:pityEpic');
+    var pityMythic = firstOf(chestRows, 'chest:pityMythic');
+    ok('两条保底进度条（不吃触摸，只汇报进度）', !!pityEpic && !!pityMythic && pityEpic.kind === 'bar' && pityEpic.hit === false);
+    ok(
+      '保底条的进度 = 计数 / 上限',
+      Math.abs(pityEpic.ratio - 12 / 50) < 1e-9 && Math.abs(pityMythic.ratio - 340 / 500) < 1e-9,
+      pityEpic.ratio + ' / ' + pityMythic.ratio
+    );
+    // A13（用户："宝箱背包不需要格子，直接放不同等阶宝箱×数量"）：格子与图例换成一阶一行的清单
+    var chestListing = [];
+    var chestCountSum = 0;
+    var chestShareSum = 0;
+    for (i = 0; i < chestRows.length; i += 1) {
+      if (chestRows[i].id.indexOf('chest:tier:') !== 0) continue;
+      chestListing.push(chestRows[i]);
+      chestCountSum += chestRows[i].count;
+      chestShareSum += chestRows[i].share;
+    }
+    eq('宝箱清单恒六行（一阶一行，与 balance.chests.tiers 同序）', chestListing.map(function (row) { return row.tier; }).join(','), '1,2,3,4,5,6');
+    eq('宝箱背包里再没有格子了（用户：宝箱背包不需要格子）', kindCount(chestRows, 'cell'), 0);
+    eq('「× 数量」之和 = 存档里的箱子数', chestCountSum, save.chests.length);
+    ok(
+      '数量落在它自己那一阶上（普通 1 / 天赐 1，其余 0）',
+      chestListing[0].count === 1 && chestListing[5].count === 1 && chestListing[2].count === 0,
+      chestListing.map(function (row) { return row.count; }).join(',')
+    );
+    ok(
+      '没有的阶照样占一行，并标成 dim（A12 的"没货不发光"纪律）',
+      chestListing[2].icon.dim === true && chestListing[0].icon.dim === false,
+      JSON.stringify(chestListing[2].icon)
+    );
+    ok('掉落占比仍是从权重算出来的（六行加起来 100%）', Math.abs(chestShareSum - 100) < 0.6, chestShareSum.toFixed(2) + '%');
+    ok(
+      '没有的阶照样占一行，也照样叫得出名字（普通 → 天赐）',
+      chestListing[0].text === '普通宝箱' && chestListing[5].text === '天赐宝箱',
+      chestListing.map(function (row) { return row.text; }).join(',')
+    );
+    ok('清单是只读的（不吃触摸：开箱仍然只走上面那两个大按钮）', chestListing[0].hit === false);
+    eq('六行清单在卡片里一屏装得下（宝箱面板不用滚）', G.PANELS.maxScroll(view), 0);
+    var chestCtx = fakeContext();
+    G.PANELS.draw(chestCtx, view);
+    ok('宝箱新版面画得出来', chestCtx.calls.count > 200, 'calls=' + chestCtx.calls.count);
+    var listingPoint = { x: chestListing[5].x + chestListing[5].w / 2, y: chestListing[5].y + 24 };
+    ok('点清单那一行什么都不发生（袋子里的箱子按掉落顺序排，点"传说"开出来的可能是别的阶）', G.PANELS.release(listingPoint, view) === null);
+    // A13 与 A12 的交界：清单上"没有的阶"不发光 —— 六阶各一口箱时，发光那几笔比只有一口箱时多
+    var glowConfig = BAL.view.iconGlow;
+    var glowEnabled = glowConfig.enabled;
+    function chestGlowStrokes(targetView) {
+      var lit = fakeContext();
+      G.PANELS.draw(lit, targetView);
+      var litCount = lit.calls.count;
+      glowConfig.enabled = false;
+      var off = fakeContext();
+      G.PANELS.draw(off, targetView);
+      glowConfig.enabled = glowEnabled;
+      return litCount - off.calls.count;
+    }
+    var keptChests = save.chests;
+    save.chests = [{ tier: 6, level: 9 }];
+    var sparseGlow = chestGlowStrokes(view);
+    save.chests = [];
+    for (i = 1; i <= 6; i += 1) save.chests.push({ tier: i, level: 3 });
+    var fullGlow = chestGlowStrokes(view);
+    save.chests = [];
+    G.PANELS.open('chest');
+    ok('背包空的时候清单还在，并给一行"还没有宝箱"的提示', !!firstOf(G.PANELS.rows(view), 'chest:empty'));
+    save.chests = keptChests;
+    ok('清单上"没有的阶"不发光（六阶都有货比只有一口箱多出五行的光）', fullGlow > sparseGlow * 3, fullGlow + ' vs ' + sparseGlow);
+    glowConfig.enabled = glowEnabled;
+    G.PANELS.open('chest');
+    var openTenAction = G.PANELS.release({ x: openTen.x + openTen.w / 2, y: openTen.y + 20 }, view);
+    ok('点「开 10 个」→ { type: openChest, count: 10 }', !!openTenAction && openTenAction.count === 10, JSON.stringify(openTenAction));
+
+    /* ---- A14：清单每行右侧两枚按阶控件（「全开」按钮 + 「自动」勾选）---- */
+    // 用户："宝箱可以设置是否自动开启——对应不同等阶不同的开启按钮"
+    G.PANELS.open('chest');
+    var a14Rows = G.PANELS.rows(view);
+    var tierOpens = [];
+    var tierAutos = [];
+    for (i = 0; i < a14Rows.length; i += 1) {
+      if (a14Rows[i].id.indexOf('chest:tierOpen:') === 0) tierOpens.push(a14Rows[i]);
+      if (a14Rows[i].id.indexOf('chest:tierAuto:') === 0) tierAutos.push(a14Rows[i]);
+    }
+    eq('六阶各一枚「全开」按钮（清单六行 → 六个按钮）', tierOpens.length, 6);
+    eq('六阶各一枚「自动」勾选', tierAutos.length, 6);
+    eq(
+      '两枚控件都按阶排（普通 → 天赐，与清单同序）',
+      tierOpens.map(function (row) { return row.tier; }).join(','),
+      '1,2,3,4,5,6'
+    );
+    ok(
+      '两枚控件都长在**自己那一行**的右端（「全开」在最右，勾选在它左边，勾选左边才是「× 数量」）',
+      tierOpens[0].y < tierOpens[1].y &&
+        tierAutos[0].y < tierAutos[1].y &&
+        tierOpens[0].x > tierAutos[0].x + tierAutos[0].w &&
+        tierAutos[0].x - chestListing[0].countRight === 12,
+      '全开 x=' + tierOpens[0].x + ' · 勾选 x=' + tierAutos[0].x + ' · 数量右边界=' + chestListing[0].countRight
+    );
+    ok(
+      '六个等阶六种按钮颜色（用户要的"对应不同等阶不同的开启按钮"）',
+      tierOpens[0].color === chestListing[0].color &&
+        tierOpens[5].color === chestListing[5].color &&
+        tierOpens[0].color !== tierOpens[5].color,
+      tierOpens
+        .map(function (row) { return row.tier + '=' + row.color; })
+        .join(' ')
+    );
+    ok(
+      '每一阶的按钮自己知道这一阶有几口箱（点了要开几口）',
+      tierOpens[0].count === 1 && tierOpens[5].count === 1 && tierOpens[2].count === 0,
+      tierOpens
+        .map(function (row) { return row.count; })
+        .join(',')
+    );
+    var openTier1 = G.PANELS.release({ x: tierOpens[0].x + tierOpens[0].w / 2, y: tierOpens[0].y + tierOpens[0].h / 2 }, view);
+    ok(
+      '点第一阶的「全开」→ { type: openChestTier, tier: 1 }（点哪一阶就开哪一阶）',
+      !!openTier1 && openTier1.type === 'openChestTier' && openTier1.tier === 1,
+      JSON.stringify(openTier1)
+    );
+    var openTier6 = G.PANELS.release({ x: tierOpens[5].x + 4, y: tierOpens[5].y + tierOpens[5].h - 4 }, view);
+    ok(
+      '按在第六阶按钮的边角上也命中同一阶（画与点共用 `tierControls` 那一份几何）',
+      !!openTier6 && openTier6.type === 'openChestTier' && openTier6.tier === 6,
+      JSON.stringify(openTier6)
+    );
+    ok(
+      '这一阶一口箱子也没有：按钮还在，但**不产出 action**（点了没反应，也不会误开别的阶）',
+      tierOpens[2].action === null &&
+        G.PANELS.release({ x: tierOpens[2].x + tierOpens[2].w / 2, y: tierOpens[2].y + 20 }, view) === null
+    );
+    ok(
+      '清单行身照旧点不出东西（"按阶开箱"只走那枚显式按钮，不靠点行）',
+      G.PANELS.release({ x: tierAutos[0].x - 30, y: tierAutos[0].y + 40 }, view) === null
+    );
+    var autoPick3 = G.PANELS.release({ x: tierAutos[2].x + tierAutos[2].side / 2, y: tierAutos[2].y + tierAutos[2].side / 2 }, view);
+    ok(
+      '点「自动」勾选 → { type: toggleChestAuto, tier: 3 }（**空的那一阶也能勾**：先勾上，之后掉出来就自动开）',
+      !!autoPick3 && autoPick3.type === 'toggleChestAuto' && autoPick3.tier === 3,
+      JSON.stringify(autoPick3)
+    );
+    eq(
+      '老存档没有 settings.chestAuto → 六个勾选全是关的（升级后行为与 A13 一模一样）',
+      tierAutos
+        .map(function (row) { return row.on ? '1' : '0'; })
+        .join(''),
+      '000000'
+    );
+    // 勾选状态跟着存档走：第三阶勾上 → 只有它亮，小标题也报一句"自动 N 阶"
+    save.settings.chestAuto = [false, false, true, false, false, false];
+    G.PANELS.open('chest');
+    var recheckedRows = G.PANELS.rows(view);
+    var autoPicks = [];
+    for (i = 0; i < recheckedRows.length; i += 1) {
+      if (recheckedRows[i].id.indexOf('chest:tierAuto:') === 0) autoPicks.push(recheckedRows[i].on ? '1' : '0');
+    }
+    eq('勾选状态直接读存档（第三阶勾上 → 只有第三阶亮）', autoPicks.join(''), '001000');
+    var chestTitle = firstOf(recheckedRows, 'title:宝箱背包');
+    ok(
+      '清单小标题补一句"自动 N 阶"（勾了几阶心里有数）',
+      !!chestTitle && chestTitle.sub.indexOf('自动 1 阶') > 0,
+      chestTitle ? chestTitle.sub : '拿不到小标题'
+    );
+    delete save.settings.chestAuto;
+
+    /* ---- 属性：抬头 + 一行一张属性卡 ---- */
+    G.PANELS.open('stat');
+    var statCards = G.PANELS.rows(view);
+    ok(
+      '属性面板第一块是抬头（头像 + 等级 + 经验条 + 战力）',
+      statCards[0].id === 'stat:head' && statCards[0].kind === 'header' && statCards[0].hit === false
+    );
+    ok('一行一张属性卡（10 项以上）', kindCount(statCards, 'statCard') >= 10, String(kindCount(statCards, 'statCard')));
+    var iconless = [];
+    var statText = '';
+    for (i = 0; i < statCards.length; i += 1) {
+      if (statCards[i].kind !== 'statCard') continue;
+      if (!statCards[i].iconKey) iconless.push(statCards[i].id);
+      statText += statCards[i].text + '/' + statCards[i].sub + '|';
+    }
+    eq('每张属性卡都带图标名', iconless.length, 0);
+    ok('属性面板仍然写清了「装备」加成与「攻击」（A6 的验收点不丢）', statText.indexOf('装备') >= 0 && statText.indexOf('攻击') >= 0);
+    var statCtx = fakeContext();
+    G.PANELS.draw(statCtx, view);
+    ok('属性新版面画得出来', statCtx.calls.count > 200, 'calls=' + statCtx.calls.count);
+    G.PANELS.close();
+
+    /* ---- A10 新画的两块：属性图标与角色预览 ---- */
+    var breakdown = G.PLAYER.breakdown(12, loadout);
+    var missingIcons = [];
+    for (i = 0; i < breakdown.length; i += 1) {
+      var iconCtx = fakeContext();
+      G.ICONS.statIcon(iconCtx, breakdown[i].icon, 0, 0, 40, '#ffffff');
+      if (iconCtx.calls.count === 0) missingIcons.push(breakdown[i].label);
+    }
+    eq('属性定义里的每一项都有画得出来的图标', missingIcons.length, 0);
+    var heroCtx = fakeContext();
+    G.RENDER.drawHeroPreview(heroCtx, 100, 100, config.heroRadius, G.EQUIP.lookOf(loadout), 0, 0);
+    ok('角色预览画得出来（与地图上同一个小人、同一份 look）', heroCtx.calls.count > 30, 'calls=' + heroCtx.calls.count);
+    var bareHeroCtx = fakeContext();
+    G.RENDER.drawHeroPreview(bareHeroCtx, 100, 100, 40, null, 0, 0);
+    ok('光身板（look 为空）也画得出来，不白屏', bareHeroCtx.calls.count > 20, 'calls=' + bareHeroCtx.calls.count);
+    var unknownIconCtx = fakeContext();
+    G.ICONS.statIcon(unknownIconCtx, '认不出的图标名', 0, 0, 40, '#ffffff');
+    ok('认不出的图标名退化成圆环（不留白格）', unknownIconCtx.calls.count > 0, 'calls=' + unknownIconCtx.calls.count);
   }
 
   /**
@@ -10855,6 +16501,89 @@ G.SELFTEST = (function () {
     G.PANELS.close();
   }
 
+  /* ---------------------------------------- 14. 摇杆触发区（A7 修订：让开底栏） */
+
+  /**
+   * 用户反馈"摇杆区别压住底部按钮"。这句话的可断言形态是：
+   * **触发区的下边 = 吸底动作栏的顶边 `HUD.bottomBarTop()`** —— 于是整条底栏（功能键 / 技能键 / 经验条）
+   * 一个点都不在触发区里，而栏上方仍是"整块左下角"。几何只有 `15-input.stickZone()` 一份出处
+   * （`tools\hud-preview.mjs` 画的框读的也是它）。
+   */
+  function checkInput() {
+    section('摇杆触发区（避开底部功能栏）');
+    var INPUT_ = G.INPUT;
+    var SCREEN_ = G.SCREEN;
+    var HUD_ = G.HUD;
+    var PROBE_X = 40; // 左下角里的一个横坐标（落在触发区宽度内）
+
+    var zone = INPUT_.stickZone();
+    var barTop = HUD_.bottomBarTop();
+    ok(
+      '触发区是矩形 {left,right,top,bottom}',
+      !!zone && zone.right > zone.left && zone.bottom > zone.top,
+      JSON.stringify(zone)
+    );
+    eq('左边缘贴屏幕左边', zone.left, 0);
+    near('宽度 = 屏宽 × input.zoneWidthRatio', zone.right, SCREEN_.width() * BAL.input.zoneWidthRatio, 0.001);
+    near('高度 = 屏高 × input.zoneHeightRatio', zone.bottom - zone.top, SCREEN_.height() * BAL.input.zoneHeightRatio, 0.001);
+    near('下边 = 吸底动作栏顶边（唯一出处）', zone.bottom, barTop, 0.001);
+    ok('触发区不再一直铺到屏幕最底（用户反馈的那一条）', zone.bottom < SCREEN_.height(), Math.round(zone.bottom) + ' < ' + Math.round(SCREEN_.height()));
+    ok(
+      '  —— 底栏顶边落在屏幕下半（触发区确实在拇指够得着的地方）',
+      barTop > SCREEN_.height() * 0.5 && barTop < SCREEN_.height(),
+      Math.round(barTop) + ' / ' + Math.round(SCREEN_.height())
+    );
+
+    ok('栏顶上方 1 像素仍是摇杆区', INPUT_.inStickZone(PROBE_X, barTop - 1) === true);
+    ok('栏顶往下 1 像素就不算了（点功能键不会顺手推摇杆）', INPUT_.inStickZone(PROBE_X, barTop + 1) === false);
+
+    var functionButtons = HUD_.buttons({ save: { chests: [], items: [], guild: null, settings: { autoBattle: false } } });
+    var intruders = [];
+    for (var i = 0; i < functionButtons.length; i += 1) {
+      // 侧边栏的两枚键**故意**落在触发区里（贴在左边缘中上部，那里正是拇指按得最舒服的位置）：
+      // 按钮优先于摇杆（15-input 的 begin 先问 buttonAt），所以"点得到、不会变成推摇杆"；
+      // 代价是**贴边没点准**时会起摇杆 —— 与底部那一行"整排退出触发区"的取舍不同，
+      // 这里要的是"一眼看得见的常驻侧栏"，见 balance.view.sideBar 的 _readme。
+      if (functionButtons[i].kind === 'side') continue;
+      if (INPUT_.inStickZone(functionButtons[i].x, functionButtons[i].y)) intruders.push(functionButtons[i].id);
+    }
+    eq('功能键一个都不在摇杆区里（侧边栏那两枚除外：它们就是要贴在左边缘）', intruders.join(','), '');
+    var sideKeys = functionButtons.filter(function (b) { return b.kind === 'side'; });
+    eq('侧边栏两枚键确实在触发区里（按钮优先，所以仍然点得到）', sideKeys.length === 2 && INPUT_.inStickZone(sideKeys[0].x, sideKeys[0].y) === true, true);
+    ok(
+      '整条底栏压在触发区之下（功能键圆上沿 = 底栏顶边）',
+      zone.bottom <= functionButtons[0].y - functionButtons[0].r + 0.001,
+      Math.round(zone.bottom) + ' <= ' + Math.round(functionButtons[0].y - functionButtons[0].r)
+    );
+    ok(
+      '最下面一行的技能键也在触发区之下',
+      zone.bottom <= HUD_.skillRowY() - BAL.view.skillBar.radius + 0.001,
+      Math.round(zone.bottom) + ' <= ' + Math.round(HUD_.skillRowY() - BAL.view.skillBar.radius)
+    );
+    ok('经验条同样在触发区之外', zone.bottom <= HUD_.expTop() + 0.001);
+    ok('触发区上边之外不算', INPUT_.inStickZone(PROBE_X, zone.top - 1) === false);
+    ok('屏幕外（左边界外）不算', INPUT_.inStickZone(-1, zone.top + 10) === false);
+    var insideX = SCREEN_.width() * BAL.input.zoneWidthRatio * 0.5;
+    ok(
+      '宽度之内（zoneWidthRatio = ' + BAL.input.zoneWidthRatio + '）整条都算',
+      INPUT_.inStickZone(insideX, barTop - 1) === true
+    );
+    ok(
+      '宽度之外不算',
+      INPUT_.inStickZone(SCREEN_.width() * BAL.input.zoneWidthRatio + 1, barTop - 1) === false
+    );
+
+    // 走真输入路径按两下：栏上方起摇杆、栏里"不归输入层管"（按钮由 20-main 分派）
+    INPUT_.setButtons([]);
+    INPUT_.reset();
+    var above = INPUT_.begin({ id: 1, x: PROBE_X, y: barTop - 1 }, 0);
+    ok('栏上方按下 → 起摇杆', !!above && above.stick === true, JSON.stringify(above));
+    INPUT_.end({ id: 1, x: PROBE_X, y: barTop - 1 });
+    var inBar = INPUT_.begin({ id: 2, x: PROBE_X, y: barTop + 1 }, 0);
+    ok('栏里按下 → 不归输入层管（不会变成"想点技能却推了摇杆"）', inBar === null, JSON.stringify(inBar));
+    INPUT_.reset();
+  }
+
   /* ---------------------------------------- 13. 冒烟：假 canvas 跑真帧 */
 
   /**
@@ -10880,7 +16609,7 @@ G.SELFTEST = (function () {
     var names = [
       'save', 'restore', 'beginPath', 'closePath', 'fill', 'stroke', 'moveTo', 'lineTo',
       'arc', 'fillRect', 'strokeRect', 'clearRect', 'fillText', 'strokeText',
-      'setTransform', 'translate', 'scale', 'rotate', 'clip', 'drawImage'
+      'rect', 'setTransform', 'translate', 'scale', 'rotate', 'clip', 'drawImage'
     ];
     for (var i = 0; i < names.length; i += 1) ctx[names[i]] = noop;
     ctx.measureText = function (text) {
@@ -10888,6 +16617,29 @@ G.SELFTEST = (function () {
       return { width: String(text).length * 10 };
     };
     return ctx;
+  }
+
+  /**
+   * 只数和地表有关的两种落笔：`fill`（色档 / 细纹，攒路径后一次画完）与 `fillRect`（每 chunk 的底色）。
+   * A8 省笔档的差别正好就在这两个数上：全细节 = 1 次 fillRect + 最多 6 次 fill / chunk，
+   * 省笔档 = 只有 1 次 fillRect。函数声明会提升，所以上面的 checkLook 可以先写后用。
+   */
+  function countGroundFills(camera) {
+    var ctx = fakeContext();
+    var fills = 0;
+    var rects = 0;
+    var rawFill = ctx.fill;
+    var rawRect = ctx.fillRect;
+    ctx.fill = function () {
+      fills += 1;
+      return rawFill.apply(this, arguments);
+    };
+    ctx.fillRect = function () {
+      rects += 1;
+      return rawRect.apply(this, arguments);
+    };
+    G.RENDER.drawGround(ctx, camera);
+    return { fills: fills, rects: rects, all: ctx.calls.count };
   }
 
   /** 冒烟主体：新号 → boot → 先探索再站桩打怪 → 连画 31 帧 → 看账 */
@@ -10941,11 +16693,25 @@ G.SELFTEST = (function () {
 
     for (i = 0; i < 31; i += 1) GAME.renderTo(ctx);
 
-    // A4："打开面板游戏不停止" —— 面板开着连跑 60 个逻辑帧，世界时间必须照旧推进
+    // A11 之三：这条阈值还受**受击顿帧**牵制 —— 顿帧期间 `step` 直接 return，连世界时钟都冻住，
+    // 于是面板开着这一秒里挨几下就少几十毫秒（相机不再偏向前进方向后，附近的怪换了，挨的几下也跟着换）。
+    // "游戏不停止"的真意是"时钟照走"，所以除了下面这条宽松阈值，再加一条**逐帧对账**的精确断言。
     var worldBefore = world.now();
     G.PANELS.open('menu');
-    for (i = 0; i < 60; i += 1) GAME.step(1000 / 60);
-    ok('面板开着世界照旧推进（游戏不停止）', world.now() > worldBefore + 900, 'Δt=' + Math.round(world.now() - worldBefore));
+    var advanceExpected = 0;
+    for (i = 0; i < 60; i += 1) {
+      // 顿帧那一帧 `step` 直接 return（连世界时钟都不推），所以"该走的毫秒"要把它扣掉
+      if (!(GAME.state.hitStopMs > 0)) advanceExpected += 1000 / 60;
+      GAME.step(1000 / 60);
+    }
+    ok('面板开着世界照旧推进（游戏不停止）', world.now() > worldBefore + 600, 'Δt=' + Math.round(world.now() - worldBefore));
+    near(
+      '面板开着时世界时钟走的毫秒 = 没被顿帧冻住的那几帧之和（逐帧对账：既不暂停、也不多走）',
+      world.now() - worldBefore,
+      advanceExpected,
+      1e-9
+    );
+    log('  info  面板开着的这 1 秒里世界时钟走了 ' + Math.round(world.now() - worldBefore) + 'ms（差额 = 受击顿帧冻住的那些毫秒）');
     G.PANELS.close();
 
     var movedX = player.x - startX;
@@ -10967,7 +16733,14 @@ G.SELFTEST = (function () {
       world.loadedChunkCount() <= BAL.view.chunkCacheLimit,
       world.loadedChunkCount() + ' / ' + BAL.view.chunkCacheLimit
     );
-    ok('活跃怪受"只模拟附近"约束（≤ 60）', world.activeMonsterCount() <= 60, String(world.activeMonsterCount()));
+    // A11 之三：活跃区 = 屏幕框 ± 1200 世界单位（14-world 的 activeRect，与视角倍率无关）。
+    // 相机以前会朝"前进方向"偏 240 单位，活跃框因此偏向那一侧；改成锁定在角色身上之后两侧的怪都算数，
+    // 实测 60 → 62。阈值跟着放到 72 —— 它离"全图都跑 AI"还差着十万八千里。
+    ok(
+      '活跃怪受"只模拟附近"约束（≤ 72；实测 ' + world.activeMonsterCount() + ' / 已装载 chunk ' + world.loadedChunkCount() + '）',
+      world.activeMonsterCount() <= 72,
+      String(world.activeMonsterCount())
+    );
     ok('经验 / 金币 / 宝箱至少动过一次', save.exp > 0 || save.gold > 0 || save.chests.length > 0);
     ok('存档写出后能读回同一等级', reloaded.level === save.level, reloaded.level + ' vs ' + save.level);
     stick.active = false;
@@ -11002,6 +16775,283 @@ G.SELFTEST = (function () {
    * 全部断言（游戏内面板与 tools\minigame-selftest.mjs 共用）。
    * 每组单独 try/catch：一组炸了不影响其它组，报错里能看出是哪一组。
    */
+  /**
+   * 公会（本次新增）—— 用户要求："创建公会需要自己输入公会名，公会页面显示公会人员，公会等级，公会信息。"
+   *
+   * 四段：
+   *   ① **规则**（11-save 的 `G.GUILD`）：名字与昵称同一套字符规则、等级 = 1 + floor(成员等级之和 /
+   *      levelDivisor) 封顶 levelCap、老存档就地升级、坏值一律夹回合法区间；
+   *   ② **服务端那份变成本地镜像**（`fromServer`）：ok 才换，remote / syncAt / role 三个本地字段对；
+   *   ③ **界面**：没有公会时是"输入名 → 创建（+ 随机名）+ 加入"，有公会时是"等级 + 信息 + 人员表"；
+   *   ④ **入口与闸门**：侧边栏两枚键各开各的；建会四道拦截（等级 / 号角 / 名字 / 已有公会）一个都不许漏。
+   */
+  function checkGuild() {
+    section('公会：名字 / 等级 / 人员 / 服务端镜像（本次新增）');
+    var rules = BAL.guild;
+
+    /* ① 规则：名字与昵称同一套字符规则 */
+    var limits = GUILD.limits();
+    eq(
+      '公会名长度与昵称同一对数（复用 ACCOUNT.validate 的前提）',
+      limits.nameMin === BAL.account.nameMin && limits.nameMax === BAL.account.nameMax,
+      true
+    );
+    eq('公会人数上限就是 balance 里那个数', limits.memberCap, rules.memberCap);
+    eq('等级公式的三个数都在 balance 里', limits.levelDivisor === rules.levelDivisor && limits.levelCap === rules.levelCap, true);
+    eq('空白会被清掉（"铁血 兄弟会"与"铁血兄弟会"是同一个名字）', GUILD.validate('铁血 兄弟会').name, '铁血兄弟会');
+    eq('合法名字通过', GUILD.validate('铁血兄弟会').ok, true);
+    eq('空名字不通过', GUILD.validate('').reason, 'empty');
+    eq('一个字的太短', GUILD.validate('甲').reason, 'tooShort');
+    eq('超过 12 个字太长', GUILD.validate('一二三四五六七八九十十一十二十三').reason, 'tooLong');
+    eq('符号非法', GUILD.validate('abc!@#').reason, 'illegal');
+    eq('保留名不给用', GUILD.validate('管理员').reason, 'reserved');
+    // 关键差别：公会名的唯一性是**全服**的，本机昵称注册表不该拦它
+    G.ACCOUNT.remember('占用者甲');
+    eq('本机昵称注册表里占用的名字，公会名还能用（唯一性只归服务端管）', GUILD.validate('占用者甲').ok, true);
+    eq('失败文案里写的是"公会名"', GUILD.reasonText('tooShort').indexOf('公会名') >= 0, true);
+
+    /* 等级：唯一的一处算法 */
+    var lv1 = GUILD.levelFrom(0);
+    eq('0 经验 = 1 级', lv1.level, 1);
+    eq('1 级时进度条是 0', lv1.pct, 0);
+    var lv3 = GUILD.levelFrom(250);
+    eq('250 点（= 成员等级之和）= 3 级', lv3.level, 3);
+    eq('250 点在 3 级里的进度是 50%', lv3.pct, 0.5);
+    eq('经验再多也封顶在 levelCap', GUILD.levelFrom(99999).level, rules.levelCap);
+    eq('满级时进度条钉在满格', GUILD.levelFrom(99999).pct, 1);
+    eq('坏输入（null）当 0 算', GUILD.levelFrom(null).level, 1);
+    eq('成员等级之和按加法算（坏成员当 1 级）', GUILD.sumLevels([{ level: 5 }, { level: 7.9 }, null]), 13.9);
+
+    /* 老存档就地升级 + 坏值夹回 */
+    var legacy = GUILD.normalizeRecord({ name: '老会', anchor: { x: 12, y: -8 }, teleportAt: 99 }, { name: '阿甲', level: 30 });
+    ok('老存档（只有 name/anchor/teleportAt）也能升级成完整记录', !!legacy && legacy.members.length === 1, JSON.stringify(legacy));
+    eq(
+      '补出来的第一位就是会长（用"我"的名字与等级）',
+      legacy.members[0].name + '/' + legacy.members[0].level + '/' + legacy.members[0].role,
+      '阿甲/30/leader'
+    );
+    eq('锚点原样保留', legacy.anchor.x + ',' + legacy.anchor.y, '12,-8');
+    eq('回城冷却原样保留（它在本地，不进服务端）', legacy.teleportAt, 99);
+    eq('本机自建的会 remote=false', legacy.remote, false);
+    eq('没有名字 = 没有公会', GUILD.normalizeRecord({ anchor: { x: 1, y: 2 } }), null);
+    var dirty = GUILD.normalizeRecord(
+      {
+        name: '脏会',
+        level: 999,
+        exp: -5,
+        members: [{ name: '甲', level: -3 }, { name: '' }, { name: '乙', level: 8, role: 'leader' }]
+      },
+      { name: '我', level: 1 }
+    );
+    eq('坏等级被夹回 levelCap', dirty.level, rules.levelCap);
+    eq('坏经验被夹回 0', dirty.exp, 0);
+    eq('空名字的成员被丢掉（只剩两个）', dirty.members.length, 2);
+    eq('负等级当 1 级', dirty.members.filter(function (m) { return m.name === '甲'; })[0].level, 1);
+    var many = [];
+    for (var mi = 0; mi < rules.memberCap + 10; mi += 1) many.push({ name: '成员' + mi, level: 5 });
+    eq('成员表被截到人数上限', GUILD.normalizeRecord({ name: '大会', members: many }).members.length, rules.memberCap);
+    var built = GUILD.create('铁血兄弟会', { name: '阿甲', level: 12 }, { x: 3, y: 4 }, 1000);
+    eq(
+      'create 出的会：我是会长、锚点与建会时间都对',
+      built.members[0].role + '/' + built.anchor.x + '/' + built.createdAt + '/' + built.role,
+      'leader/3/1000/leader'
+    );
+
+    /* ② 服务端那份 → 本地镜像 */
+    var serverBody = {
+      ok: true,
+      role: 'leader',
+      guild: {
+        id: 'g-1',
+        name: '铁血兄弟会',
+        level: 3,
+        exp: 250,
+        expForNext: 100,
+        memberCap: rules.memberCap,
+        anchor: { x: 100, y: 200 },
+        members: [
+          { name: '阿甲', level: 12, online: true, role: 'leader' },
+          { name: '阿乙', level: 9, online: false, role: 'member' },
+          { name: '阿丙', level: 20, online: true, role: 'member' }
+        ]
+      }
+    };
+    var mirrored = GUILD.fromServer(serverBody, { name: '阿甲', level: 12 }, 5000);
+    ok('服务端那份能变成本地镜像', !!mirrored, JSON.stringify(mirrored));
+    eq('镜像记着服务端公会 id', mirrored.id, 'g-1');
+    eq('镜像 remote=true（服务端真的有这条公会）', mirrored.remote, true);
+    eq('同步时刻记在本地（世界时间）', mirrored.syncAt, 5000);
+    eq('等级取服务端那份（3 级）', mirrored.level, 3);
+    eq('成员数对得上', mirrored.members.length, 3);
+    eq('在线人数数得出来', GUILD.countOnline(mirrored), 2);
+    eq('成员摘要一行话', GUILD.memberText(mirrored), '成员 3 / ' + rules.memberCap + ' · 在线 2');
+    eq('会长认得出来', (GUILD.leaderOf(mirrored) || {}).name, '阿甲');
+    eq('我是不是会长', GUILD.isLeader(mirrored), true);
+    eq(
+      '人员表顺序：会长第一、其余在线的先、同级按名字',
+      GUILD.sortedMembers(mirrored)
+        .map(function (m) { return m.name; })
+        .join(','),
+      '阿甲,阿丙,阿乙'
+    );
+    eq('ok 不是 true 时不给镜像（保护本机那份）', GUILD.fromServer({ ok: false, guild: serverBody.guild }, { name: '甲' }, 1), null);
+    eq('响应里没有 guild 时也不给镜像', GUILD.fromServer({ ok: true }, { name: '甲' }, 1), null);
+
+    /* ③ 界面：没有公会 = 输入名 / 创建 / 加入；有公会 = 等级 / 信息 / 人员 */
+    var game = G.GAME;
+    var save = game.state.save;
+    var before = {
+      level: save.level,
+      horns: save.horns,
+      guild: save.guild,
+      x: game.state.player.x,
+      y: game.state.player.y
+    };
+    save.guild = null;
+    save.level = rules.unlockLevel;
+    save.horns = 1;
+    game.state.guild.note = '';
+    G.PANELS.setDraftGuildName('');
+    G.PANELS.setJoinDraftName('');
+    G.PANELS.open('guild');
+    var view = game.uiView();
+    var rows = G.PANELS.rows(view);
+    var ids = rows.map(function (row) { return row.id; }).join(',');
+    ok('没有公会时：有一行「公会名」（点它打字）', ids.indexOf('guild:name') >= 0, ids);
+    ok('没有公会时：有「创建公会」那一行', ids.indexOf('guild:create') >= 0, ids);
+    ok('没有公会时：有「随机取一个名字」兜底', ids.indexOf('guild:randomName') >= 0, ids);
+    ok('没有公会时：有「加入公会」那两行', ids.indexOf('guild:joinName') >= 0 && ids.indexOf('guild:join') >= 0, ids);
+    ok('没有公会时：有「刷新公会列表」那一行', ids.indexOf('guild:listRefresh') >= 0, ids);
+    var nameRow = rows.filter(function (row) { return row.id === 'guild:name'; })[0];
+    ok('公会名那一行点下去是「打字」（不是换一个随机的）', nameRow.action.type === 'typeGuildName', JSON.stringify(nameRow.action));
+    ok('名字还空着时那一行如实写"还没输入"', nameRow.text.indexOf('还没输入') >= 0, nameRow.text);
+    var createRow = rows.filter(function (row) { return row.id === 'guild:create'; })[0];
+    ok('「创建公会」那一行点下去是 createGuild', createRow.action.type === 'createGuild', JSON.stringify(createRow.action));
+    eq('加入那一行点下去是 joinGuild', rows.filter(function (row) { return row.id === 'guild:join'; })[0].action.type, 'joinGuild');
+
+    /* ④ 入口与闸门：先验四道拦截，再验真的建起来 */
+    eq('没输入名字 → 建不了', game.createGuild(), false);
+    eq('被拦下时号角一个都没扣', save.horns, 1);
+    eq('被拦下时存档里没有公会', save.guild, null);
+    G.PANELS.setDraftGuildName('甲');
+    eq('名字太短也建不了', game.createGuild(), false);
+    G.PANELS.setDraftGuildName('铁血兄弟会');
+    save.level = rules.unlockLevel - 1;
+    eq('等级不够建不了', game.createGuild(), false);
+    save.level = rules.unlockLevel;
+    save.horns = 0;
+    eq('没有号角建不了', game.createGuild(), false);
+    save.horns = 1;
+    eq('名字 / 等级 / 号角都够了 → 建会成功（测试环境没有平台网络接口，走本机路径）', game.createGuild(), true);
+    eq('建会扣掉一个号角', save.horns, 0);
+    ok('存档里真的有公会了', !!(save.guild && save.guild.name === '铁血兄弟会'), JSON.stringify(save.guild));
+    eq('会长是我（名字/等级来自存档）', save.guild.members[0].name + '/' + save.guild.members[0].role, save.name + '/leader');
+    eq(
+      '锚点就是建会时脚下',
+      Math.round(save.guild.anchor.x) + ',' + Math.round(save.guild.anchor.y),
+      Math.round(before.x) + ',' + Math.round(before.y)
+    );
+    ok('本机路径下 remote=false（连不上服务端时本机这份就是唯一真相）', save.guild.remote === false);
+    ok('建会那一刻给了提示（面板上那行"服务端"说明）', game.state.guild.note.indexOf('本机建立') >= 0, game.state.guild.note);
+    eq('草稿在建会成功后清掉', G.PANELS.draftGuildName(), '');
+    eq('已经在一个会里时再建一次被拦下（不白扣号角）', game.createGuild(), false);
+
+    // 有公会时的面板：等级 / 信息 / 人员表
+    view = game.uiView();
+    rows = G.PANELS.rows(view);
+    ids = rows.map(function (row) { return row.id; }).join(',');
+    ok('有公会时：有「公会等级」那一行', ids.indexOf('guild:level') >= 0, ids);
+    ok('有公会时：有「公会信息」那一行（会长 / 我的身份 / 人数）', ids.indexOf('guild:info') >= 0, ids);
+    ok('有公会时：有「据点锚点」那一行', ids.indexOf('guild:anchor') >= 0, ids);
+    ok('有公会时：有「公会人员」这一块（一人一行）', ids.indexOf('guild:member:0') >= 0, ids);
+    ok('有公会时：有「回到公会锚点」与「刷新成员」', ids.indexOf('guild:teleport') >= 0 && ids.indexOf('guild:sync') >= 0, ids);
+    ok('有公会时：会长那一行说明"首版不能退会"', ids.indexOf('guild:leaderNote') >= 0, ids);
+    var levelRow = rows.filter(function (row) { return row.id === 'guild:level'; })[0];
+    ok(
+      '等级那一行真的写着等级与升级进度',
+      levelRow.text.indexOf('公会等级 Lv.') >= 0 && levelRow.sub.indexOf('成员等级之和') >= 0,
+      levelRow.text + ' | ' + levelRow.sub
+    );
+    var memberRow = rows.filter(function (row) { return row.id === 'guild:member:0'; })[0];
+    ok(
+      '人员那一行写着会长 + 名字 + 等级 + 在线状态',
+      memberRow.text.indexOf('会长') === 0 && memberRow.sub.indexOf('Lv.') >= 0,
+      memberRow.text + ' | ' + memberRow.sub
+    );
+    var ctx = fakeContext();
+    G.PANELS.draw(ctx, view);
+    ok('公会面板能画出来（没有公会 / 有公会两种都不炸）', ctx.calls.count > 40, 'calls=' + ctx.calls.count);
+    G.PANELS.close();
+
+    /* 侧边栏两枚键：各开各的（用户要求：商城在侧边栏，回到营地放在它下面） */
+    G.PANELS.close();
+    game.onHudButton('sideShop');
+    eq('点侧边栏「商」→ 开商城面板', G.PANELS.panelId(), 'shop');
+    game.onHudButton('sideShop');
+    eq('再点一下同一个键 → 收起来（与底部功能键同一套规矩）', G.PANELS.isOpen(), false);
+    // 回到营地：把玩家挪远再点侧边栏那枚键 —— 应当回到营地中心（与营地面板那一行同一条路）
+    game.state.player.x = 40000;
+    game.state.player.y = -25000;
+    game.state.player.hurtUntil = -1;
+    save.camp = { teleportAt: 0, used: false };
+    game.onHudButton('sideCamp');
+    var center = G.TERRAIN.campCenter();
+    eq(
+      '点侧边栏「营」→ 回到营地中心',
+      Math.round(game.state.player.x) + ',' + Math.round(game.state.player.y),
+      Math.round(center.x) + ',' + Math.round(center.y)
+    );
+    ok('回营地这一下写进了存档（重开也刷不掉冷却）', save.camp.used === true, JSON.stringify(save.camp));
+
+    /* 云路径的五条断言：测试环境没有平台网络接口，所以"连不上"这件事本身要表现得克制 */
+    eq('测试环境里 guildCloudReady() 是 false（没有平台网络接口就绝不发包）', game.guildCloudReady(), false);
+    eq('连不上时 syncGuild 返回 false（不发包、不报错）', game.syncGuild(false), false);
+    ok('连不上时给玩家一句人话', game.state.guild.note.indexOf('cloudBase') >= 0, game.state.guild.note);
+    eq('连不上时 guildList 也是 false', game.guildList(false), false);
+    ok('公会列表拿不到时有说明（面板上那块不会空着不解释）', game.state.guild.listNote.length > 0, game.state.guild.listNote);
+    game.state.guild.autoAt = 0;
+    game.state.now = 12345;
+    G.PANELS.open('guild');
+    game.guildAutoSync();
+    eq('公会面板开着时自动刷新会记下时间（不是每帧都发包）', game.state.guild.autoAt, 12345);
+    game.guildAutoSync();
+    game.state.now = 12400;
+    game.guildAutoSync();
+    eq('间隔没到就不会再发一次（syncIntervalMs 之内的重复调用被挡掉）', game.state.guild.autoAt, 12345);
+    G.PANELS.close();
+    eq('错误码 → 中文文案：重名', game.guildErrorText({ error: 'name_taken' }), '这个公会名全服已经有人用了，换一个');
+    eq('错误码 → 中文文案：人满', game.guildErrorText({ error: 'guild_full' }).indexOf('人满') >= 0, true);
+    eq('错误码 → 中文文案：会长不能退', game.guildErrorText({ error: 'owner_cannot_leave' }).indexOf('会长') >= 0, true);
+    eq(
+      '错误码 → 中文文案：非法名字走 GUILD.reasonText',
+      game.guildErrorText({ error: 'invalid_name', reason: 'tooShort' }).indexOf('至少') >= 0,
+      true
+    );
+
+    /* 存档往返：公会（含成员表）能过一遍读写 */
+    SAVE.write(save);
+    var reloaded = SAVE.load(BAL.season.worldSeed, 1);
+    ok('公会写进存档、读回来还在', !!(reloaded.guild && reloaded.guild.name === '铁血兄弟会'), JSON.stringify(reloaded.guild));
+    eq('成员表原样回来', reloaded.guild.members.length, save.guild.members.length);
+    eq('会长身份原样回来', reloaded.guild.role, 'leader');
+    eq('锚点原样回来', Math.round(reloaded.guild.anchor.x), Math.round(save.guild.anchor.x));
+
+    // 收尾：把这一节改过的状态还回去（后面的自检段还要用这份存档）
+    save.guild = before.guild;
+    save.level = before.level;
+    save.horns = before.horns;
+    game.state.player.x = before.x;
+    game.state.player.y = before.y;
+    game.state.guild.note = '';
+    game.state.guild.list = [];
+    game.state.guild.listNote = '';
+    game.state.guild.autoAt = 0;
+    G.PANELS.setDraftGuildName('');
+    G.PANELS.setJoinDraftName('');
+    G.PANELS.close();
+    SAVE.write(save);
+  }
+
   function runAll() {
     reset();
     var groups = [
@@ -11013,18 +17063,28 @@ G.SELFTEST = (function () {
       checkCombat,
       checkLoot,
       checkEquipment,
+      checkChestOpen,
+      checkChestAuto,
       checkPlayer,
       checkSave,
       checkAccount,
       checkUi,
+      checkInput,
       checkMap,
       checkLook,
       checkAuto,
       checkFeel,
       checkAudio,
       checkCamp,
+      checkEnhance,
+      checkGuild,
       checkSkills,
       checkSkillsRuntime,
+      checkSkillAuto,
+      checkPanelLayout,
+      checkCamera,
+      checkZoomSlider,
+      checkTierGlow,
       checkEntryPoints
     ];
     for (var i = 0; i < groups.length; i += 1) {
@@ -11072,16 +17132,24 @@ G.SELFTEST = (function () {
     checkCombat: checkCombat,
     checkLoot: checkLoot,
     checkEquipment: checkEquipment,
+    checkChestOpen: checkChestOpen,
+    checkChestAuto: checkChestAuto,
     checkPlayer: checkPlayer,
     checkSave: checkSave,
     checkAccount: checkAccount,
     checkUi: checkUi,
+    checkInput: checkInput,
     checkAuto: checkAuto,
     checkFeel: checkFeel,
     checkAudio: checkAudio,
     checkCamp: checkCamp,
+    checkGuild: checkGuild,
     checkSkills: checkSkills,
     checkSkillsRuntime: checkSkillsRuntime,
+    checkSkillAuto: checkSkillAuto,
+    checkPanelLayout: checkPanelLayout,
+    checkCamera: checkCamera,
+    checkTierGlow: checkTierGlow,
     checkEntryPoints: checkEntryPoints,
     checkMap: checkMap,
     checkLook: checkLook,
@@ -11103,8 +17171,8 @@ G.SELFTEST = (function () {
  *   ① 界面在登录 / 创建角色 → G.LOGIN 吃；
  *   ② 面板卡片开着且这一点落在**卡片里**（或关闭键上）→ 18-panels 吃；
  *   ③ 其余一律给 15-input（摇杆 + 右下圆形功能键）。
- *   第 ② 条的"卡片里"是 A4 的关键：卡片只占 1/3 屏，**卡片外面照旧能推摇杆**，
- *   加上 step() 不再因为面板开着而 return，"打开背包 / 设置时游戏不停止"才真的成立。
+ *   第 ② 条的"卡片里"是 A4 的关键：卡片只占一部分屏（A4 是 1/3，2026-10-01 改成约 2/3 屏高），
+ *   **卡片外面照旧能推摇杆**，加上 step() 不再因为面板开着而 return，"打开背包 / 设置时游戏不停止"才真的成立。
  *
  * 界面状态机（A4）：'welcome'（登录）→ 'createRole'（创建角色 / 输入昵称）→ 'playing'。
  *   只有 'playing' 才跑世界逻辑，登录界面上的世界是静止的（还没登录，不该被怪打）。
@@ -11112,6 +17180,21 @@ G.SELFTEST = (function () {
  * 玩法结算（经验 / 金币 / 掉箱 / 开箱 / 装备 / 商城 / 公会）放在这里的原因：
  *   它是**改存档的唯一地方**。阶段 B 起把这些函数原样搬到服务端即可 ——
  *   抽奖用的 rng 已经是传入的，接口一行都不用改（决策 #1 的前提）。
+ *
+ * A14（用户："宝箱可以设置是否自动开启——对应不同等阶不同的开启按钮"）的两条新路径也落在这里：
+ *   - 按阶开箱：`openChestsOfTier`（宝箱清单每行右侧那枚「全开」）→ 真正扣箱的那一步在 `openChestAt`
+ *     （A7 修订 2 的"先出装备、再扣箱"就在那里，"开箱必出装备"因此对两条路都成立）；
+ *   - 自动开启：`autoOpenChest` —— 勾上的那一阶，箱子**一掉出来就当场开**（不进背包、不占 bagCap），
+ *     调用点是 `applyKill` 的掉箱分支。勾选表本身是存档数据（`settings.chestAuto`，见 11-save / 08-loot）。
+ *
+ * 本次新增（用户：商城要能买强化石 + 营地里加铁匠NPC 强化装备）：
+ *   - `buyStone`：商城的第二件货（100 金币一颗，`balance.shop.stone`），与 `buyHorn` 同一套规矩；
+ *   - `enhanceItem(slotId)`：铁匠强化**已穿**的那一件 —— 扣强化石 → 09-equipment 的 `applyEnhance`
+ *     （唯一改等级的地方）→ 重算属性快照。要几颗石头、涨多少主属性全在 `balance.enhance`，
+ *     本文件一个数字都不写死；
+ *   - `smithButton` / `nearSmith`：营地铁匠头顶那枚「锻」键 —— 只有站在他 `talkRadius` 以内才进
+ *     HUD 按钮表（按相机投影算坐标），于是"画法 / 命中 / 点击"三者天然一致；
+ *     18-panels 里的营地面板还有一行同样的入口（走不到他跟前也能开强化面板）。
  */
 
 G.GAME = (function () {
@@ -11131,6 +17214,8 @@ G.GAME = (function () {
   var HUD = G.HUD;
   var PANELS = G.PANELS;
   var RENDER = G.RENDER;
+  /** 公会的规则与记录（本次新增）：等级怎么算、名字合不合法、服务端那份怎么变成本地镜像 */
+  var GUILD = G.GUILD;
 
   var STEP_MS = 1000 / CONFIG.logicHz;
 
@@ -11140,6 +17225,8 @@ G.GAME = (function () {
     player: null,
     stats: null,
     camera: { x: 0, y: 0 },
+    /** 相机前瞻偏移（A11）：跟着"正在走的方向 / 正在打的目标"平滑移动。纯表现 —— 逻辑层不读它 */
+    cameraLook: { x: 0, y: 0 },
     /** 表现用的闪光提示（升级 / 掉箱 / 抢怪…），到点自己消失 */
     flash: { text: '', until: 0 },
     fps: 0,
@@ -11174,8 +17261,24 @@ G.GAME = (function () {
     /** 全局冷却（A5）：两次技能之间的最短间隔，防止四个键在同一帧里一起炸出去 */
     skillGlobalAt: 0,
     /** 最近放过的技能名（调试面板用）—— A5 */
-    lastSkill: ''
+    lastSkill: '',
+    /**
+     * 公会那一块的**运行态**（本次新增；不进存档）：网络提示 / 忙闲 / 服务端列表。
+     *   note     —— 面板上那一行「服务端」说明（正在连 / 刚同步过 / 连不上）
+     *   busy     —— 有没有一个请求在路上（防重复发包，也用来画"正在连接"）
+     *   list     —— `GET/POST /api/guild/list` 拿到的公会列表（点一行加入）
+     *   listAt   —— 上次刷新列表的世界时刻（面板上显示"x 分钟前"）
+     *   autoAt   —— 上次自动刷新的时刻；**0 = 还没同步过**（打开面板时立刻来一次）
+     * 存档里那份（成员 / 等级 / 锚点）在 `state.save.guild`，两者拼起来就是界面读的 view。
+     */
+    guild: { note: '', busy: false, list: [], listAt: 0, listNote: '', autoAt: 0 }
   };
+
+  /**
+   * 缩放轴拖动途中最近应用过的格数（A11 之二）：move 事件比像素还密，
+   * 同一格重复调用没有意义（见 `applySliderDrag`）；一次触摸开始时归零。
+   */
+  var lastSliderTiles = 0;
 
   /** 屏幕中央的一条提示（小游戏没有原生 toast，自绘最省事） */
   function flash(message, ms) {
@@ -11212,7 +17315,8 @@ G.GAME = (function () {
    * 做成一个独立函数的原因：自检可以直接喂一份假的 events 断言数值，不用真去打一只怪。
    *   - 普通命中 45ms / 暴击 110ms（balance.view.hitStopMs）——顿帧太短没感觉，太长会"卡"；
    *   - 挨打也有 30ms：让"我被打了"这件事在画面上一顿，比飘字更快被感知；
-   *   - 暴击震屏 26px/240ms，挨打 12px/150ms（balance.view.shake）。
+   *   - 震屏**只有暴击**（26px/240ms，balance.view.shake）—— A7 修订 2 按用户要求
+   *     "去掉受伤震屏"：挨打不再抖屏幕（挨打仍保留顿帧 + 音效 + 手机震动，反馈一点没少）。
    */
   function applyHitFeedback(events) {
     var hits = events && events.hits ? events.hits : [];
@@ -11241,7 +17345,8 @@ G.GAME = (function () {
     if (hurt.length > 0) {
       playSfx('hurt');
       if (BAL.view.hitStopMs.hurt > stop) stop = BAL.view.hitStopMs.hurt;
-      setShake(BAL.view.shake.hurtMs, BAL.view.shake.hurtPower);
+      // A7 修订 2：挨打**不震屏**（用户要求"去掉受伤震屏"）—— 只顿帧 + 音效 + 手机震动；
+      // 震屏留给暴击，那个才需要"咬手"。自检里有"挨打震屏幅度保持 0"这条断言。
       if (state.save.settings.vibrate !== false) PLAT.vibrate(20);
     }
     if (stop > state.hitStopMs) state.hitStopMs = stop;
@@ -11279,6 +17384,199 @@ G.GAME = (function () {
     return { x: state.camera.x + offset.x, y: state.camera.y + offset.y };
   }
 
+  /**
+   * 相机归位（A11）：把相机钉在玩家身上，并把前瞻偏移清零。
+   * 传送 / 复活 / 读档 / 换档 / 重置存档都要走它 —— 否则镜头会带着上一处的前瞻偏移"飘"过去。
+   */
+  function snapCamera() {
+    state.camera.x = state.player.x;
+    state.camera.y = state.player.y;
+    state.cameraLook.x = 0;
+    state.cameraLook.y = 0;
+  }
+
+  /**
+   * 相机前瞻（A11）：镜头往"正在走的方向 / 正在打的目标"前移一点。
+   *
+   * 为什么：屏幕正中永远钉着玩家时，**前进方向上是盲的** —— 一半的屏幕被"走过的路"占着。
+   * 规则：推着摇杆 → 朝摇杆（推得越满前移越多）；自动战斗 → 朝当前目标（没目标就朝最近的那只）；否则归零。
+   * **纯表现**：只改 `state.cameraLook`，逻辑层读到的 player 坐标一个字节都不变。
+   *
+   * A11 之三（用户："视角没有锁定以角色为中心"）：`view.cameraLookAhead` 现在是 **0** ——
+   * 这个偏移以**世界单位**计，近距离视角下它占屏幕的比例会大到把角色挤到边上
+   * （22 格时占半屏的 34%、16 格时 47%），所以正式关掉：镜头锁定以角色为中心。
+   * 机制留着（把 balance 里的数改回非 0 就恢复），下面的 `span <= 0` 分支就是那个开关。
+   */
+  function updateCameraLook(player) {
+    var look = state.cameraLook;
+    var span = BAL.view.cameraLookAhead;
+    if (!(span > 0)) {
+      // 锁定：前瞻恒为 0（不是"衰减到 0"，是压根不产生偏移）
+      look.x = 0;
+      look.y = 0;
+      return;
+    }
+    var tx = 0;
+    var ty = 0;
+    if (player && !player.dead) {
+      var direction = INPUT.direction();
+      if (direction.magnitude > 0) {
+        tx = direction.x * direction.magnitude;
+        ty = direction.y * direction.magnitude;
+      } else if (state.save && state.save.settings && state.save.settings.autoBattle) {
+        var target = WORLD.monsterById(player.targetId) || WORLD.pickTarget(player);
+        if (target) {
+          var dx = target.x - player.x;
+          var dy = target.y - player.y;
+          var length = Math.sqrt(dx * dx + dy * dy);
+          if (length > 0.0001) {
+            tx = dx / length;
+            ty = dy / length;
+          }
+        }
+      }
+    }
+    var rate = BAL.view.cameraLookLerp;
+    look.x += (tx * span - look.x) * rate;
+    look.y += (ty * span - look.y) * rate;
+  }
+
+  /**
+   * 相机跟随（A11 之三，用户："视角没有锁定以角色为中心"）：**把镜头钉在角色身上**。
+   *
+   * `view.cameraLerpPerTick >= 1` = 锁定：每逻辑帧直接把相机放到"玩家 + 前瞻"上 ——
+   * 角色因此永远画在屏幕正中（前瞻已被关掉 = 0，见 `updateCameraLook`）。
+   * 这里刻意用整块赋值而不是插值：`x += (t - x) * 1` 在浮点下仍可能差最后一位，
+   * 而"锁定"是个硬要求（自检断言的是**逐字节相等**）。
+   *
+   * 小于 1 时退回缓动跟随（镜头落后玩家一点点），换档 / 传送 / 读档 / 拖缩放轴
+   * 仍然走 `snapCamera` 直接贴合 —— 缓动再小也不会把镜头丢在上一处。
+   */
+  function followCamera(player) {
+    var rate = BAL.view.cameraLerpPerTick;
+    var tx = player.x + state.cameraLook.x;
+    var ty = player.y + state.cameraLook.y;
+    if (!(rate < 1)) {
+      state.camera.x = tx;
+      state.camera.y = ty;
+      return;
+    }
+    if (!(rate > 0)) rate = 1;
+    state.camera.x += (tx - state.camera.x) * rate;
+    state.camera.y += (ty - state.camera.y) * rate;
+  }
+
+  /**
+   * 当前视角的一份"人话"视图（A11 / A11 之二）：档名 / 一屏几格 / 倍率 / 宏观色格边长 / 一格几 CSS px。
+   * 调试面板、设置面板那一行缩放轴、自检都读它 —— 界面层因此不用自己算"现在到底能看清什么"。
+   *
+   * 拖到两个档位之间时 `name` 是「自定义」（档名不再等于实际倍率，写个"中"就是在骗玩家），
+   * `custom` 给自检与调试面板一个布尔量，不用去比字符串。
+   */
+  function zoomView() {
+    var tiers = BAL.view.cameraTiers;
+    var index = Math.floor(BAL.view.cameraTier);
+    if (!(index >= 0) || index >= tiers.length) index = 0;
+    var current = tiers[index];
+    var tiles = Math.round(BAL.view.zoomTiles) > 0 ? Math.round(BAL.view.zoomTiles) : current.tiles;
+    var zoom = RENDER.zoom();
+    return {
+      index: index,
+      id: current.id,
+      name: tiles === current.tiles ? current.name : '自定义',
+      custom: tiles !== current.tiles,
+      tiles: tiles,
+      zoom: zoom,
+      lodBlocks: RENDER.lodBlocks(),
+      /** 一格在手机上几 CSS px（设计 px × 屏缩放 = cssW / designWidth） */
+      tileCssPx: Math.round(zoom * BAL.world.tileSize * SCREEN.scale() * 100) / 100
+    };
+  }
+
+  /** 离这个格数最近的那个预设档位（拖到两档之间时，宏观规格按更近的一档走） */
+  function nearestZoomTier(tiles) {
+    var tiers = BAL.view.cameraTiers;
+    var best = 0;
+    var bestGap = -1;
+    for (var i = 0; i < tiers.length; i += 1) {
+      var gap = Math.abs(tiers[i].tiles - tiles);
+      if (bestGap < 0 || gap < bestGap) {
+        bestGap = gap;
+        best = i;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * 把视角缩放到"一屏 tiles 格"（A11 之二，用户："玩家设置中添加视角缩放滚动轴，可以缩到16-64"）。
+   *
+   * 一次写三处，它们是"一个数"的三张脸：
+   *   1. `view.zoomTiles` —— 渲染层读的倍率来源（`RENDER.zoom` = designWidth / (tiles × tileSize)）；
+   *   2. `view.cameraTier` —— **最近的预设档位**：宏观色格边长 / 装载环 / 小地图半径都挂在档位上，
+   *      按"离哪一档近"取规格，于是拖动时这些"档"级别的数字不会每格乱跳；
+   *   3. 存档 `settings.zoomTiles`（重开还记得）+ `settings.zoomTier`（跟着写成最近那一档）——
+   *      两个字段因此在任何时候都自洽，不会出现"档位写着中档、格数却是 22"。
+   *
+   * `quiet = true`：只应用、不提示、**不写磁盘** —— 拖动过程中每一格都写一次存储会把手机拖卡，
+   * 松手那一下（`setZoomTiles(tiles, false)`）才落盘 + 给一句带数字的提示。
+   * 界面上的"咔"一声由 20-main 的 handleAction 统一播（这里不重复播）。
+   */
+  function setZoomTiles(tiles, quiet) {
+    var value = SAVE.clampZoomTiles(tiles);
+    BAL.view.zoomTiles = value;
+    BAL.view.cameraTier = nearestZoomTier(value);
+    if (state.save && state.save.settings) {
+      state.save.settings.zoomTiles = value;
+      state.save.settings.zoomTier = BAL.view.cameraTier;
+    }
+    if (state.player) snapCamera();
+    if (!quiet) {
+      var info = zoomView();
+      flash('视角：一屏 ' + info.tiles + ' 格（一格 ' + info.tileCssPx + ' CSS px）', 1600);
+      writeSave();
+    }
+    return value;
+  }
+
+  /**
+   * 切到第 index 档视角（A11，用户："相机视角还需要优化"）：写 `view.cameraTier`（渲染层读它）
+   * + 存档 `settings.zoomTier`（重开还记得）+ 相机归位 + 一句带数字的提示。
+   *
+   * 为什么做成"运行时可切"而不是写死一个数：**细节与视野是一对取舍** ——
+   * 一格几 CSS px = `tileSize × zoom × 屏缩放`，所以"一眼看到 128 格"和"看清脚下每一格"不可能同时成立。
+   * 把选择交给玩家，并把代价（一格几 CSS px、宏观色格几格）直接写在提示里。
+   * `quiet = true` 时只应用不提示（开机读档走这条）。
+   *
+   * A11 之二：档位现在是**预设** —— 切档同时把缩放轴放到这一档的格数上（`setZoomTiles` 的反方向），
+   * 两个入口因此永远指向同一个倍率，不会出现"档位写着中档、倍率却是别的"。
+   */
+  function setZoomTier(index, quiet) {
+    var tiers = BAL.view.cameraTiers;
+    var i = Math.floor(index);
+    if (!(i >= 0)) i = 0;
+    if (i >= tiers.length) i = tiers.length - 1;
+    BAL.view.cameraTier = i;
+    BAL.view.zoomTiles = tiers[i].tiles;
+    if (state.save && state.save.settings) {
+      state.save.settings.zoomTier = i;
+      state.save.settings.zoomTiles = tiers[i].tiles;
+    }
+    if (state.player) snapCamera();
+    if (!quiet) {
+      var info = zoomView();
+      flash('视角：' + info.name + '（一屏 ' + info.tiles + ' 格 · 一格 ' + info.tileCssPx + ' CSS px）', 1800);
+      playSfx('ui');
+      writeSave();
+    }
+    return i;
+  }
+
+  /** 点一下换下一档（设置面板那一行）：远 → 中 → 近 → 远 */
+  function cycleZoomTier() {
+    return setZoomTier(zoomView().index + 1, false);
+  }
+
   /* ---------------------------------------------------------------- 启动 */
 
   function boot() {
@@ -11291,8 +17589,14 @@ G.GAME = (function () {
     state.player = PLAYER.create(state.save);
     state.stats = PLAYER.statsOf(state.save.level, state.save.loadout);
     state.player.hp = state.stats.hpMax;
-    state.camera.x = state.player.x;
-    state.camera.y = state.player.y;
+    snapCamera();
+    // A11：把存档里的视角档位应用到渲染层（静默 —— 开机不刷提示）
+    // A11 之二：缩放轴是"档位之上"的那一层 —— 老存档没有 zoomTiles 时 normalizeSettings 已把它对齐到档位，
+    // 有的话就以它为准。**先把值取出来再切档**：setZoomTier 会把 settings.zoomTiles 拉回档位值
+    // （自检盯着这条：拖到 48 格再重开，必须还是 48，不能悄悄回到档位的 64）。
+    var savedZoomTiles = state.save.settings.zoomTiles;
+    setZoomTier(state.save.settings.zoomTier, true);
+    setZoomTiles(savedZoomTiles, true);
 
     WORLD.reset(BAL.season.worldSeed);
     WORLD.ensureChunks(state.player.x, state.player.y);
@@ -11490,6 +17794,41 @@ G.GAME = (function () {
     });
   }
 
+  /**
+   * 平台键盘输入公会名（本次新增：用户要求"创建公会需要自己输入公会名"）。
+   * 与登录页的 `typeNameAction` 是同一套办法：小游戏里没有 `<input>`，只能靠 `tt.showKeyboard`
+   * （`PLAT.editText`）。**拿不到键盘就把随机名填进去**并说明原因 —— 模拟器里没有这个 API，
+   * 那条路上"建会"不能断（与登录页的「换一个随机昵称」同一条兜底思路）。
+   */
+  function typeGuildName() {
+    var current = PANELS.draftGuildName();
+    var check = current ? GUILD.validate(current) : { ok: false };
+    PLAT.editText({ defaultValue: check.ok ? check.name : '', maxLength: BAL.guild.nameMax }).then(function (value) {
+      if (value === null || value === undefined) {
+        var fallback = PANELS.nextGuildName(Math.round(state.now) + 41);
+        PANELS.setDraftGuildName(fallback);
+        flash('平台键盘不可用 → 已填一个随机公会名「' + fallback + '」，不满意可以再点一次', 3200);
+        return;
+      }
+      PANELS.setDraftGuildName(value);
+      var now = GUILD.validate(PANELS.draftGuildName());
+      flash(now.ok ? '公会名可用：' + now.name : GUILD.reasonText(now.reason), 2600);
+    });
+  }
+
+  /** 平台键盘输入"要加入的公会名"（与上面同一条路，只是草稿是另一个） */
+  function typeJoinName() {
+    PLAT.editText({ defaultValue: PANELS.joinDraftName(), maxLength: BAL.guild.nameMax }).then(function (value) {
+      if (value === null || value === undefined) {
+        flash('平台键盘不可用 → 从下面的公会列表里点一行加入', 3200);
+        return;
+      }
+      PANELS.setJoinDraftName(value);
+      var check = GUILD.validate(PANELS.joinDraftName());
+      flash(check.ok ? '要加入的公会名：' + check.name : GUILD.reasonText(check.reason), 2600);
+    });
+  }
+
   /** 登录 / 创建角色界面上的按钮 → 动作（与 PANELS 的 action 同构，20-main 统一执行） */
   function handleLoginAction(action) {
     if (!action) return;
@@ -11511,7 +17850,8 @@ G.GAME = (function () {
    * 自动战斗的**走位**那一半（用户要求："自动战斗时不仅会自动释放技能，还会自动走向最近的怪物"）。
    * 出手由 14-world.playerAttack 负责（它本来就是自动的），这里只负责"走过去"：
    *   1. 摇杆只要推着就手动优先 —— 自动模式随时可以被玩家接管；
-   *   2. 没有目标 / 目标死了就按"视野内最近"重选（与出手共用同一份 pickTarget / targetId）；
+   *   2. 没有目标 / 目标死了就按"距离最近"重选（默认全地图：`combat.targetRange` = 0，
+   *      与出手共用同一份 pickTarget / targetId）；
    *   3. 走到 `怪半径 + 攻击距离 × auto.moveStopRatio` 就站住：贴脸打容易被围殴，
    *      这个比例就是"贴上去"和"留半个身位"之间的取舍（在 balance 里，不在代码里）。
    * 返回当前目标（自检要断言"确实朝着最近的怪走了"）。
@@ -11554,11 +17894,11 @@ G.GAME = (function () {
     var settings = state.save.settings;
     settings.autoBattle = settings.autoBattle !== true;
     writeSave();
-    flash(settings.autoBattle ? '自动战斗已开启：自动走向视野内最近的怪' : '自动战斗已关闭：手动摇杆走位', 2200);
+    flash(settings.autoBattle ? '自动战斗已开启：自动走向全地图最近的怪' : '自动战斗已关闭：手动摇杆走位', 2200);
     return settings.autoBattle;
   }
 
-  /* ------------------------------------------------ 技能栏（A5 新增） */
+  /* ------------------------------------------------ 技能栏（A5 新增，A10 加勾选） */
 
   /** 冷却数组按技能个数补齐 / 截断（读档、改表之后长度都可能不一样） */
   function skillCooldowns() {
@@ -11570,6 +17910,80 @@ G.GAME = (function () {
   }
 
   /**
+   * 四个技能键的「自动释放」勾选（A10）：读存档，再按**技能表长度**对齐一份新数组。
+   *
+   * 为什么要在 20-main 里对齐：勾选表是存档数据（可能有缺项、可能比技能表短），
+   * 而 `SKILLS.autoChoice` 与 17-hud 都只该认一份"长度正确、值正确"的数组 ——
+   * 于是"存档里有几个、现在有几个技能"这类对齐只在一个地方做（缺项当"勾上"）。
+   */
+  function skillAutoFlags() {
+    var total = G.SKILLS.count();
+    var list = state.save && state.save.settings ? state.save.settings.skillAuto : null;
+    var out = [];
+    for (var i = 0; i < total; i += 1) out.push(G.SKILLS.autoEnabled(list, i));
+    return out;
+  }
+
+  /**
+   * 切换第 i 个技能的"自动释放"（技能键右上角的勾选框，以及背包面板里的技能条都走它）。
+   * 写存档 + 立刻给一句提示（"关了只是不会自动放，手动点照样能放"）。
+   * 越界 / 没存档一律返回 null（界面上按空不该炸）。
+   */
+  function toggleSkillAuto(index) {
+    if (!state.save || !state.save.settings) return null;
+    var i = typeof index === 'number' ? Math.floor(index) : -1;
+    if (!(i >= 0) || i >= G.SKILLS.count()) return null;
+    var flags = skillAutoFlags();
+    flags[i] = flags[i] !== true;
+    state.save.settings.skillAuto = flags;
+    writeSave();
+    var slot = G.SKILLS.slotAt(i);
+    playSfx('ui');
+    flash(
+      (slot ? slot.name : '技能') + '：自动释放已' + (flags[i] ? '开启' : '关闭') + (flags[i] ? '' : '（手动点它照样能放）'),
+      1800
+    );
+    return flags;
+  }
+
+  /**
+   * 按阶的「自动开启」勾选表（A14）：读存档 `settings.chestAuto`，再按**阶数**对齐一份新数组。
+   *
+   * 与技能勾选（`skillAutoFlags`）同一条纪律：对齐只在这一个地方做，18-panels 与 08-loot 都只认
+   * "长度正确、值正确"的数组 —— 缺项 / 坏值 / 上个版本没有这个字段，一律当**关**
+   * （判定在 `LOOT.autoEnabled`，于是"开关表坏了怎么办"只有一个答案：不替玩家花箱子）。
+   */
+  function chestAutoFlags() {
+    var list = state.save && state.save.settings ? state.save.settings.chestAuto : null;
+    var total = G.LOOT.tiers().length;
+    var out = [];
+    for (var i = 0; i < total; i += 1) out.push(G.LOOT.autoEnabled(list, i + 1));
+    return out;
+  }
+
+  /**
+   * 切换某一阶宝箱的"自动开启"（A14，宝箱清单每行右侧那枚勾选）：写存档 + 立刻给一句提示。
+   * 越界 / 没存档一律返回 null（界面上按空不该炸）。
+   *
+   * 那句提示特意写明"掉出来就当场开"：勾了之后玩家不会再看到箱子进背包，说明白才不会被当成 bug。
+   * 音效不在这里放 —— handleAction 已经为所有"非开箱"的 action 统一放了"咔"的一声，这里再放一次就成双响。
+   */
+  function toggleChestAuto(tierId) {
+    if (!state.save || !state.save.settings) return null;
+    var tier = typeof tierId === 'number' ? Math.floor(tierId) : -1;
+    if (!(tier >= 1) || tier > G.LOOT.tiers().length) return null;
+    var flags = chestAutoFlags();
+    flags[tier - 1] = flags[tier - 1] !== true;
+    state.save.settings.chestAuto = flags;
+    writeSave();
+    flash(
+      LOOT.tierName(tier) + '宝箱：自动开启已' + (flags[tier - 1] ? '开启（掉出来就当场开）' : '关闭（照旧进背包）'),
+      1800
+    );
+    return flags;
+  }
+
+  /**
    * 技能栏视图：每个栏位算好"解锁 / 冷却比例 / 剩余秒数"，界面层只认这一份
    * （决策 #4：界面不读玩法数据）。20-main 是唯一知道"技能表长什么样、冷却还剩多少"的地方，
    * 17-hud 只负责画圆和扇形 —— 与功能键一模一样的分工。
@@ -11578,6 +17992,7 @@ G.GAME = (function () {
     var nowMs = WORLD.now();
     var level = state.save ? state.save.level : 1;
     var cooldowns = skillCooldowns();
+    var flags = skillAutoFlags();
     var slots = [];
     for (var i = 0; i < G.SKILLS.count(); i += 1) {
       var slot = G.SKILLS.slotAt(i);
@@ -11594,7 +18009,9 @@ G.GAME = (function () {
         ready: unlocked && remain <= 0,
         remainMs: remain,
         cool: remain > 0 && slot.cooldownMs > 0 ? remain / slot.cooldownMs : 0,
-        state: !unlocked ? 'lock' : remain > 0 ? 'cool' : 'ready'
+        state: !unlocked ? 'lock' : remain > 0 ? 'cool' : 'ready',
+        /** A10：这个技能勾上"自动释放"了吗（17-hud 的勾选框与背包面板的技能条都读它） */
+        auto: flags[i]
       });
     }
     return {
@@ -11602,6 +18019,8 @@ G.GAME = (function () {
       unlocked: G.SKILLS.unlockedCount(level),
       total: G.SKILLS.count(),
       auto: !!(state.save && state.save.settings && state.save.settings.autoBattle === true),
+      /** A10：勾上了自动释放的技能个数（HUD 的调试面板与自检读它） */
+      autoCount: G.SKILLS.autoCount(flags),
       slots: slots
     };
   }
@@ -11681,6 +18100,8 @@ G.GAME = (function () {
    * 自动释放技能（A5）：自动战斗开着的逻辑帧调一次。
    * 挑哪个由 07-skills 的 `autoChoice` 决定（纯函数，可以单独断言）：从左到右第一个能用的，
    * 伤害技要有怪在打击范围内，治疗只在血量低于 `skills.autoHealRatio` 时放。
+   * **A10**：只挑"勾上了自动释放"的技能（`settings.skillAuto`）—— 没勾的只不会被自动放，
+   * 手动点那个键照样能放（见 castSkillSlot）。
    * 这就是 A4 决策 #10c 里说的"真要做技能得单开一个工作包"的那个工作包。
    */
   function autoCastStep() {
@@ -11693,6 +18114,7 @@ G.GAME = (function () {
       globalAt: state.skillGlobalAt,
       nowMs: WORLD.now(),
       level: state.save.level,
+      auto: skillAutoFlags(),
       hpRatio: stats.hpMax > 0 ? player.hp / stats.hpMax : 1,
       x: player.x,
       y: player.y,
@@ -11709,7 +18131,7 @@ G.GAME = (function () {
    * A4 的两处关键改动：
    *   1. 只有 `screen === 'playing'` 才跑世界 —— 登录 / 创建角色界面上的世界是静止的；
    *   2. **面板开着不再暂停世界**（用户要求"打开背包、设置等界面时游戏不停止"）：
-   *      卡片只占 1/3 屏、卡片外还能推摇杆，于是玩家可以边开着背包边跑图。
+   *      卡片只占约 2/3 屏高（2026-10-01 从 1/3 屏改过来）、卡片外还能推摇杆，于是玩家可以边开着背包边跑图。
    *      代价写在 04-decisions #10：站着开箱会被怪打 —— 这是"不暂停"的必然结果。
    */
   function step(dtMs) {
@@ -11737,7 +18159,7 @@ G.GAME = (function () {
         // 摇杆推得越满走得越快（magnitude 就是模拟量），这是"手感"的一半；手动永远优先
         PLAYER.move(player, direction.x * direction.magnitude, direction.y * direction.magnitude, dtMs / 1000, stats);
       } else if (state.save.settings.autoBattle) {
-        // 自动战斗：自动走向视野内最近的怪（出手本来就有 14-world.playerAttack 负责）
+        // 自动战斗：自动走向**全地图**最近的怪（combat.targetRange = 0；出手本来就有 14-world.playerAttack 负责）
         autoStep(player, stats, dtMs);
       } else {
         PLAYER.move(player, 0, 0, dtMs / 1000, stats);
@@ -11752,9 +18174,12 @@ G.GAME = (function () {
     for (var i = 0; i < events.kills.length; i += 1) applyKill(events.kills[i]);
     if (events.playerDown) flash('被打倒了，3 秒后原地复活', 1600);
 
-    // 相机缓动跟随（view.cameraLerpPerTick 是"每逻辑帧"的插值比例）
-    state.camera.x += (player.x - state.camera.x) * BAL.view.cameraLerpPerTick;
-    state.camera.y += (player.y - state.camera.y) * BAL.view.cameraLerpPerTick;
+    // 相机跟随（A11 之三：**锁定以角色为中心** —— `view.cameraLerpPerTick = 1` = 每逻辑帧直接贴合）。
+    // A11 时代这里还叠了一笔"前瞻偏移"（镜头看向"我 + 我要去的地方"），近距离视角下那个
+    // 固定世界单位的偏移会把角色挤出屏幕中心，用户要的是锁定，所以前瞻已关（`cameraLookAhead = 0`，
+    // 见 `updateCameraLook`）。逻辑层读到的 player 坐标一个字节都没动。
+    updateCameraLook(player);
+    followCamera(player);
 
     // 进出营地时提示一次：营地是回血 / 商店 / 传送的入口（用户要的"营地交互入口"）
     var camp = inCamp();
@@ -11765,6 +18190,8 @@ G.GAME = (function () {
 
     state.save.stats.playMs += dtMs;
     state.now = WORLD.now();
+    // 公会面板开着时自动保鲜（每 balance.guild.syncIntervalMs 一次；关掉面板就静默）—— 本次新增
+    guildAutoSync();
   }
 
   /* ---------------------------------------------------------------- 结算 */
@@ -11792,7 +18219,10 @@ G.GAME = (function () {
 
     if (WORLD.rng().chance(LOOT.dropChance(monster.band, monster.elite))) {
       var tier = LOOT.rollChestTier(monster.band, monster.elite, WORLD.rng(), save.pity);
-      if (SAVE.pushChest(save, tier, monster.level)) {
+      // A14：这一阶勾了「自动开启」→ 箱子**不进背包**，当场开掉（于是也不占 bagCap、不会被自动分解）
+      if (LOOT.autoEnabled(save.settings.chestAuto, tier)) {
+        autoOpenChest(tier, monster.level);
+      } else if (SAVE.pushChest(save, tier, monster.level)) {
         flash(LOOT.tierName(tier) + ' 到手（背包 ' + save.chests.length + '/' + LOOT.bagCap() + '）', 1600);
       } else {
         var salvage = LOOT.salvageGold(tier);
@@ -11820,6 +18250,10 @@ G.GAME = (function () {
   /**
    * 开箱时的装备等阶：以**箱阶为下限**，在同阶及以上按（band 调整过的）权重抽。
    * 这条规则兑现了 01-game-design §7 的"普通箱开出 ≥ 普通、天赐箱必是天赐"。
+   *
+   * 兜底（A7 修订 2）：池子为空 = 一件都抽不出来（只会发生在箱阶数据坏掉时，比如 tier 缺失 / 越界）。
+   * 这时**回落到合法范围内的箱阶**（1~6），保证永远给得出一个等阶 —— "开箱必出装备"的底线在
+   * `openOneChest()`：它先拿到装备才扣箱，所以最坏情况也只是"箱还在"。
    */
   function rollEquipmentTier(chestTier, band) {
     var weights = LOOT.tierWeights(band);
@@ -11831,6 +18265,13 @@ G.GAME = (function () {
         pool.push(tier);
         poolWeights.push(weights[i]);
       }
+    }
+    if (pool.length === 0) {
+      var last = BAL.equipment.tiers.length;
+      var safe = Math.round(chestTier);
+      if (!(safe >= 1)) safe = 1;
+      if (safe > last) safe = last;
+      return safe;
     }
     return pool[WORLD.rng().weightedIndex(poolWeights)].id;
   }
@@ -11845,16 +18286,28 @@ G.GAME = (function () {
     return false;
   }
 
-  /** 开一个箱：抽装备等阶 → 生成装备 →（默认）战力更高就直接穿上，否则进背包 */
+  /**
+   * 开一个箱（= 背包里第一口）：抽装备等阶 → 生成装备 →（默认）战力更高就直接穿上，否则进背包。
+   *
+   * **A7 修订 2（用户："打开宝箱必定出装备"）**：产出是**硬保证**，两个地方一起兜住 ——
+   *   ① 顺序：**先**把装备生成出来，**再**从背包里扣掉这只箱（A14 起这两步在 `openChestAt` 里，
+   *      手点开箱与按阶开箱共用它，所以"箱没了、装备也没有"两种失败都不成立）；
+   *      装备生成失败（数据坏、抛异常）时箱子原样留在包里；
+   *   ② `rollEquipmentTier` 在池子为空时回落合法箱阶（见那里）。
+   * 另外满背包也不会吞装备：装备入包不设上限（`SAVE.pushItem`），旧件换新件时旧件才折算成金币。
+   * 自检的 `checkChestOpen` 把这条锁成断言：开 N 箱必产出 N 件，且每件都落在"身上或背包里"。
+   */
   function openOneChest() {
-    var save = state.save;
-    if (save.chests.length === 0) return null;
-    var chest = save.chests.shift();
-    var band = CHUNK.bandOf(state.player.x, state.player.y);
-    var tier = rollEquipmentTier(chest.tier, band);
-    var item = EQUIP.generate(tier, chest.level, WORLD.rng(), 0);
-    save.stats.opened += 1;
+    return openChestAt(0);
+  }
 
+  /**
+   * 装备入账（A14 从 `openOneChest` 里原样抽出来）：**战力更高就直接穿上**（还要过等级门槛），
+   * 否则进背包。满背包也不会吞装备：装备入包不设上限（`SAVE.pushItem`），旧件换新件时旧件才折算成金币。
+   * 返回 { item, equipped } —— 手点开箱与"自动开启"共用这一份入账规则，从此只有一处。
+   */
+  function grantEquipment(item) {
+    var save = state.save;
     var worn = save.loadout[item.slotId];
     // A6：自动穿上也要过等级门槛 —— 不够就只进背包，等练上去再穿
     if (CONFIG.autoEquipBetter && EQUIP.canWear(item, save.level) && (!worn || item.power > worn.power)) {
@@ -11865,6 +18318,69 @@ G.GAME = (function () {
     }
     SAVE.pushItem(save, item);
     return { item: item, equipped: false };
+  }
+
+  /**
+   * 开掉背包里第 index 口箱（A7 修订 2 的硬保证就落在这里：**先出装备、再扣箱** —— 装备生成失败时
+   * 箱子原样留在包里；`openOneChest` 与 A14 的按阶开箱都走它，于是"扣哪口箱"只有一处）。
+   * 下标越界返回 null。
+   */
+  function openChestAt(index) {
+    var save = state.save;
+    if (!(index >= 0) || index >= save.chests.length) return null;
+    var chest = save.chests[index];
+    var band = G.CHUNK.bandOf(state.player.x, state.player.y);
+    var tier = rollEquipmentTier(chest.tier, band);
+    var item = EQUIP.generate(tier, chest.level, WORLD.rng(), 0);
+    save.chests.splice(index, 1);
+    save.stats.opened += 1;
+    return grantEquipment(item);
+  }
+
+  /** 背包里**第一口**这一阶箱子的下标（一口都没有就 -1）：A14 的按阶开箱只认阶号，不认袋子顺序 */
+  function firstChestIndexOfTier(tierId) {
+    var chests = state.save.chests;
+    for (var i = 0; i < chests.length; i += 1) {
+      if (chests[i].tier === tierId) return i;
+    }
+    return -1;
+  }
+
+  /**
+   * 开掉某一阶的一口箱（A14）：抽装备只看**箱阶**与当前 band，同阶之间谁先谁后结果一样，
+   * 所以"从这一阶里拿第一口"和"拿最后一口"没有区别。这一阶一口也没有时返回 null。
+   */
+  function openOneChestOfTier(tierId) {
+    var index = firstChestIndexOfTier(tierId);
+    if (index < 0) return null;
+    return openChestAt(index);
+  }
+
+  /**
+   * 开箱的统一汇报（A14 抽出来，`openChests` 与 `openChestsOfTier` 共用）：
+   * 只报**最好的一件**（战力最高），免得刷屏 —— 每箱的结果都进背包 / 身上。
+   * `scope` 是"这次开的是哪一批"（大按钮 = 空字符串；某一阶 = `'传说宝箱 '`），只影响文案。
+   */
+  function reportOpened(scope, results) {
+    var best = results[0];
+    for (var k = 1; k < results.length; k += 1) {
+      if (results[k].item.power > best.item.power) best = results[k];
+    }
+    flash(
+      scope +
+        '开 ' +
+        results.length +
+        ' 箱：最好 ' +
+        EQUIP.tierById(best.item.tier).name +
+        ' ' +
+        best.item.slotName +
+        '（战力 ' +
+        best.item.power +
+        '）' +
+        (best.equipped ? ' · 已穿上' : ' · 进了背包'),
+      2800
+    );
+    return best;
   }
 
   /** 开 N 箱：只报"最好的一件"，免得刷屏（每箱的结果都进背包/身上） */
@@ -11878,25 +18394,58 @@ G.GAME = (function () {
     }
     if (results.length === 0) {
       flash('没有宝箱：去打怪（普通怪约 8% 掉箱，精英 25%）', 1800);
-      return;
+      return 0;
     }
-    var best = results[0];
-    for (var k = 1; k < results.length; k += 1) {
-      if (results[k].item.power > best.item.power) best = results[k];
+    reportOpened('', results);
+    return results.length;
+  }
+
+  /**
+   * 开掉**这一阶**的全部箱子（A14：宝箱清单每行右侧那枚「全开」—— 用户要的"对应不同等阶不同的开启按钮"）。
+   *
+   * 口径与 `openChests` 一模一样：开局一声开箱音、只报"最好的一件"、每箱的结果都进背包 / 身上。
+   * 这一阶一口也没有时给一句明说（正常情况下点不出来 —— 那一枚按钮这时**不产出 action**，
+   * 这里兜的是"点了之后箱子被别处开掉了"这类竞态）。
+   * 返回这次真开了几箱（"自动开启"那条路也要用它）。
+   */
+  function openChestsOfTier(tierId) {
+    var tier = typeof tierId === 'number' ? Math.floor(tierId) : -1;
+    if (!(tier >= 1) || tier > G.LOOT.tiers().length) return 0;
+    playSfx('chest');
+    var results = [];
+    var result = openOneChestOfTier(tier);
+    while (result) {
+      results.push(result);
+      result = openOneChestOfTier(tier);
     }
-    flash(
-      '开 ' +
-        results.length +
-        ' 箱：最好 ' +
-        EQUIP.tierById(best.item.tier).name +
-        ' ' +
-        best.item.slotName +
-        '（战力 ' +
-        best.item.power +
-        '）' +
-        (best.equipped ? ' · 已穿上' : ' · 进了背包'),
-      2800
-    );
+    if (results.length === 0) {
+      flash(LOOT.tierName(tier) + '宝箱：背包里一口都没有', 1600);
+      return 0;
+    }
+    reportOpened(LOOT.tierName(tier) + '宝箱 ', results);
+    return results.length;
+  }
+
+  /**
+   * 自动开启（A14，用户："宝箱可以设置是否自动开启"）：这一阶勾了勾选时，箱子一掉出来就**当场开掉** ——
+   *
+   *   - 箱子**不进背包**：于是不占 `bagCap`、也不会被"背包满了自动分解"折算成金币；
+   *   - 走的是同一套规则：`rollEquipmentTier`（箱阶为下限）+ `grantEquipment`（更就穿，穿不上进背包），
+   *     所以"自动开出来的东西"和玩家手点开出来的**完全一样**；
+   *   - **不喊开箱音效**：挂机一晚就是几百箱，每箱都咔一声会变成噪音（这是刻意的，不是漏了）；
+   *   - 报一句"自动开出 …"：不报的话，玩家会觉得"箱子怎么没了"。
+   *
+   * 返回 { item, equipped }（没开成返回 null）。
+   */
+  function autoOpenChest(tier, level) {
+    var save = state.save;
+    if (!save || !(tier >= 1)) return null;
+    var band = G.CHUNK.bandOf(state.player.x, state.player.y);
+    var item = EQUIP.generate(rollEquipmentTier(tier, band), level, WORLD.rng(), 0);
+    save.stats.opened += 1;
+    var granted = grantEquipment(item);
+    flash('自动开出 ' + EQUIP.labelOf(granted.item) + (granted.equipped ? ' · 已穿上' : ' · 进了背包'), 1800);
+    return granted;
   }
 
   /** 穿上背包里的装备：旧件退回背包（不自动分解，交给"一键分解"处理） */
@@ -11984,27 +18533,421 @@ G.GAME = (function () {
     flash('买到公会号角（持有 ' + save.horns + ' 个）', 1800);
   }
 
-  /** 建公会：消耗一个号角，**锚点就设在你脚下**（决策 #5 的"据点 = 回城锚点"） */
+  /**
+   * 买强化石（本次新增）：营地铁匠强化装备用的通货，100 金币一颗（`balance.shop.stone`）。
+   * 与买号角**同一套规矩**（20 级解锁、金币只在 20-main 扣、买完给一句提示），
+   * 只是没有"持有上限"这一说 —— 越往上强化越贵，让玩家自己算。
+   */
+  function buyStone() {
+    var save = state.save;
+    if (!PROG.shopUnlocked(save.level)) {
+      flash('需要 ' + BAL.guild.shopUnlockLevel + ' 级才能进商城（现在 ' + save.level + ' 级）', 1800);
+      return;
+    }
+    if (save.gold < BAL.shop.stone.priceGold) {
+      flash('金币不够：还差 ' + (BAL.shop.stone.priceGold - save.gold) + ' 金币', 1800);
+      return;
+    }
+    save.gold -= BAL.shop.stone.priceGold;
+    save.stones += 1;
+    flash('买到强化石（持有 ' + save.stones + ' 颗）', 1800);
+  }
+
+  /**
+   * 铁匠强化（本次新增）：把**已穿**的那一件升一级 —— 用户要求"+1 到 +10，等级越高消耗越多"。
+   *
+   * 这里只做三件事：查这份装备、扣强化石、把等级交给 09-equipment 的 `applyEnhance`（唯一改等级的入口）。
+   * "这一级要几颗"、"强化后主属性涨多少"全在 09-equipment / balance.enhance，本文件一个数字都不写死 ——
+   * 于是改数值只需要动 balance.json，界面（18-panels 的强化面板）也跟着变。
+   *
+   * 返回 true / false（自检用它；界面不看返回值，看 flash）。
+   */
+  function enhanceItem(slotId) {
+    var save = state.save;
+    if (!EQUIP.hasSlot(slotId)) return false;
+    var item = save.loadout[slotId];
+    if (!item) {
+      flash('这个部位还没穿装备：先去背包穿上再强化', 1800);
+      return false;
+    }
+    var level = EQUIP.enhanceLevel(item);
+    if (level >= EQUIP.maxEnhance()) {
+      flash(EQUIP.labelOf(item) + ' 已经满级（+' + EQUIP.maxEnhance() + '）', 1600);
+      return false;
+    }
+    var cost = EQUIP.nextEnhanceCost(item);
+    if (save.stones < cost) {
+      flash(
+        '强化石不够：+' + (level + 1) + ' 要 ' + cost + ' 颗，持有 ' + save.stones + ' 颗（商城 ' + BAL.shop.stone.priceGold + ' 金币一颗）',
+        2200
+      );
+      return false;
+    }
+    save.stones -= cost;
+    EQUIP.applyEnhance(item);
+    // 属性快照要重算：强化加的是主属性，战力与战斗数值都跟着变
+    state.stats = PLAYER.statsOf(save.level, save.loadout);
+    playSfx('levelup');
+    flash('强化成功：' + EQUIP.labelOf(item) + '（战力 ' + state.stats.power + ' · 还剩 ' + save.stones + ' 颗石头）', 2200);
+    return true;
+  }
+
+  /* ---------------------------------------------------------------- 公会（本次重做） */
+
+  /**
+   * 公会：**网络那一半**（规则在 11-save 的 `G.GUILD`，权威在服务端 `/api/guild/*`）。
+   *
+   * 用户要求："创建公会需要自己输入公会名，公会页面显示公会人员，公会等级，公会信息。"
+   * 于是这条链路是：面板输入名字 → 这里校验 + 发包 → 服务端登记（名字全服唯一）→
+   * 服务端回一份权威的成员表 → `G.GUILD.fromServer` 变成存档里的**镜像** → 面板照着画。
+   *
+   * 三条纪律：
+   *   1. **单机永远能玩**（决策 #10）：连不上云时建会在本机成立（`remote:false`），
+   *      以后能连上时由 `syncGuild` 的补登记分支把它登记到服务端（不重复扣号角）；
+   *   2. **服务端说的就是权威**：任何一次成功响应都把整条记录换成服务端那份，
+   *      本地只额外保留两样东西 —— 回城冷却 `teleportAt` 与同步时刻 `syncAt`；
+   *   3. **只有这里能改存档**：网络提示 / 列表 / 忙闲放在 `state.guild`（不进存档），
+   *      公会本身放在 `state.save.guild`；18-panels 两个都只读（自己拼成 view）。
+   */
+  function guildSelf() {
+    return { name: state.save.name, level: state.save.level };
+  }
+
+  /** 公会接口的公共头部：带上令牌（服务端有令牌时**只认令牌里的账号**，body 里的 openid 会被忽略） */
+  function guildRequest(path, data) {
+    var account = state.account || {};
+    var payload = {
+      account: account.id || '',
+      openid: account.openid || '',
+      token: account.token || ''
+    };
+    if (data) {
+      for (var key in data) {
+        if (Object.prototype.hasOwnProperty.call(data, key)) payload[key] = data[key];
+      }
+    }
+    return PLAT.cloud(path, { method: 'POST', data: payload });
+  }
+
+  /** 响应体（tt.request 的 res.data；拿不到就当空对象 —— 后面每一处都会判 ok） */
+  function guildBody(res) {
+    return res && res.data && typeof res.data === 'object' ? res.data : {};
+  }
+
+  /** 服务端的错误码 → 给玩家看的一句话（服务端只回 code，文案统一在这里） */
+  function guildErrorText(body) {
+    var error = body && body.error ? body.error : 'unknown';
+    if (error === 'name_taken') return '这个公会名全服已经有人用了，换一个';
+    if (error === 'invalid_name') return GUILD.reasonText(body.reason || 'illegal');
+    if (error === 'already_in_guild') return '你已经在一个公会里了（先退出再建）';
+    if (error === 'guild_full') return '这个公会人满了（上限 ' + BAL.guild.memberCap + ' 人）';
+    if (error === 'no_guild') return '服务端没有这个公会（名字打错了？）';
+    if (error === 'not_in_guild') return '你不在这个公会里';
+    if (error === 'owner_cannot_leave') return '你是会长：首版不能退出（先把成员请出去）';
+    if (error === 'anchor_too_close') return '离别的公会锚点太近了（至少 ' + BAL.guild.anchorMinDistance + ' 世界单位）';
+    if (error === 'anchor_cooldown') return '锚点刚挪过，冷却中';
+    if (error === 'missing_openid' || error === 'token_required') return '没拿到账号凭据：先登录一次';
+    if (error === 'not_configured') return '服务端还没配 DOUYIN_APPID / DOUYIN_SECRET';
+    return '服务端拒绝了：' + error;
+  }
+
+  /**
+   * 把服务端回的那一份记下来（**成功才换**；失败一律保留本机那份，绝不拿半截数据覆盖存档）。
+   * 返回新记录或 null。
+   */
+  function applyGuildBody(body) {
+    var record = GUILD.fromServer(body, guildSelf(), Math.round(WORLD.now()));
+    if (!record) return null;
+    // 回城冷却留在本机：服务端不管冷却，这里把老值带过去（新记录默认 0 = 没冷却）
+    var previous = state.save.guild;
+    if (previous && previous.name === record.name && previous.teleportAt) record.teleportAt = previous.teleportAt;
+    state.save.guild = record;
+    writeSave();
+    return record;
+  }
+
+  /** 云后端能不能用（没配 cloudBase / 当前环境没有 tt.request → 所有公会操作走本机路径） */
+  function guildCloudReady() {
+    return !!CONFIG.cloudBase && PLAT.hasTt();
+  }
+
+  /**
+   * 建公会（用户要求：**自己输入公会名**）。
+   *
+   * 四道拦截都在这里，顺序与面板上那几行一一对应：等级 → 号角 → 名字 → 扣号角。
+   * 之后分两条路：能连上云 = 服务端说了算（名字全服唯一）；连不上 = 本机先建（`remote:false`）。
+   * 号角**两条路都扣** —— 它是"建会资格"，不是"服务端登记费"。
+   */
   function createGuild() {
     var save = state.save;
+    var draft = PANELS.draftGuildName();
+    var check = GUILD.validate(draft);
     if (!PROG.guildUnlocked(save.level)) {
-      flash('需要 ' + BAL.guild.unlockLevel + ' 级才能建公会', 1600);
-      return;
+      flash('需要 ' + BAL.guild.unlockLevel + ' 级才能建公会（现在 ' + save.level + ' 级）', 1800);
+      return false;
     }
     if (save.horns <= 0) {
-      flash('没有号角：商城 ' + BAL.shop.horn.priceGold + ' 金币', 1800);
-      return;
+      flash('没有号角：商城 ' + BAL.shop.horn.priceGold + ' 金币一个', 1800);
+      return false;
     }
+    if (save.guild) {
+      // 已经有会了：再建一次不该白扣一个号角（服务端的 already_in_guild 是同一道闸门）
+      flash('你已经在一个公会里了：公会「' + save.guild.name + '」（先退出再建）', 2400);
+      return false;
+    }
+    if (!check.ok) {
+      flash('公会名还不能用：' + GUILD.reasonText(check.reason), 2400);
+      return false;
+    }
+    var anchor = { x: state.player.x, y: state.player.y };
     save.horns -= 1;
-    save.guild = {
-      name: PANELS.draftGuildName() || PANELS.nextGuildName(WORLD.now() | 0),
-      anchor: { x: state.player.x, y: state.player.y },
-      createdAt: Math.round(WORLD.now()),
-      teleportAt: 0,
-      members: [{ id: 1, name: '我', role: 'leader' }]
-    };
+    // 本机先记一份（离线 / 云不可用时它就是唯一真相；云可用时下面会被服务端那份覆盖）
+    save.guild = GUILD.create(check.name, guildSelf(), anchor, Math.round(WORLD.now()));
     PANELS.setDraftGuildName('');
-    flash('公会「' + save.guild.name + '」已建立，锚点就在脚下', 2600);
+    state.guild.note =
+      '公会「' + check.name + '」已在本机建立，锚点就在脚下（' + Math.round(anchor.x) + ', ' + Math.round(anchor.y) + '）';
+    writeSave();
+    flash('公会「' + check.name + '」已建立，锚点就在脚下', 2400);
+
+    if (!guildCloudReady()) {
+      state.guild.note += ' · 没连服务端（没配 cloudBase 或当前环境不支持网络），号角已扣';
+      return true;
+    }
+    state.guild.busy = true;
+    guildRequest('/api/guild/create', { name: check.name, x: anchor.x, y: anchor.y })
+      .then(function (res) {
+        var body = guildBody(res);
+        state.guild.busy = false;
+        if (body.ok === true && applyGuildBody(body)) {
+          state.guild.note = '服务端已登记：' + GUILD.memberText(state.save.guild) + '（公会名全服唯一）';
+          flash('服务端登记成功：公会「' + save.guild.name + '」', 2200);
+          return;
+        }
+        state.guild.note = '服务端没登记成功：' + guildErrorText(body) + ' —— 本机这份先留着，下次刷新会再试';
+      })
+      .catch(function (error) {
+        state.guild.busy = false;
+        state.guild.note =
+          '连不上服务端（' +
+          (error && error.message ? error.message : '未知错误') +
+          '）—— 本机这份先留着，回到游戏后点「刷新」补登记';
+      });
+    return true;
+  }
+
+  /**
+   * 加入公会（本次新增：不然"公会人员"永远只有自己一个人）。
+   * `name` 不给就用面板上那一行输入的草稿（`PANELS.joinDraftName()`）；
+   * 给了名字就是"公会列表里点的那一行"。
+   * 加入**必须由服务端登记** —— 连不上时不给过（否则会造出一个全服不存在的会籍）。
+   */
+  function joinGuild(name) {
+    var save = state.save;
+    var wanted = typeof name === 'string' && name ? name : PANELS.joinDraftName();
+    var check = GUILD.validate(wanted);
+    if (!check.ok) {
+      flash('公会名还不能用：' + GUILD.reasonText(check.reason), 2400);
+      return false;
+    }
+    if (save.guild) {
+      flash('你已经在公会「' + save.guild.name + '」里了（先退出再换）', 2200);
+      return false;
+    }
+    if (!guildCloudReady()) {
+      state.guild.note = '加入公会必须由服务端登记（本机没有别家公会的名单）—— 现在连不上';
+      flash('加入公会要连服务端：没配 cloudBase 时只能自己建一个', 2600);
+      return false;
+    }
+    state.guild.busy = true;
+    state.guild.note = '正在向服务端申请加入「' + check.name + '」…';
+    guildRequest('/api/guild/join', { name: check.name })
+      .then(function (res) {
+        var body = guildBody(res);
+        state.guild.busy = false;
+        if (body.ok === true && applyGuildBody(body)) {
+          PANELS.setJoinDraftName('');
+          state.guild.note = '已加入：' + GUILD.memberText(state.save.guild);
+          flash('已加入公会「' + state.save.guild.name + '」', 2200);
+          return;
+        }
+        state.guild.note = '加入失败：' + guildErrorText(body);
+        flash(state.guild.note, 2600);
+      })
+      .catch(function (error) {
+        state.guild.busy = false;
+        state.guild.note = '加入失败：连不上服务端（' + (error && error.message ? error.message : '未知错误') + '）';
+        flash(state.guild.note, 2600);
+      });
+    return true;
+  }
+
+  /**
+   * 退出公会（本次新增）：会籍在服务端，所以**要服务端点头**才清本地那份。
+   * 会长不能退（首版没有转让 / 解散，服务端回 owner_cannot_leave）。
+   * 例外：离线自建的会（`remote:false`）本来就没在服务端，直接清掉即可。
+   */
+  function guildLeave() {
+    var save = state.save;
+    if (!save.guild) {
+      flash('还没有公会', 1400);
+      return false;
+    }
+    if (GUILD.isLeader(save.guild)) {
+      flash('你是会长：首版不能退出（先把成员都请出去）', 2400);
+      return false;
+    }
+    if (!guildCloudReady()) {
+      if (!save.guild.remote) {
+        var localName = save.guild.name;
+        save.guild = null;
+        state.guild.note = '已退出本机公会「' + localName + '」（它没在服务端登记过）';
+        writeSave();
+        flash(state.guild.note, 2400);
+        return true;
+      }
+      flash('退出公会要连服务端：现在连不上', 2400);
+      return false;
+    }
+    state.guild.busy = true;
+    guildRequest('/api/guild/leave', {})
+      .then(function (res) {
+        var body = guildBody(res);
+        state.guild.busy = false;
+        if (body.ok === true) {
+          var left = state.save.guild ? state.save.guild.name : '';
+          state.save.guild = null;
+          state.guild.note = '已退出「' + left + '」（服务端会籍已删除）';
+          writeSave();
+          flash(state.guild.note, 2400);
+          return;
+        }
+        state.guild.note = '退出失败：' + guildErrorText(body);
+        flash(state.guild.note, 2400);
+      })
+      .catch(function (error) {
+        state.guild.busy = false;
+        state.guild.note = '退出失败：连不上服务端（' + (error && error.message ? error.message : '未知错误') + '）';
+        flash(state.guild.note, 2400);
+      });
+    return true;
+  }
+
+  /**
+   * 要一份最新的成员表（面板上那行「向服务端要一份最新成员表」+ 面板打开时的自动刷新都走它）。
+   *
+   * 三个分支（第三条是特意设计的**自愈**）：
+   *   1. 服务端回 `inGuild:true` → 整份换成服务端那份（成员 / 等级 / 锚点）；
+   *   2. 服务端回 `inGuild:false` 而本机有会 → 试着**补登记**（把离线建的会搬上去；
+   *      服务端现在还是内存版，重启会把公会弄丢 —— 这条自愈就是为那种情况准备的）；
+   *      名字被别人占了就保留本机那份并说明（**绝不静默删玩家的公会**）；
+   *   3. 本机也没有会 → 只更新一句提示。
+   */
+  function syncGuild(quiet) {
+    var save = state.save;
+    if (!guildCloudReady()) {
+      if (!quiet) {
+        state.guild.note = '没配 cloudBase（或当前环境不支持网络）—— 公会只在本机';
+        flash(state.guild.note, 2400);
+      }
+      return false;
+    }
+    if (state.guild.busy) return false;
+    state.guild.busy = true;
+    if (!quiet) state.guild.note = '正在向服务端要最新成员表…';
+    guildRequest('/api/guild/mine', {})
+      .then(function (res) {
+        var body = guildBody(res);
+        state.guild.busy = false;
+        if (body.ok !== true) {
+          state.guild.note = '同步失败：' + guildErrorText(body);
+          return;
+        }
+        if (body.inGuild === true) {
+          if (applyGuildBody(body)) {
+            state.guild.note =
+              '成员表已同步：' + GUILD.memberText(state.save.guild) + ' · 公会等级 Lv.' + state.save.guild.level;
+          }
+          return;
+        }
+        if (!save.guild) {
+          state.guild.note = '服务端上没有你的公会（去「创建公会」或从列表里加入一个）';
+          return;
+        }
+        var anchor = save.guild.anchor || { x: state.player.x, y: state.player.y };
+        state.guild.note = '本机有公会「' + save.guild.name + '」但服务端没有 → 正在补登记…';
+        guildRequest('/api/guild/create', { name: save.guild.name, x: anchor.x, y: anchor.y })
+          .then(function (res2) {
+            var body2 = guildBody(res2);
+            if (body2.ok === true && applyGuildBody(body2)) {
+              state.guild.note = '补登记成功：' + GUILD.memberText(state.save.guild);
+              return;
+            }
+            state.guild.note = '补登记失败：' + guildErrorText(body2) + ' —— 本机这份留着（不删玩家的公会）';
+          })
+          .catch(function (error) {
+            state.guild.note = '补登记失败：' + (error && error.message ? error.message : '未知错误');
+          });
+      })
+      .catch(function (error) {
+        state.guild.busy = false;
+        state.guild.note = '同步失败：连不上服务端（' + (error && error.message ? error.message : '未知错误') + '）';
+        if (!quiet) flash(state.guild.note, 2600);
+      });
+    return true;
+  }
+
+  /**
+   * 要一份公会列表（没有公会时面板上那块「公会列表」；点一行就能加入）。
+   * 列表项由服务端算好（等级 / 人数），客户端只负责画 —— 这里顺手按人数降序排一下，方便挑。
+   */
+  function guildList(quiet) {
+    if (!guildCloudReady()) {
+      state.guild.list = [];
+      state.guild.listNote = '没配 cloudBase（或当前环境不支持网络）—— 看不到别人的公会';
+      if (!quiet) flash(state.guild.listNote, 2400);
+      return false;
+    }
+    state.guild.busy = true;
+    guildRequest('/api/guild/list', { limit: BAL.guild.listLimit })
+      .then(function (res) {
+        var body = guildBody(res);
+        state.guild.busy = false;
+        if (body.ok !== true) {
+          state.guild.list = [];
+          state.guild.listNote = '列表拿不到：' + guildErrorText(body);
+          return;
+        }
+        var rows = body.guilds && body.guilds.length ? body.guilds : [];
+        rows.sort(function (a, b) {
+          return b.count - a.count;
+        });
+        state.guild.list = rows;
+        state.guild.listAt = Math.round(WORLD.now());
+        state.guild.listNote = rows.length
+          ? '服务端一共 ' + (body.total || rows.length) + ' 个公会（最多显示 ' + BAL.guild.listLimit + ' 个）'
+          : '服务端还没有任何公会：你可以去建第一个';
+        if (!quiet) flash(state.guild.listNote, 2400);
+      })
+      .catch(function (error) {
+        state.guild.busy = false;
+        state.guild.list = [];
+        state.guild.listNote = '列表拿不到：连不上服务端（' + (error && error.message ? error.message : '未知错误') + '）';
+      });
+    return true;
+  }
+
+  /**
+   * 公会面板开着时的自动刷新（每 `balance.guild.syncIntervalMs` 一次）：成员表 / 列表都靠它保鲜。
+   * 只在**面板真的开着**时才发包（关掉面板就静默）；`guildAutoSync` 由 step 每逻辑帧叫一次。
+   */
+  function guildAutoSync() {
+    if (PANELS.panelId() !== 'guild') return;
+    if (state.guild.busy) return;
+    // autoAt = 0（还没同步过）= 立刻来一次：打开面板那一下就该看到服务端的成员表
+    if (state.guild.autoAt > 0 && state.now - state.guild.autoAt < BAL.guild.syncIntervalMs) return;
+    state.guild.autoAt = state.now;
+    if (state.save.guild) syncGuild(true);
+    else guildList(true);
   }
 
   /** 回公会锚点：冷却 + 战斗中禁用（balance.guild.teleportCooldownMs / teleportCombatLockMs） */
@@ -12025,8 +18968,7 @@ G.GAME = (function () {
     }
     state.player.x = save.guild.anchor.x;
     state.player.y = save.guild.anchor.y;
-    state.camera.x = state.player.x;
-    state.camera.y = state.player.y;
+    snapCamera();
     state.player.targetId = 0;
     save.guild.teleportAt = WORLD.now();
     WORLD.ensureChunks(state.player.x, state.player.y);
@@ -12037,6 +18979,40 @@ G.GAME = (function () {
   function inCamp() {
     if (!state.player) return false;
     return G.TERRAIN.isInCamp(state.player.x, state.player.y);
+  }
+
+  /** 站在铁匠跟前吗（本次新增）：半径取 `balance.world.camp.smith.talkRadius`，坐标来自 04-terrain 的摆位表 */
+  function nearSmith() {
+    var smith = G.TERRAIN.smithSpot();
+    if (!smith || !state.player) return false;
+    var dx = state.player.x - smith.x;
+    var dy = state.player.y - smith.y;
+    var reach = BAL.world.camp.smith.talkRadius;
+    return dx * dx + dy * dy <= reach * reach;
+  }
+
+  /**
+   * 铁匠头顶那枚「锻」圆键（本次新增）：只有站在他跟前才出现在 HUD 按钮表里。
+   *
+   * 为什么走「HUD 按钮表」而不是给世界里的 NPC 单开一套命中：15-input 的 `buttonAt` 只看这一张表、
+   * 触摸也只有一条链 —— 于是这枚键与「箱 / 包 / 商」完全同源（按下有反馈、松手才触发、
+   * 面板开着也照样能点）。坐标按**相机投影**算（`RENDER.toScreen`），所以它钉在铁匠头顶跟着世界走。
+   * 不在跟前 / 世界里没有他 → 返回 null，uiView 会把它从表里去掉（否则玩家在野外摸到那一块屏幕
+   * 会莫名其妙弹出强化面板）。
+   */
+  function smithButton() {
+    var smith = G.TERRAIN.smithSpot();
+    if (!smith || !nearSmith()) return null;
+    var point = RENDER.toScreen(state.camera, smith.x, smith.y);
+    return {
+      id: 'smith',
+      label: '锻',
+      badge: 0,
+      state: 'on',
+      x: point.x,
+      y: point.y - 128,
+      r: BAL.view.functionBar.radius + 5
+    };
   }
 
   /** 营地治疗：按**缺失血量**收金币（balance.world.camp.heal）；满血就别让玩家白花钱 */
@@ -12080,8 +19056,7 @@ G.GAME = (function () {
     var center = G.TERRAIN.campCenter();
     state.player.x = center.x;
     state.player.y = center.y;
-    state.camera.x = state.player.x;
-    state.camera.y = state.player.y;
+    snapCamera();
     state.player.targetId = 0;
     state.save.camp = { teleportAt: WORLD.now(), used: true };
     state.wasInCamp = true;
@@ -12134,6 +19109,13 @@ G.GAME = (function () {
       return;
     }
     state.resetArmed = false;
+    // 公会的运行态也一起清（列表是服务端的东西，重开号不该留着上一局的提示）—— 本次新增
+    state.guild.note = '';
+    state.guild.busy = false;
+    state.guild.list = [];
+    state.guild.listAt = 0;
+    state.guild.listNote = '';
+    state.guild.autoAt = 0;
     var keepName = state.save ? state.save.name : '';
     SAVE.clear();
     state.save = SAVE.create(BAL.season.worldSeed, 1);
@@ -12142,8 +19124,7 @@ G.GAME = (function () {
     state.player = PLAYER.create(state.save);
     state.stats = PLAYER.statsOf(state.save.level, state.save.loadout);
     state.player.hp = state.stats.hpMax;
-    state.camera.x = state.player.x;
-    state.camera.y = state.player.y;
+    snapCamera();
     WORLD.reset(BAL.season.worldSeed);
     WORLD.ensureChunks(state.player.x, state.player.y);
     writeSave();
@@ -12153,6 +19134,12 @@ G.GAME = (function () {
 
   /** 右下功能键 → 打开 / 收起面板；「自动」是开关（用户要求"自动战斗设置为按钮，点击开启"） */
   function onHudButton(id) {
+    // A10：技能键右上角的「自动释放」勾选框 —— 必须排在技能键前面判，
+    // 因为 'skillAuto0' 也以 'skill' 开头（顺序反了就会变成"点勾选框放了个技能"）
+    if (id.indexOf('skillAuto') === 0) {
+      toggleSkillAuto(Number(id.slice(9)));
+      return;
+    }
     // 技能键（A5）：技能有自己的声音（cast / mend），不再叠一声 UI 的"咔"
     if (id.indexOf('skill') === 0) {
       castSkillSlot(Number(id.slice(5)));
@@ -12168,12 +19155,26 @@ G.GAME = (function () {
     else if (id === 'guild') togglePanel('guild');
     else if (id === 'camp') togglePanel('camp');
     else if (id === 'menu') togglePanel('menu');
+    // 左侧边栏（本次新增）：两枚键各有自己的 id —— 商城与"回到营地"，与底部那行互不干扰。
+    // 「商」在 A15 是底部第 6 枚功能键，本次挪到侧边栏顶部（用户：商城放在侧边栏，回营地放它下面）。
+    else if (id === 'sideShop') togglePanel('shop');
+    else if (id === 'sideCamp') teleportCamp();
+    // 铁匠头顶那枚「锻」键（本次新增）：只有站在他跟前才会出现在按钮表里
+    else if (id === 'smith') togglePanel('enhance');
   }
 
-  /** 再点同一个功能键 = 收起面板（卡片只占 1/3 屏，功能键一直在，这是最顺手的关法） */
+  /** 再点同一个功能键 = 收起面板（卡片不铺满屏幕、功能键一直在，这是最顺手的关法） */
   function togglePanel(panel) {
-    if (PANELS.isOpen() && PANELS.panelId() === panel) PANELS.close();
-    else PANELS.open(panel);
+    if (PANELS.isOpen() && PANELS.panelId() === panel) {
+      PANELS.close();
+      return;
+    }
+    PANELS.open(panel);
+    // 打开公会面板：先给服务端要一份（成员表 / 列表）—— `autoAt = 0` 让 guildAutoSync 立刻发一次包
+    if (panel === 'guild') {
+      state.guild.autoAt = 0;
+      guildAutoSync();
+    }
   }
 
   /**
@@ -12215,13 +19216,30 @@ G.GAME = (function () {
     else if (type === 'toggleSfx') toggleSetting('sfx');
     else if (type === 'toggleBgm') toggleSetting('bgm');
     else if (type === 'toggleVibrate') toggleSetting('vibrate');
+    else if (type === 'skillAuto') toggleSkillAuto(action.index);
+    // A11：设置面板里那一行「视角」（点一下换下一档：远 → 中 → 近 → 远）
+    else if (type === 'zoomNext') cycleZoomTier();
+    // A11 之二：设置面板里的**视角缩放滚动轴**（松手时交出拖到的格数；拖动过程走 onTouchMove 的静默应用）
+    else if (type === 'setZoomTiles') setZoomTiles(action.tiles, false);
     else if (type === 'openChest') openChests(action.count || 1);
+    // A14：宝箱清单每行右侧那两枚按阶控件（「全开」/「自动」）
+    else if (type === 'openChestTier') openChestsOfTier(action.tier);
+    else if (type === 'toggleChestAuto') toggleChestAuto(action.tier);
     else if (type === 'equip') equipFromBag(action.itemId);
     else if (type === 'unequip') unequipSlot(action.slotId);
     else if (type === 'salvageAll') salvageAll();
     else if (type === 'buyHorn') buyHorn();
+    else if (type === 'buyStone') buyStone();
+    else if (type === 'enhance') enhanceItem(action.slotId);
     else if (type === 'createGuild') createGuild();
     else if (type === 'renameGuild') PANELS.setDraftGuildName(PANELS.nextGuildName((WORLD.now() | 0) + 7));
+    /* 公会（本次重做）：打字 / 加入 / 同步 / 列表 / 退会 —— 五个动作都落在这里 */
+    else if (type === 'typeGuildName') typeGuildName();
+    else if (type === 'typeJoinName') typeJoinName();
+    else if (type === 'joinGuild') joinGuild(action.name);
+    else if (type === 'guildSync') syncGuild(false);
+    else if (type === 'guildList') guildList(false);
+    else if (type === 'guildLeave') guildLeave();
     else if (type === 'teleportGuild') teleportGuild();
     else if (type === 'campHeal') campHeal();
     else if (type === 'campTeleport') teleportCamp();
@@ -12237,6 +19255,8 @@ G.GAME = (function () {
   function uiView() {
     // 技能栏视图先算一次：功能键与技能键合并成同一份按钮表交给输入层（画法与命中共用一份坐标）
     var skills = skillView();
+    // 铁匠头顶那枚「锻」键（本次新增）：站远了就是 null，不进按钮表（画法、命中、点击都读这一份）
+    var smith = smithButton();
     return {
       save: state.save,
       player: state.player,
@@ -12247,9 +19267,17 @@ G.GAME = (function () {
       activeMonsters: WORLD.activeMonsterCount(),
       /**
        * 只有 HUD 的功能键在这里（面板的关闭键由 18-panels 自己命中）：
-       * 卡片只占 1/3 屏，功能键必须一直可点，所以它不随面板开合而变。
+       * 卡片只占约 2/3 屏高，功能键必须一直可点，所以它不随面板开合而变。
+       * A10：技能键右上角的四个「自动释放」勾选框排在技能键**前面** ——
+       * 15-input 的 buttonAt 取第一个命中的，于是小方框永远优先于整个圆键。
+       * 本次新增的「锻」（铁匠）排在功能键之后、勾选框与技能键**之前**：它在屏幕中上部
+       * （铁匠头顶），与底下那两行键在位置上永远不会撞上；顺序上则要保持"**技能键永远在最后**"
+       * （自检盯着 `uiButtons[length-4..length-1] === skill0..skill3` 这一条）。
        */
-      buttons: HUD.buttons({ save: state.save, inCamp: inCamp() }).concat(HUD.skillButtons({ skills: skills })),
+      buttons: HUD.buttons({ save: state.save, inCamp: inCamp() })
+        .concat(smith ? [smith] : [])
+        .concat(HUD.skillAutoButtons({ skills: skills }))
+        .concat(HUD.skillButtons({ skills: skills })),
       /** A5：技能栏视图（每个栏位的解锁 / 冷却比例 / 剩余毫秒）—— 17-hud 只认它，不读 balance */
       skills: skills,
       /** A5：最近放过的技能名（调试面板） */
@@ -12267,8 +19295,17 @@ G.GAME = (function () {
       account: state.account,
       inCamp: inCamp(),
       autoBattle: !!(state.save.settings && state.save.settings.autoBattle === true),
+      /** A11：渲染用的相机（小地图的视野框画的是"镜头在看哪"，它带前瞻偏移，所以不等于玩家坐标） */
+      camera: state.camera,
+      /** A11 / A11 之二：当前视角（档位 + 缩放轴；调试面板 / 设置面板那一行滑块 / 自检都读它） */
+      zoom: zoomView(),
       /** A4：音频状态（设置面板要显示开关的当前值与平台是否支持） */
-      audio: PLAT.audioState()
+      audio: PLAT.audioState(),
+      /**
+       * 公会那一块的运行态（本次新增）：18-panels 的公会面板读它画"服务端"那一行、公会列表与忙闲；
+       * 公会本身（成员 / 等级 / 锚点）在 `view.save.guild` —— 两个都在这一份 view 里，面板不再各取一套。
+       */
+      guild: state.guild
     };
   }
 
@@ -12296,7 +19333,7 @@ G.GAME = (function () {
    *
    * 绘制顺序（A4 起 HUD 被拆成两半，就是为了这条链）：
    *   世界 → 摇杆 → HUD（吸顶 + 经验条 + 小地图）→ 面板卡片 → **功能键**
-   * 功能键放在最后：面板卡片只占 1/3 屏，右下那五个键要一直可用（点「包」能直接关掉背包）。
+   * 功能键放在最后：面板卡片不铺满屏幕（约 2/3 屏高，底部整条动作栏仍露在外面），右下那五个键要一直可用（点「包」能直接关掉背包）。
    * 登录 / 创建角色界面则整屏交给 G.LOGIN（世界不画，玩家还没进游戏）。
    */
   function renderTo(ctx) {
@@ -12373,6 +19410,7 @@ G.GAME = (function () {
     if (!point) return;
     // 首次触摸：解锁音频（平台硬要求"用户交互后才能播"），然后把 BGM 起起来
     if (PLAT.unlockAudio()) PLAT.bgm(true);
+    lastSliderTiles = 0;
     if (state.screen !== 'playing') {
       G.LOGIN.press(point);
       return;
@@ -12392,9 +19430,25 @@ G.GAME = (function () {
     if (state.screen !== 'playing') return;
     if (state.panelTouch) {
       PANELS.move(point, uiView());
+      applySliderDrag();
       return;
     }
     INPUT.move(point);
+  }
+
+  /**
+   * A11 之二：视角缩放轴拖到哪，世界就缩放到哪 —— **边拖边缩放**才是滑块该有的手感
+   * （卡片外面照旧露着世界，玩家一眼看到"拉近之后能看清什么"）。
+   *
+   * 静默应用（不提示、不写存储）：拖动途中每格都落盘会把手机拖卡，松手那一下由 release 的 action 收尾。
+   * 同一格重复调用直接跳过（move 事件比像素还密，没必要重复算）。
+   */
+  function applySliderDrag() {
+    var drag = PANELS.sliderDrag();
+    if (!drag || drag.tiles === lastSliderTiles) return false;
+    lastSliderTiles = drag.tiles;
+    setZoomTiles(drag.tiles, true);
+    return true;
   }
 
   function onTouchEnd(event) {
@@ -12406,7 +19460,9 @@ G.GAME = (function () {
     }
     if (state.panelTouch) {
       state.panelTouch = false;
-      handleAction(PANELS.release(point, uiView()));
+      var action = PANELS.release(point, uiView());
+      lastSliderTiles = 0;
+      handleAction(action);
       return;
     }
     var button = INPUT.end(point);
@@ -12477,6 +19533,14 @@ G.GAME = (function () {
     toggleAutoBattle: toggleAutoBattle,
     castSkillSlot: castSkillSlot,
     autoCastStep: autoCastStep,
+    skillAutoFlags: skillAutoFlags,
+    toggleSkillAuto: toggleSkillAuto,
+    zoomView: zoomView,
+    setZoomTier: setZoomTier,
+    setZoomTiles: setZoomTiles,
+    nearestZoomTier: nearestZoomTier,
+    applySliderDrag: applySliderDrag,
+    cycleZoomTier: cycleZoomTier,
     skillView: skillView,
     skillCooldowns: skillCooldowns,
     toggleSetting: toggleSetting,
@@ -12489,10 +19553,32 @@ G.GAME = (function () {
     applyKill: applyKill,
     onLevelUp: onLevelUp,
     openChests: openChests,
+    openOneChest: openOneChest,
+    /* A14：按阶开箱（宝箱清单每行的「全开」）+ 自动开启（勾选表 / 切换 / 掉出来就当场开） */
+    openChestsOfTier: openChestsOfTier,
+    openOneChestOfTier: openOneChestOfTier,
+    autoOpenChest: autoOpenChest,
+    chestAutoFlags: chestAutoFlags,
+    toggleChestAuto: toggleChestAuto,
     equipFromBag: equipFromBag,
     salvageAll: salvageAll,
     buyHorn: buyHorn,
+    /* 本次新增：商城的强化石 + 铁匠的强化（两者都是"改存档"的入口，界面只发 action） */
+    buyStone: buyStone,
+    enhanceItem: enhanceItem,
+    nearSmith: nearSmith,
+    smithButton: smithButton,
     createGuild: createGuild,
+    /* 本次新增：公会的网络那一半（成员表 / 列表 / 加入 / 退会 / 自动刷新） */
+    joinGuild: joinGuild,
+    guildLeave: guildLeave,
+    syncGuild: syncGuild,
+    guildList: guildList,
+    guildAutoSync: guildAutoSync,
+    guildCloudReady: guildCloudReady,
+    guildErrorText: guildErrorText,
+    typeGuildName: typeGuildName,
+    typeJoinName: typeJoinName,
     teleportGuild: teleportGuild,
     inCamp: inCamp,
     campHeal: campHeal,

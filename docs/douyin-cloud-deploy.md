@@ -50,7 +50,7 @@
 >    控制台里 **版本 3（Git发布 / 仓库 `chenjian301/1` / 分支 `main`）发布状态 = 成功、部署完成**；
 >    对**当前**默认域名 `https://1mfjj3tamsd9m-env-XHvhMYJ9qm.service.douyincloud.run` 实测：
 >    - `GET /` → `200`，正文一行 `phaser-game-svr 正常。健康检查：/api/health`
->    - `GET /api/health` → `200`，正文 `{"ok":true,"service":"phaser-game-svr","version":"0.2.0","protocol":1,`
+>    - `GET /api/health` → `200`，正文 `{"ok":true,"service":"phaser-game-svr","version":"0.3.0","protocol":1,`
 >      `"balanceVersion":1,"season":{"name":"S1","worldSeed":20260930},"time":...,"saves":0,`
 >      `"login":{"configured":false,"endpoint":"developer.toutiao.com","method":"POST","requireToken":false,`
 >      `"sessionTtlMs":604800000,"sessionSecretIsRandom":true}}`
@@ -100,7 +100,7 @@
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1
-# ① 用真进程 + 真 HTTP 请求跑 douyin-cloud\svr\smoke.mjs（41 项断言：3 个真实例 127.0.0.1:8099/8101/8102
+# ① 用真进程 + 真 HTTP 请求跑 douyin-cloud\svr\smoke.mjs（82 项断言：3 个真实例 127.0.0.1:8099/8101/8102
 #    + 一个**假 code2session** 在 8100 —— 登录链路也在这里整条跑通，不连抖音云、不花一分钱）
 # ② 绿的才打包 → douyin-cloud\dist\svr-code-<时间戳>.zip（里面是 index.js + package.json + run.sh）
 #    同一分钟内重复跑会自动加 -2/-3 后缀、不覆盖旧包（旧包可能正被压缩软件或资源管理器占着）
@@ -316,14 +316,14 @@ sh: /opt/application/run.sh: not found
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\cloud-deploy-check.ps1   # 容器约定：run.sh / Dockerfile / 端口
-powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1           # 服务本身：41 项冒烟，顺带打离线 zip
+powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1           # 服务本身：82 项冒烟，顺带打离线 zip
 ```
 
 **发布成功后，日志里应该能看到这两行**（第一行就是 run.sh 打的 —— 它出现即证明平台真的执行到了它）：
 
 ```text
 [run.sh] cwd=/opt/application  entry=./index.js  port=8000  node=/usr/local/bin/node
-[phaser-game-svr] listening on :8000  v0.2.0
+[phaser-game-svr] listening on :8000  v0.3.0
 ```
 
 > **2026-09-30 实测（控制台日志页之外的另一条证据）**：本机没有 docker，没法在本地构建镜像验一遍，
@@ -400,7 +400,7 @@ https://1mfj3tamsd9m-env-XHvhMYJ9qm.service.douyincloud.run
 
 ```powershell
 curl.exe "https://你的默认域名/api/health"
-# 期望：{"ok":true,"service":"phaser-game-svr","version":"0.2.0","protocol":1,
+# 期望：{"ok":true,"service":"phaser-game-svr","version":"0.3.0","protocol":1,
 #        "balanceVersion":1,"season":{"name":"S1","worldSeed":20260930},"time":...,"saves":0,
 #        "login":{"configured":true,"endpoint":"developer.toutiao.com","requireToken":false,
 #                 "sessionTtlMs":604800000,"sessionSecretIsRandom":false}}
@@ -424,7 +424,7 @@ curl.exe "https://你的默认域名/api/health"
    tools\minigame-now.cmd
    ```
 3. 在抖音开发者工具里刷新工程 → 游戏里点 **「设」→「云后端连通性自测」**
-   - 屏幕上出现「云后端正常：phaser-game-svr v0.2.0 · balance v1」= **链路通了**
+   - 屏幕上出现「云后端正常：phaser-game-svr v0.3.0 · balance v1」= **链路通了**
    - 出现「未配置云后端地址」= `cloudBase` 没生效（忘了重跑 `minigame-now.cmd`）
    - 出现「当前环境不支持 tt.request」= 不在小游戏环境里跑
 4. 若是域名校验拦截：开发期 `project.config.json` 里 `urlCheck: false`（**已默认关掉**）；
@@ -443,6 +443,27 @@ curl.exe "https://你的默认域名/api/health"
 | POST | `/api/profile` | **真登录**：`tt.login` 的 `code` → `code2session` → `{account, openid, token, expiresAt, hasSave}` |
 | POST | `/api/save` | 上传存档 `{ token 或 openid, save:{v:1,...} }` → `{ok, account, verified, revision, bytes}` |
 | GET | `/api/save?token=...` | 拉取存档（过渡期也支持 `?openid=`） |
+| POST | `/api/guild/create` | **建公会**（2026-10-01 新增）：`{ name, x, y, playerName?, playerLevel? }` → `{ok, role, guild}`。名字全服唯一（`409 name_taken`）、一个账号一个会（`409 already_in_guild`）、锚点间隔 `2000`（`409 anchor_too_close`） |
+| POST | `/api/guild/join` | 加入：`{ name }` → `{ok, role:'member', guild}`；`404 no_guild` / `409 guild_full` / `409 already_in_guild` |
+| POST | `/api/guild/leave` | 退出：`{ok, left}`；会长不能退 `409 owner_cannot_leave` |
+| POST | `/api/guild/anchor` | 会长挪锚点：`{ x, y }`；`403 not_leader` / `400 bad_anchor` / `409 anchor_cooldown`（24h）/ `409 anchor_too_close` |
+| POST/GET | `/api/guild/mine` | `{ok, inGuild, role?, guild?}` —— 公会面板每次打开 / 手动刷新都调它 |
+| POST/GET | `/api/guild/list` | `{ok, total, memberCap, guilds:[{name, level, count, online, ...}]}`（按人数降序，最多 20 条） |
+
+**公会那一块的规则**（与 `shared\balance.json` 的 `guild` 块一一对应）：
+
+| 规则 | 值 | 说明 |
+|---|---|---|
+| 名字 | 2~12 字，中文 / 字母 / 数字 / 下划线 | 与昵称**同一套**；**全服唯一**，服务端说了算 |
+| 人数上限 | 20（含会长） | `memberCap` |
+| 公会等级 | `1 + floor(Σ成员等级 / 100)`，封顶 10 | 成员等级**直接读 `saves` 表里那份存档** —— 伪造不了、也不用新接口 |
+| 在线 | 最近 2 分钟跟服务端说过话 | `presence` 表（每个带身份的请求盖一次时间戳）。**没有长连接**，所以是"最近活跃" |
+| 锚点 | 离别的公会至少 2000；挪一次冷却 24 小时 | 只有会长能挪 |
+| 持久化 | **内存**（重启即清） | 与存档 / 昵称注册表同一档；客户端有"补登记"自愈，见下 |
+
+> **重新部署会清空公会表**（内存版）。客户端的自愈逻辑：`/api/guild/mine` 回 `inGuild:false`
+> 而本机存档里有公会时，会自动拿**同一个名字**再 `POST /api/guild/create` 一次（不重复扣号角）——
+> 名字在重启后被别人抢了才会失败，那时界面上会写明"本机这份留着"。
 
 存档账号分三个命名空间，**客户端说了不算**（安全红线）：
 
@@ -514,19 +535,18 @@ curl.exe -sS "https://你的默认域名/api/save?openid=test-openid"
 | 服务列表显示"上次发布在 X 小时前"，但域名回 `13005` | 那条时间只是"服务/配置最后一次变更"，**不代表有一个跑着我们代码的版本**。以 `X-Status-Code` 为准：`13005` = 该环境没有活着的服务 → 回到 git部署 把 §2.6 那三步走完 |
 
 ## 9. 阶段 B 的下一步（按顺序）
-
 0. **先把我们自己的代码部署上去**（§2.5 → §2.6 → §3 → §3.5）——**容器约定已在 §2.8 补齐**
    （仓库根 `run.sh` + 两个 Dockerfile 都把它 COPY 到 `/opt/application/`、端口统一 8000），
    推之前先跑一遍 `tools\cloud-deploy-check.ps1`：先把仓库推上 GitHub（§2.5）
    → 控制台用 **git部署**（§2.6）把服务拉起来 → 授权 `/api/*` → 配
    `DOUYIN_APPID` / `DOUYIN_SECRET` / `SESSION_SECRET` → 抄**当前**域名
-   → `curl.exe "<域名>/api/health"` 应回 `{"ok":true,"service":"phaser-game-svr","version":"0.2.0",...}`，
+   → `curl.exe "<域名>/api/health"` 应回 `{"ok":true,"service":"phaser-game-svr","version":"0.3.0",...}`，
    且 `login.configured` 为 `true`。这一步不通，后面全是空转。
    （离线备份：`tools\cloud-pack.ps1` 出 zip —— 它现在是"本地冒烟关卡"的产物，控制台里已经没有
    代码包上传入口。）
 1. ~~接 `tt.login`~~ → **服务端已完成（2026-09-30）**：`POST /api/profile` 用真 code2session 换 openid 并
    签发无状态令牌；`/api/save` 有令牌时只认令牌里的账号；越权写 / 伪造签名 / 过期令牌 / 严格模式
-   全在 `douyin-cloud\svr\smoke.mjs` 的 41 项断言里验过（假抖音端，不花钱）。
+   全在 `douyin-cloud\svr\smoke.mjs` 的 82 项断言里验过（假抖音端，不花钱）。
    **剩下的客户端那一半**：`12-platform.js` 加 `PLAT.login()`（包 `tt.login`；`tt.` 只准出现在这个文件）、
    把 token 存本地、`/api/save` 带上 `Authorization: Bearer`。这一半**没法在 node 里自测**（`tt.login`
    只在真机/开发者工具里存在），只能在抖音开发者工具里点着验。
@@ -535,3 +555,39 @@ curl.exe -sS "https://你的默认域名/api/save?openid=test-openid"
 3. **服务端权威化**：把 `07-combat` / `08-loot` / `09-equipment` 的那套公式搬到服务端（**公式不用重写**，
    它们本来就是纯函数 + 注入 rng；小游戏里那份改成"只做表现预测"）
 4. **长连接**：确认 wss 可行性 → 全服共享怪 + AOI 广播（阶段 C）
+
+## 10. 公会接口（2026-10-01 新增）上线的三步
+
+后端已经写完、本地冒烟 82 项全绿（`tools\cloud-pack.ps1` 会自己跑那一关）。
+剩下的是**把代码送上去 + 在真机上点一遍**，两步都不需要改代码：
+
+```powershell
+# ① 本地过关（会跑 82 项冒烟断言，绿的才打包出离线 zip）
+powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1
+#    期望最后一行：RESULT PASS 82/82  (后端可上传到抖音云)
+
+# ② 把这一版推到 GitHub（git部署 拉的就是它）
+git push origin main
+
+# ③ 控制台：服务设置 → 部署 → git部署 → 重新部署（等 1~3 分钟）
+#    部署完再确认一次服务活着（把域名换成控制台当前那个）：
+curl.exe "https://你的默认域名/api/health"
+#    期望：{"ok":true,"service":"phaser-game-svr","version":"0.3.0",...,"guilds":0,...}
+#    （guilds 是已建立的公会数；v0.3.0 = 公会接口这一版。老版本号说明部署的还是旧代码）
+
+# ④ 小游戏里点一遍（开发者工具 → 小游戏）
+#    a. 左边侧边栏：上面「商」开商城，下面「营」回营地（营地中心）
+#    b. 设置 → 云后端：应显示「云后端正常：phaser-game-svr v0.3.0」
+#    c. 公会（底部「会」）：先输入公会名（平台键盘）→ 创建；再点「刷新公会列表」看服务端名单
+#    d. 换一个账号再进：输入同一个公会名 → 加入 → 两边都能在「公会人员」里看到对方
+```
+
+> **想用 curl 直接验公会接口**（不经过小游戏）：`docs\douyin-cloud-deploy.md` §3.5 那套 payload 落文件的写法
+> 照样适用，把 `code` 换成令牌、路径换成 `/api/guild/mine` 即可：
+>
+> ```powershell
+> '{"token":"PASTE_TOKEN_HERE"}' | Set-Content -Path "$env:TEMP\g.json" -Encoding ASCII -NoNewline
+> curl.exe -sS -X POST "https://你的默认域名/api/guild/mine" -H "content-type: application/json" --data-binary "@$env:TEMP\g.json"
+> #  没有公会：{"ok":true,"inGuild":false}
+> #  有公会：  {"ok":true,"inGuild":true,"role":"leader","guild":{"name":"...","level":1,"members":[...]}}
+> ```

@@ -1,12 +1,12 @@
-# douyin-cloud —— 抖音云后端（阶段 B：`code2session` 登录已接入）
+# douyin-cloud —— 抖音云后端（阶段 B：`code2session` 登录 + **公会接口**）
 
 零依赖 Node HTTP 服务，用来验证"小游戏 → 抖音云"这条链路，并作为云存档 / 服务端权威逻辑的落点。
 
 ```
 douyin-cloud\
-├─ svr\index.js      服务本体（6 个端点 + 登录/令牌，无第三方依赖，默认端口 8000）
+├─ svr\index.js      服务本体（12 个端点 + 登录/令牌 + 公会，无第三方依赖，默认端口 8000，v0.3.0）
 ├─ svr\package.json  只有元信息（没有 dependencies，所以部署时不需要 npm install）
-├─ svr\smoke.mjs     本地冒烟：起 3 个真进程 + 一个**假 code2session**，打 41 项断言（**不属于部署包**）
+├─ svr\smoke.mjs     本地冒烟：起 3 个真进程 + 一个**假 code2session**，打 82 项断言（**不属于部署包**）
 ├─ run.sh            容器运行时启动文件（平台固定执行 /opt/application/run.sh，不看镜像 CMD）——与仓库根那份逐字节相同
 ├─ Dockerfile        选「Docker 镜像」方式部署时用（构建上下文 = 本目录）
 ├─ dist\             tools\cloud-pack.ps1 产出的上传包（svr-code-<时间戳>.zip，生成物，已被 .gitignore 忽略）
@@ -33,6 +33,26 @@ douyin-cloud\
 | POST | `/api/save` | 上传存档 `{ token 或 openid, save }`。**有令牌时 `openid` 只认令牌里那个**；没令牌写下来的标 `verified:false` 且落在 `openid:` 命名空间，盖不掉验签账号 |
 | GET | `/api/save?token=` | 拉取存档（过渡期也支持 `?openid=`） |
 | POST | `/api/name` | **昵称唯一性**：`{ name, account? }` → 首次登记 `200 {ok, claimed:true}`；重名 `409 name_taken`；非法 `400 invalid_name {reason}`。同设备重复登记是幂等的，键不区分大小写与空格。占用人优先取令牌里的账号（**body 里的 account 会被忽略**），没令牌时记 body 的 account 并标 `verified:false` —— 所以现在无令牌也能挡重名，等阶段 B 客户端带上令牌后要跟着 `/api/save` 一起收紧 |
+| POST | `/api/guild/create` | **建公会**（本次新增）：`{ name, x, y, playerName?, playerLevel? }` → `200 {ok, role:'leader', guild}`。公会名走**与昵称同一套字符规则**（2~12 字，中文 / 字母 / 数字 / 下划线，保留名不给用），**全服唯一**（重名 `409 name_taken`）；一个账号只能在一个公会里（`409 already_in_guild`）；锚点与别的公会至少隔 `2000` 世界单位（`409 anchor_too_close`） |
+| POST | `/api/guild/join` | 加入公会：`{ name, playerName?, playerLevel? }` → `200 {ok, role:'member', guild}`；没有这个会 `404 no_guild`；人满 `409 guild_full`；已在会里 `409 already_in_guild` |
+| POST | `/api/guild/leave` | 退出公会 → `200 {ok, left:<公会名>}`；会长不能退 `409 owner_cannot_leave`（首版没有转让 / 解散）；不在会里 `404 not_in_guild` |
+| POST | `/api/guild/anchor` | 会长挪据点锚点：`{ x, y }` → 只有会长（别人 `403 not_leader`）；坐标必须是有限数（`400 bad_anchor`）；**24 小时冷却**（`409 anchor_cooldown`，回 `waitMs`）；离别的公会太近 `409 anchor_too_close` |
+| POST/GET | `/api/guild/mine` | 我在不在公会里：`{ok:true, inGuild:false}` 或 `{ok:true, inGuild:true, role, guild}` —— 客户端每次打开公会面板 / 手点刷新都会调它 |
+| POST/GET | `/api/guild/list` | 公会列表：`{ok:true, total, memberCap, guilds:[{name, level, exp, count, online, memberCap, anchor, createdAt}]}`，按人数降序，最多 `limit`（默认 20，上限 50） |
+
+**公会那一块（本次新增，2026-10-01）**：用户要求"创建公会需要自己输入公会名，公会页面显示公会人员，公会等级，公会信息"。
+服务端在这里是**权威**：
+
+- **名字**：全服唯一，规则与昵称同一套（客户端那份管"打字时立刻看到能不能用"，服务端这份管"改了客户端也骗不到一个重名"）；
+- **等级**：`level = 1 + floor(Σ成员等级 / 100)`，封顶 10 —— 成员等级直接读 `saves` 表里那份存档
+  （服务端本来就存着每个账号的 level），所以它**伪造不了**，也不需要任何新的上报接口；
+- **成员表**：名字 / 等级 / 在线状态都由服务端现算。**在线 = 最近 2 分钟跟服务端说过话**
+  （`presence` 表，每个带身份的请求盖一次时间戳）—— 没有长连接（决策 #2 的长连接仍未验证），
+  所以它是"最近活跃"而不是"此刻在线"，玩家在面板上点刷新就能看到最新状态；
+- **不回 openid**：成员表里只有名字与等级，账号串（`douyin:<openid>`）永远不出服务端；
+- **内存版**：公会表在内存里，**重新部署就清空**（与存档 / 昵称注册表一样）。
+  客户端为此设计了自愈：`/api/guild/mine` 回 `inGuild:false` 而本机有公会时，会自动用同一个名字
+  补登记一次（`promote`），所以重启服务不会让玩家的公会永久消失。
 
 存档账号有三个命名空间（安全红线：客户端传来的一切都不可信）：
 
@@ -63,7 +83,7 @@ douyin-cloud\
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1
-# ① 真进程 + 真 HTTP 请求跑 svr\smoke.mjs（41 项断言，127.0.0.1:8099/8101/8102 + 假抖音端 8100）：
+# ① 真进程 + 真 HTTP 请求跑 svr\smoke.mjs（82 项断言，127.0.0.1:8099/8101/8102 + 假抖音端 8100）：
 #    端口真的在听吗 / 健康检查 / 数值表是否漂移 / code→openid / 签令牌 / 越权写 / 伪造与过期令牌 /
 #    严格模式(REQUIRE_TOKEN=1) / 没配凭据时是否明确 503 / 坏 JSON / 404 / OPTIONS 预检
 # ② 绿的才打包 → douyin-cloud\dist\svr-code-<时间戳>.zip（index.js + package.json + run.sh）

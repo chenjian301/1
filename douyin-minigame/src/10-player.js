@@ -32,7 +32,8 @@ G.PLAYER = (function () {
     if (!loadout) return result;
     for (var i = 0; i < BAL.equipment.slots.length; i += 1) {
       var id = BAL.equipment.slots[i].id;
-      if (loadout[id] && loadout[id].main && loadout[id].affixes) result[id] = loadout[id];
+      // 强化等级（本次新增）：老存档没有这个字段 = 0 级；坏值夹回 [0, 上限]
+      if (loadout[id] && loadout[id].main && loadout[id].affixes) result[id] = EQUIP.normalizeEnhance(loadout[id]);
     }
     return result;
   }
@@ -169,8 +170,10 @@ G.PLAYER = (function () {
   }
 
   /**
-   * 属性面板的行数据（A6）：一行一项，副行把"等级基础"与"装备加成"分开写 ——
-   * 玩家一眼就知道该练级还是该去开箱。
+   * 属性面板 / 背包属性网格的行数据（A6；A10 每一行多了 `icon`）。
+   * 一行一项，副行把"等级基础"与"装备加成"分开写 —— 玩家一眼就知道该练级还是该去开箱。
+   * `icon` 是 16-icons 的图标名（'attack' / 'hp' / …）：**图标名跟着属性定义走**，
+   * 于是加一项属性时不会出现"面板里有数值但没图标"的漏网项。
    *
    * 放在这里而不是 18-panels 的原因与 statsOf 一样：属性公式只能有一份，
    * 面板只负责排版（界面层不读玩法公式，决策 #4）。
@@ -184,49 +187,56 @@ G.PLAYER = (function () {
       return (value * 100).toFixed(1) + '%';
     };
     return [
-      { label: '等级', value: 'Lv.' + level, sub: '升到下一级还需 ' + Math.round(PROG.xpToNext(level)) + ' 经验' },
+      { icon: 'level', label: '等级', value: 'Lv.' + level, sub: '升到下一级还需 ' + Math.round(PROG.xpToNext(level)) + ' 经验' },
       {
+        icon: 'power',
         label: '战力',
         value: String(stats.power),
         sub: '四件装备战力之和（只用来一眼比较强弱，不参与战斗结算）',
         color: '#ffd479'
       },
       {
+        icon: 'attack',
         label: '攻击',
         value: String(stats.attack),
         sub: '等级基础 ' + Math.round((base.baseAttack + grow.attack) * 10) / 10 + ' ＋ 装备 ' + (totals.attack || 0)
       },
       {
+        icon: 'hp',
         label: '生命上限',
         value: String(stats.hpMax),
         sub: '等级基础 ' + Math.round(base.baseHp * (1 + grow.hpPct)) + ' ＋ 装备 ' + (totals.hp || 0)
       },
-      { label: '防御', value: String(stats.defense), sub: '基础 ' + base.baseDefense + ' ＋ 装备 ' + (totals.defense || 0) },
+      { icon: 'defense', label: '防御', value: String(stats.defense), sub: '基础 ' + base.baseDefense + ' ＋ 装备 ' + (totals.defense || 0) },
       {
+        icon: 'attackSpeed',
         label: '攻速',
         value: stats.attackSpeed.toFixed(2) + ' 次/秒',
         sub: '基础 ' + base.attackSpeed + ' ×（1 ＋ 装备攻速 ' + pct(totals.attackSpeed || 0) + '）'
       },
       {
+        icon: 'crit',
         label: '暴击率',
         value: pct(stats.critChance),
         sub: '基础 ' + pct(base.critChance) + ' ＋ 装备 ' + pct(totals.critChance || 0) + '（上限 100%）'
       },
       {
+        icon: 'critDamage',
         label: '暴击伤害',
         value: Math.round(stats.critDamage * 100) + '%',
         sub: '基础 ' + Math.round(base.critDamage * 100) + '% ＋ 装备 ' + Math.round((totals.critDamage || 0) * 100) + '%'
       },
-      { label: '增伤', value: pct(stats.damageBonus), sub: '装备词条合计（乘算在攻击上）' },
-      { label: '减伤', value: pct(stats.damageReduction), sub: '装备词条合计（上限 75%，防止无敌套）' },
-      { label: '移动速度', value: String(stats.moveSpeed), sub: '固定值：装备不影响走位手感' },
+      { icon: 'damage', label: '增伤', value: pct(stats.damageBonus), sub: '装备词条合计（乘算在攻击上）' },
+      { icon: 'reduce', label: '减伤', value: pct(stats.damageReduction), sub: '装备词条合计（上限 75%，防止无敌套）' },
+      { icon: 'move', label: '移动速度', value: String(stats.moveSpeed), sub: '固定值：装备不影响走位手感' },
       {
+        icon: 'pickup',
         label: '拾取范围',
         value: String(stats.pickupRange),
         sub: '基础 ' + base.pickupRange + ' ＋ 装备 ' + (totals.pickupRange || 0)
       },
-      { label: '经验加成', value: pct(stats.xpBonus), sub: '装备词条合计' },
-      { label: '金币加成', value: pct(stats.goldBonus), sub: '装备词条合计' }
+      { icon: 'xp', label: '经验加成', value: pct(stats.xpBonus), sub: '装备词条合计' },
+      { icon: 'gold', label: '金币加成', value: pct(stats.goldBonus), sub: '装备词条合计' }
     ];
   }
 

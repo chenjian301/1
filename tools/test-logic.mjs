@@ -127,6 +127,18 @@ section('数值表（shared/balance.json）');
   eq('怪种类 = 4 种', balance.monsters.kinds.length, 4);
   eq('近战 / 群怪 / 远程 / 重甲齐备', balance.monsters.kinds.map((k) => k.id).join(','), 'wolf,bat,mage,brute');
   eq('号角 500 金币（决策 #4）', balance.shop.horn.priceGold, 500);
+  eq('强化石 100 金币一颗（A15：营地铁匠强化用）', balance.shop.stone.priceGold, 100);
+  eq(
+    '强化 +1 → +10、每级翻倍、+1 花 1 颗（A15，用户给的口径）',
+    `${balance.enhance.maxLevel}/${balance.enhance.growth}/${balance.enhance.baseStones}`,
+    '10/2/1',
+  );
+  ok('强化每级都给主属性加成（A15）', balance.enhance.statPerLevel > 0, String(balance.enhance.statPerLevel));
+  ok(
+    '铁匠的对话半径是正数（A15：营地交互范围）',
+    balance.world.camp.smith.talkRadius > 0,
+    String(balance.world.camp.smith.talkRadius),
+  );
   eq('宝箱六阶', balance.chests.tiers.length, 6);
   eq('宝箱阶名', balance.chests.tiers.map((t) => t.name).join('/'), '普通/专家/史诗/传说/神话/天赐');
   eq('保底：50 箱无史诗', balance.chests.pity.epic, 50);
@@ -144,15 +156,52 @@ section('数值表（shared/balance.json）');
     balance.world.camp.monsterFreeRadius === balance.world.camp.radius,
     `${balance.world.camp.monsterFreeRadius} / ${balance.world.camp.radius}`,
   );
-  ok(
-    '视角倍率 0.5~1（拉远看得更多，又不会小到看不清）',
-    balance.view.cameraZoom >= 0.5 && balance.view.cameraZoom <= 1,
-    String(balance.view.cameraZoom),
+  eq(
+    '视角档位三档（远 / 中 / 近），zoom = designWidth / (tiles × tileSize)，默认中档',
+    balance.view.cameraTiers.length === 3 &&
+      balance.view.cameraTiers.every(
+        (t) => Math.abs(balance.view.designWidth / (t.zoom * balance.world.tileSize) - t.tiles) < 0.05,
+      ) &&
+      balance.view.cameraTier === 1,
+    balance.view.cameraTiers.map((t) => `${t.name}${t.tiles}`).join('/'),
   );
   eq('装备词条数曲线 1/2/3/4/5/5', balance.equipment.tiers.map((t) => t.affixes).join(','), '1,2,3,4,5,5');
   eq('装备数值倍率末档 5.3', balance.equipment.tiers[5].multiplier, 5.3);
   eq('公会人数上限 20', balance.guild.memberCap, 20);
   eq('公会 / 商城解锁等级 20', balance.guild.unlockLevel, 20);
+  // 公会规则（本次新增）：名字与昵称同一套长度；等级 = 1 + floor(成员等级之和 / levelDivisor) 封顶 levelCap
+  eq(
+    '公会名长度与昵称同一对数（客户端复用 ACCOUNT.validate 的前提）',
+    `${balance.guild.nameMin}/${balance.guild.nameMax}`,
+    `${balance.account.nameMin}/${balance.account.nameMax}`,
+  );
+  eq(
+    '公会等级公式的三个数（本次新增）',
+    `${balance.guild.levelDivisor}/${balance.guild.levelCap}`,
+    '100/10',
+  );
+  ok(
+    '公会在线窗口与面板刷新间隔都是正数（服务端 presence / 面板自动刷新用）',
+    balance.guild.onlineWindowMs > 0 && balance.guild.syncIntervalMs > 0,
+    `${balance.guild.onlineWindowMs} / ${balance.guild.syncIntervalMs}`,
+  );
+  ok(
+    '公会锚点间距 > 0（不同公会的据点不许挤在一起）',
+    balance.guild.anchorMinDistance > 0,
+    String(balance.guild.anchorMinDistance),
+  );
+  // 左侧边栏（本次新增）：两枚键竖排，间距必须**塞得下圆下方那行说明**（captionGap + captionSize）
+  ok(
+    '左侧边栏的间距塞得下说明文字（本次新增：回到营地按钮放在商城下面）',
+    balance.view.sideBar.gap > balance.view.hud.captionGap + balance.view.icon.captionSize,
+    `${balance.view.sideBar.gap} > ${balance.view.hud.captionGap} + ${balance.view.icon.captionSize}`,
+  );
+  ok(
+    '面板卡片左边让出的宽度 >= 侧边栏整条宽度（否则卡片会盖住它，那两枚键点不到）',
+    balance.view.panel.leftReserve >=
+      balance.view.sideBar.left + balance.view.sideBar.radius + balance.view.sideBar.pad,
+    `${balance.view.panel.leftReserve} >= ${balance.view.sideBar.left} + ${balance.view.sideBar.radius} + ${balance.view.sideBar.pad}`,
+  );
   ok(
     '抢怪的两个缓解开关默认关闭（首版按决策 #1 实现）',
     balance.combat.firstHitProtectionMs === 0 && balance.combat.damageShareGate === 0,

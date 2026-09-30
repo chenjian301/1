@@ -11,7 +11,9 @@
  *   4. 伤害：**不另写公式** —— 还是 COMBAT.rollDamage，只是把攻击乘上 `damageMul`
  *      （决策 #4：数字只有一处，公式也只有一处）；
  *   5. 自动释放：自动战斗开着时从左到右挑第一个"能用"的技能 —— 伤害技要有怪在打击范围内
- *      （免得空放），治疗只在血量低于 `skills.autoHealRatio` 时放。
+ *      （免得空放），治疗只在血量低于 `skills.autoHealRatio` 时放；
+ *      **A10 起还要勾上那个键右上角的"自动释放"勾选框**（勾选表在存档 `settings.skillAuto`，
+ *      见 `autoEnabled` / `autoCount`）——关掉的技能只不会被自动放，手动点照样能放。
  *
  * 为什么冷却不进存档：冷却记在 20-main 的**运行时**（`state.skillCooldowns`）。
  * 它是"这一刻能不能放"的手感数据，不是资产；写进存档反而会留下"改表刷冷却"的口子。
@@ -156,13 +158,34 @@ G.SKILLS = (function () {
   }
 
   /**
+   * 这个技能的「自动释放」勾上了吗（A10，用户要求"给四个技能位置做一个是否自动释放的勾选位置"）。
+   * 纯函数：勾选表是存档里的 `settings.skillAuto`（长度跟技能表走），
+   * **缺项 / 坏值一律当"勾上"** —— 老存档与坏数据都不该悄悄改掉玩家的自动释放行为。
+   */
+  function autoEnabled(flags, index) {
+    if (!flags || flags[index] === undefined) return true;
+    return flags[index] !== false;
+  }
+
+  /** 勾了几个（界面上一眼看出"4 / 4"还是"2 / 4"；调试面板与自检也读它） */
+  function autoCount(flags) {
+    var total = 0;
+    for (var i = 0; i < count(); i += 1) {
+      if (autoEnabled(flags, i)) total += 1;
+    }
+    return total;
+  }
+
+  /**
    * 自动释放挑哪个（-1 = 都不放）。喂进来的是一份**视角数据**而不是函数，方便自检直接构造：
-   *   { cooldowns, globalAt, nowMs, level, hpRatio, x, y, monsters }
+   *   { cooldowns, globalAt, nowMs, level, auto, hpRatio, x, y, monsters }
    * 规则（用户在阶段 A4 说过"自动战斗时不仅自动出手，还自动释放技能"）：
    *   - 全局冷却没好 → 一个都不放；
-   *   - 从左到右：没解锁 / 自己在冷却里 → 跳过；
+   *   - 从左到右：**没勾自动释放的**（A10）/ 没解锁 / 自己在冷却里 → 跳过；
    *   - 治疗技：只有 hpRatio ≤ skills.autoHealRatio 才放（满血时别把治疗浪费掉）；
    *   - 伤害技：打击范围内得有活怪，否则跳过（空放既没伤害又白等冷却）。
+   *
+   * 注意：没勾自动释放**只影响自动战斗**，手动点那个键照样能放（见 20-main 的 castSkillSlot）。
    */
   function autoChoice(view) {
     var data = view || {};
@@ -170,6 +193,7 @@ G.SKILLS = (function () {
     if (!globalReady(data.globalAt, nowMs)) return -1;
     for (var i = 0; i < count(); i += 1) {
       var slot = slotAt(i);
+      if (!autoEnabled(data.auto, i)) continue;
       if (!unlocked(i, data.level)) continue;
       if (!isReady(data.cooldowns, i, nowMs)) continue;
       if (slot.type === 'heal') {
@@ -197,6 +221,8 @@ G.SKILLS = (function () {
     globalReady: globalReady,
     canCast: canCast,
     markCast: markCast,
+    autoEnabled: autoEnabled,
+    autoCount: autoCount,
     autoChoice: autoChoice
   };
 })();

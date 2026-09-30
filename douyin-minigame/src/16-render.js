@@ -3,10 +3,23 @@
  *
  * 阶段 A3：实体从"圆"升级成**简单自绘角色**，地图从"色块 + 圆点"升级成**有设计感的地图**。
  * 阶段 A6（本轮）：**Q版** 角色（大头 + 大眼 + 腮红）+ **装备外观**（穿的什么就像什么）+
- * **视角倍率**（`view.cameraZoom` 把世界层整体拉远，UI 不变）+ **更细的地表**（5×5 色块与细纹）。
+ * **视角倍率**（把世界层整体拉远，UI 不变）+ **更细的地表**（16×16 色块与细纹）。
+ * 阶段 A8：默认倍率压到 0.176（用户标准「一屏横向 128 格」）→ 世界层实体密度翻了 ~20 倍，
+ * 地表与装饰改走 `view.lodZoom` 省笔档（远到一格只有几像素时，色档 / 细纹 / 装饰都是亚像素噪点）。
+ * 阶段 A9（用户："视角的格子变多了，地图的刻画要更加细节，还有人物的大小"）：
+ *   - **宏观档**（`lodZoom` 以下）：地表按粗色格抽样 + 同色跨 chunk 批量落笔，
+ *     装饰由 `TERRAIN.decorBlobs` 聚合成"草甸 / 石滩 / 林地"斑 —— 逐格细节看不见，宏观结构要看得见；
+ *   - **演员层最小观感尺寸**（`view.actorMinZoom`）：点状的东西（角色 / 怪 / 身上的动画 / 选中指示）
+ *     反向放大，观感不低于它；面状的东西（地表 / 范围环 / AoE）保持世界尺寸。
+ * 阶段 A11（用户："地图、相机视角还需要优化，需要让地图更加细节，玩家视角更加清晰"）：
+ *   - **三个视角档位**（`view.cameraTiers`：远 128 格 / 中 64 格 / 近 32 格，默认中档）——
+ *     拉近一档，地表的斑驳细一倍（宏观色格按 **tile 数**给：远 4 格 / 中 2 格，手机上 11.7 → 5.9 CSS px）；
+ *   - **宏观调色板往主题主色收一收**（`view.lodBlend`）：色格变小之后不再是一张噪声马赛克，
+ *     而是"同一片地带淡淡斑驳"的纹理；结构交给装饰斑的轮廓（三种斑都描边）与路网；
+ *   - **玩家标记**（`view.playerMark*`）：脚下常亮的一圈细环，**屏幕尺寸恒定** —— 任何档位都找得到"我"。
  * 一帧的顺序（20-main.renderTo 调用）：
  *   地表色块 + 营地石砖 → 小径路网 → 装饰（按主题换造型）→ 地标（废墟 / 石碑）→ 营地道具
- *   → 弹道 → 怪（4 种造型 + 朝向 + 走路）→ 目标环 → 玩家（小人 + 八方向 + 挥砍 + 装备外观）→ 飘字
+ *   → 弹道 → 怪（4 种造型 + 朝向 + 走路）→ 目标环 → 玩家（标记环 + 小人 + 八方向 + 挥砍 + 装备外观）→ 飘字
  *
  * 为什么仍然**不贴图**：包体与图集是阶段 E 的事（01-game-design §12），而"简单角色"用
  * 十几个基本图元就能画出来 —— 先把辨识度与手感做出来，以后换图集只动这一层。
@@ -118,7 +131,10 @@ G.RENDER = (function () {
     fire: '#ffb347',
     fireCore: '#fff0b8',
     glow: '#ffcb6b',
-    banner: '#d8c07a'
+    banner: '#d8c07a',
+    stone: '#6d675c',
+    iron: '#5d6470',
+    ironTop: '#828b99'
   };
 
   /** 世界坐标 → 屏幕设计坐标 */
@@ -127,12 +143,108 @@ G.RENDER = (function () {
   }
 
   /**
-   * 视角倍率（A6，`balance.view.cameraZoom`）：< 1 = 镜头拉远、看得更广。
-   * 0.8 时每边多看 25%，而且**只缩放世界层** —— HUD / 面板 / 按钮保持原尺寸。
+   * 当前视角档位（A11）：`balance.view.cameraTiers[balance.view.cameraTier]`。
+   * 每档 = { id, name, tiles（一屏横向多少格）, zoom, lodBlocks }；
+   * 运行时档位由 20-main 按存档里的 `settings.zoomTier` 写入 `view.cameraTier`（一个整数），
+   * 渲染层只读它 —— 界面层不读存档那条纪律没破。
+   */
+  function tier() {
+    var tiers = BAL.view.cameraTiers;
+    if (!tiers || !tiers.length) return null;
+    var index = Math.floor(BAL.view.cameraTier);
+    if (!(index >= 0) || index >= tiers.length) index = 0;
+    return tiers[index];
+  }
+
+  /**
+   * 视角倍率（< 1 = 镜头拉远、看得更广）：**只缩放世界层** —— HUD / 面板 / 按钮保持原尺寸。
+   *
+   * 口径只有一条：**一屏横向多少格** → `zoom = designWidth / (tiles × world.tileSize)`。
+   *   - 落在预设档位上（`view.zoomTiles` == 这一档的 `tiles`）时直接返回表里的 `zoom`：
+   *     表是数值的单一出处，128 / 64 / 32 这三个标准值因此永远是精确数（自检逐档验这条等式）；
+   *   - 拖到两档之间（A11 之二：设置面板里的视角缩放轴，16~64 格）才按上面那条式子现算。
+   *
+   * 为什么不让档位表直接承接连续值：档位还要给宏观色格边长 / 装载环 / 小地图半径定规格，
+   * 那些"档"级别的数字不该跟着每拖一下乱跳（见 `lodBlockTiles` / 14-world 的 `loadRing`）。
    */
   function zoom() {
-    var value = BAL.view.cameraZoom;
-    return value > 0 ? value : 1;
+    var current = tier();
+    var tiles = Math.round(BAL.view.zoomTiles);
+    if (current && tiles === current.tiles && current.zoom > 0) return current.zoom;
+    if (tiles > 0) {
+      var derived = BAL.view.designWidth / (tiles * BAL.world.tileSize);
+      if (derived > 0 && isFinite(derived)) return derived;
+    }
+    return current && current.zoom > 0 ? current.zoom : 1;
+  }
+
+  /** 这一档宏观色格的边长（按 tile 数，A11）：远 4 格 / 中 1 格 / 近 1 格（1 = 逐格） */
+  function lodBlockTiles() {
+    var current = tier();
+    var width = current ? Math.round(current.lodBlockTiles) : 4;
+    return width >= 1 ? width : 1;
+  }
+
+  /**
+   * 这一档每 chunk 的宏观色格数 = 每 chunk 的格数 ÷ 色格边长（A11）：远 16/4 = 4、中 16/1 = 16。
+   *
+   * 这是"地图更细节"的关键数字：色格的**世界尺寸**从远档的 128 单位（4 格）缩到中档的 32 单位（1 格），
+   * 于是中档在手机上每 5.9 CSS px 就换一次色 —— 地表看得见的斑驳细一倍，而视野只小了 4 倍**面积**
+   * （64×139 格 vs 128×277 格），换来的清晰度是实打实的。
+   * 近档 1 格 = 逐格，它走 high 细节（见 `groundDetailAt`），根本不进宏观档。
+   */
+  function lodBlocks() {
+    var blocks = Math.round(TERRAIN.tileCountPerChunk() / lodBlockTiles());
+    return blocks >= 1 ? blocks : 1;
+  }
+
+  /**
+   * 地表 / 装饰的细节档（A8，`balance.view.lodZoom`）：
+   * zoom 低于阈值时一格在屏幕上不足 ~9 CSS px，6 档色、土斑细纹、装饰全都只是亚像素噪点 ——
+   * 于是走**宏观档**（A9/A11）：地表按本档的 `lodBlocks` 抽样、同色跨 chunk 批量落笔，
+   * 装饰换成宏观斑（`TERRAIN.decorBlobs`），逐件装饰整层跳过。
+   * 三个档位里远 / 中走宏观档，近档（0.703 > 0.5）走逐格档。
+   * 纯函数（只看传入的倍率），自检可以直接断言每一档，不用去改 balance。
+   */
+  function groundDetailAt(k) {
+    var threshold = BAL.view.lodZoom;
+    return threshold > 0 && k < threshold ? 'low' : 'high';
+  }
+
+  function lowDetail() {
+    return groundDetailAt(zoom()) === 'low';
+  }
+
+  /**
+   * 演员层缩放（A9，`balance.view.actorMinZoom`）：用户"还有人物的大小"。
+   *
+   * 一屏 128 格意味着镜头拉远了 4.55 倍：角色（半径 24）只剩 ~4 CSS px，怪也是。于是给
+   * **点状的东西**（角色 / 怪的身体与影子 / 身上的动画 / 选中与仇恨指示 / 弹道）一个最小观感倍率 ——
+   * zoom 低于它时按 `actorMinZoom / zoom` 反向放大，观感不再低于这个倍率（0.8 = 与 A6 时代一样大）。
+   *
+   * 代价是有意接受的：世界被压缩了 4.55 倍而角色没有，所以"角色看起来比脚下的地大"。
+   * **面状的东西一律不放大**（地表 / 路 / 营地 / 地标 / 攻击范围与 AoE 环）：它们的尺寸是世界比例，
+   * 放大就等于骗人。`actorMinZoom = 0` 或放开到 ≥ zoom 时本层完全不生效（回到"角色 4 CSS px"）。
+   */
+  function actorScale() {
+    var k = zoom();
+    var floorZoom = BAL.view.actorMinZoom;
+    if (!(floorZoom > 0) || k >= floorZoom) return 1;
+    return floorZoom / k;
+  }
+
+  /**
+   * 以屏幕点为中心把后面画的东西放大 `scale` 倍（= 把角色"画大"而不是"挪位置"）。
+   * 与 `beginWorld` 同一个套路：只动画布变换，坐标公式一个字不改。
+   * **必须成对 restore**（自检里有一条 save/restore 配平的断言，防的就是"缩放漏进 HUD"）。
+   */
+  function beginActor(ctx, point, scale) {
+    ctx.save();
+    if (scale !== 1) {
+      ctx.translate(point.x, point.y);
+      ctx.scale(scale, scale);
+      ctx.translate(-point.x, -point.y);
+    }
   }
 
   /**
@@ -254,23 +366,331 @@ G.RENDER = (function () {
     ctx.globalAlpha = 1;
   }
 
-  /** 地表细度（A6）：每个 chunk 切 5×5 色块 + 一撮细纹（细纹攒成一条路径，一次 fill 画完） */
-  var GROUND_BLOCKS = 5;
-  var GROUND_SPECKS = 12;
+  /**
+   * 地表细度（A7 修订）：网格边长 = `world.tileSize`，块数 = `TERRAIN.tileCountPerChunk()`。
+   *
+   * 之前这里写死 5×5：块边长 102 世界单位（手机上约 42 CSS px）—— 那就是"一眼看见像素块"的来源。
+   * 现在 tileSize = 32 → 16×16，块边长 51 世界单位（约 13 CSS px），按档攒路径而不是按块。
+   */
+  var GROUND_LEVELS = 6; // 3 种结构色 × 亮 / 暗 2 档：同档的块攒成一条路径 → 每 chunk 最多 6 次落笔
+  var GROUND_SHADE = 0.07; // 亮暗档往黑 / 白混多少：够把接缝揉开，又不会花
+  var GROUND_SPECKS = 40; // 每 chunk 的细纹（土斑 / 草籽）：更密的细纹让块的边界看不出来
+
+  /** 一块复用的色档缓存（一个 chunk 内 blocks² 张块）：每帧不新建数组，GC 不抖 */
+  var levelCache = null;
+
+  /** 一块复用的 6 档颜色（每个 chunk 按主题重算一次） */
+  var groundColors = [];
 
   /**
-   * 地表：每 chunk 一块主题底色 + 5×5 色块（颜色来自 groundVariant，位置与主题都由哈希决定），
+   * 一张地表块的色档 0..5：低 1 位 = 亮 / 暗，高 2 位 = 结构色（`TERRAIN.groundVariant` 的那 3 种）。
+   * 纯整数哈希 —— 和地图本身一样"同一坐标永远同一档"，所以画面不会闪（改 tileSize 也不动它）。
+   */
+  function groundLevel(seed, cx, cy, tx, ty) {
+    return TERRAIN.groundVariant(seed, cx, cy, tx, ty) * 2 + G.RNG.hashInt([seed, cx, cy, tx, ty, 0x2f], 2);
+  }
+
+  /** 把一个 chunk 的色档整张算出来（每块只哈希一次，下面 6 档各扫一遍它） */
+  function groundLevels(seed, cx, cy, blocks) {
+    var need = blocks * blocks;
+    if (!levelCache || levelCache.length < need) levelCache = new Uint8Array(need);
+    for (var by = 0; by < blocks; by += 1) {
+      for (var bx = 0; bx < blocks; bx += 1) levelCache[by * blocks + bx] = groundLevel(seed, cx, cy, bx, by);
+    }
+    return levelCache;
+  }
+
+  /* ---------------------------------------------------------------- 远距宏观档（A9） */
+
+  /**
+   * 远距宏观档的地表 / 装饰（A9）：用户"视角的格子变多了，地图的刻画要更加细节"。
+   *
+   * 一屏 128 格时，一格只有 ~2.9 CSS px —— **"更细"这条路已经走到头了**（16×16 色档、土斑、
+   * 逐件装饰全是亚像素噪点）。所以这一档换的是**细节的层级**：把同一份地表哈希**粗抽样**成
+   * `view.lodGroundBlocks ×` 这么多格（4×4 → 每格 128 世界单位 ≈ 11.8 CSS px），
+   * 于是 128 格的视野里有一屏"有纹理的地"，而不是一片纯色；远看与近看是同一片地，只是抽样更粗。
+   *
+   * 落笔的账：粗色格按"同 band（= 同主题同色偏）"攒进同一个槽，最后每槽每档一次 fill ——
+   * 一整屏 139 个 chunk 的**地表落笔反而比"每 chunk 一次 fillRect"更少**（见 perf-frame 实测）。
+   */
+  var MACRO_SHADE = 0.09; // 粗色格的亮暗差：比近景（0.07）略强，11.8 CSS px 的格子要靠它才看得出纹理
+  var MACRO_SLOT_MAX = 40; // 一帧最多几组"同主题同色偏"的 chunk（band = 距原点 1000 一个，一屏通常 3~9 组）
+  var MACRO_CACHE_MAX = 1024; // chunk 级宏观斑缓存上限（满了整片清掉重来）
+
+  /** 复用的粗色档缓存（一个 chunk 内 blocks² 格） */
+  var macroLevelsBuf = null;
+
+  /** 每帧复用的调色板槽：[{ band, colors }]，colors = 6 档地表色 + 草 / 石 / 树三个斑色 */
+  var macroSlots = [];
+  var macroSlotUsed = 0;
+
+  /** 每个（槽 × 档）一串数字 [x, y, w, h]；每个（槽 × 种类）一串数字 [x, y, rx, ry] —— 复用，不每帧新建 */
+  var macroRuns = [];
+  var macroBlobsOf = [];
+
+  /** chunk 级宏观斑缓存（每个 chunk 只跑一次装饰流）+ 上一次画了几个斑（自检用） */
+  var macroChunkCache = null;
+  var macroChunkCount = 0;
+  var macroBlobDrawn = 0;
+
+  /**
+   * 把一个 chunk 的粗色档整张算出来：在同一个 16×16 色档场里按 `step` 隔点抽样。
+   * 缓存复用（不每帧新建数组），哈希只跑 blocks² 次。
+   */
+  function macroLevels(seed, cx, cy, blocks) {
+    var need = blocks * blocks;
+    if (!macroLevelsBuf || macroLevelsBuf.length < need) macroLevelsBuf = new Uint8Array(need);
+    var step = Math.max(1, Math.round(TERRAIN.tileCountPerChunk() / blocks));
+    for (var by = 0; by < blocks; by += 1) {
+      for (var bx = 0; bx < blocks; bx += 1) {
+        macroLevelsBuf[by * blocks + bx] = groundLevel(seed, cx, cy, bx * step, by * step);
+      }
+    }
+    return macroLevelsBuf;
+  }
+
+  /**
+   * 一个槽的 9 个颜色：0..5 = 6 档地表色（口径与近景同一份），6..8 = 草 / 石 / 树三个斑色。
+   *
+   * A11（用户："地图更加细节"）：每一档都先往**本主题的主色**（`theme.ground[0]`）混 `view.lodBlend` ——
+   * 因为色格变小了（中档一块只有 2 格地表 = 手机上 5.9 CSS px），要是每块都用满对比的原色，
+   * 远看就是一张**噪声马赛克**；往主色收一收，就变成"同一片地、带淡淡斑驳"的纹理，
+   * 结构感交给装饰斑（草甸 / 石滩 / 林地）与路网去说。近档走逐格档，不受这里影响。
+   */
+  function macroColors(theme, tint, out) {
+    var blend = BAL.view.lodBlend >= 0 && BAL.view.lodBlend <= 1 ? BAL.view.lodBlend : 0;
+    var dominant = TERRAIN.mixHex(theme.ground[0], '#000010', tint);
+    for (var level = 0; level < GROUND_LEVELS; level += 1) {
+      var base = TERRAIN.mixHex(theme.ground[level >> 1], level & 1 ? '#ffffff' : '#000010', MACRO_SHADE);
+      out[level] = TERRAIN.mixHex(TERRAIN.mixHex(base, dominant, blend), '#000010', tint);
+    }
+    out[6] = TERRAIN.mixHex(theme.ground[1], theme.accent, 0.16); // 草甸：底色往主题点缀色走一点
+    out[7] = TERRAIN.mixHex(theme.ground[2], '#ffffff', 0.2); // 石滩：亮一点的岩色
+    out[8] = TERRAIN.mixHex(theme.decor, '#000010', 0.12); // 林地：主题装饰色压暗 = 树冠
+  }
+
+  /**
+   * 取（或新建）本帧的一个调色板槽：**同一个 band 的 chunk 共用一份颜色**。
+   * 这就是"跨 chunk 批量落笔"的前提 —— 一屏里同色的 chunk 全攒进同一条路径。
+   */
+  function macroSlotFor(band, theme, tint) {
+    for (var i = 0; i < macroSlotUsed; i += 1) if (macroSlots[i].band === band) return i;
+    if (macroSlotUsed >= MACRO_SLOT_MAX) return 0; // 兜底（band 数是"距原点 / 1000"，一屏到不了 40 组）
+    var slot = macroSlots[macroSlotUsed];
+    if (!slot) {
+      slot = { band: band, colors: [] };
+      macroSlots[macroSlotUsed] = slot;
+    }
+    slot.band = band;
+    macroColors(theme, tint, slot.colors);
+    macroSlotUsed += 1;
+    return macroSlotUsed - 1;
+  }
+
+  /** 把一条矩形记进（槽 × 档）那串数字 —— 之后再统一 beginPath / rect / fill */
+  function macroPushRun(index, x, y, w, h) {
+    var runs = macroRuns[index];
+    if (!runs) {
+      runs = [];
+      macroRuns[index] = runs;
+    }
+    runs.push(x, y, w, h);
+  }
+
+  /**
+   * 一个 chunk 的宏观斑（带缓存）：同一个 chunk 只跑一次 `TERRAIN.decorBlobs`。
+   * 键用整数（`(cx + 8192) * 16384 + (cy + 8192)`）—— 每帧 139 次查找不产生字符串。
+   * 走到 ±8192 个 chunk（≈ ±419 万世界单位）以外理论上会撞键，撞了也只是那几个斑长得像，不影响玩法。
+   */
+  function macroBlobsAt(seed, cx, cy, band, maxBlobs) {
+    if (!macroChunkCache) macroChunkCache = {};
+    var key = (cx + 8192) * 16384 + (cy + 8192);
+    var hit = macroChunkCache[key];
+    if (hit && hit.band === band && hit.maxBlobs === maxBlobs) return hit.blobs;
+    var blobs = TERRAIN.decorBlobs(seed, cx, cy, band, maxBlobs);
+    if (macroChunkCount >= MACRO_CACHE_MAX) {
+      macroChunkCache = {};
+      macroChunkCount = 0;
+    }
+    macroChunkCache[key] = { band: band, maxBlobs: maxBlobs, blobs: blobs };
+    macroChunkCount += 1;
+    return blobs;
+  }
+
+  /**
+   * 宏观档的装饰斑：把每个 chunk 的**真实装饰**聚合成 1~2 个"草甸 / 石滩 / 林地"斑，
+   * 按（槽 × 种类）攒路径 —— 一整屏的林子与石滩只花几次落笔。
+   * 走进去看到的是同一片（同一个随机流，见 `TERRAIN.decorBlobs`），所以"远看有林子"不会落空。
+   */
+  function drawMacroBlobs(ctx, camera, chunks, seed, maxBlobs) {
+    var i;
+    var j;
+    var slot;
+    var kind;
+    var band;
+    var blobs;
+    var blob;
+    var point;
+    var path;
+    var index;
+    var drawn = 0;
+
+    for (i = 0; i < chunks.length; i += 1) {
+      band = G.SPAWN.chunkCenterBand(chunks[i].cx, chunks[i].cy);
+      blobs = macroBlobsAt(seed, chunks[i].cx, chunks[i].cy, band, maxBlobs);
+      if (blobs.length === 0) continue;
+      slot = macroSlotFor(band, TERRAIN.themeForBand(band), TERRAIN.deepBandIntensity(band));
+      for (j = 0; j < blobs.length; j += 1) {
+        blob = blobs[j];
+        kind = blob.kind === 'tree' ? 2 : blob.kind === 'rock' ? 1 : 0;
+        index = slot * 3 + kind;
+        path = macroBlobsOf[index];
+        if (!path) {
+          path = [];
+          macroBlobsOf[index] = path;
+        }
+        point = toScreen(camera, blob.x, blob.y);
+        // 贴在地上的一片 → 扁椭圆（ry = 0.68 rx）：远看才是"地上一块植被"，不是飘着的气球
+        path.push(point.x, point.y, blob.r, blob.r * 0.68);
+        drawn += 1;
+      }
+    }
+
+    for (slot = 0; slot < macroSlotUsed; slot += 1) {
+      for (kind = 0; kind < 3; kind += 1) {
+        path = macroBlobsOf[slot * 3 + kind];
+        if (!path || path.length === 0) continue;
+        ctx.globalAlpha = kind === 2 ? 0.5 : 0.4;
+        ctx.fillStyle = macroSlots[slot].colors[6 + kind];
+        ctx.beginPath();
+        for (j = 0; j < path.length; j += 4) ellipsePath(ctx, path[j], path[j + 1], path[j + 2], path[j + 3]);
+        ctx.fill();
+        // A11：三种斑都沿同一条路径描一圈深色边（fill 不清路径，所以只多一次 stroke）——
+        // "林子 / 石滩 / 草甸"的轮廓因此看得出来：地图上的**结构**就是这些斑 + 路网 + 营地。
+        ctx.globalAlpha = kind === 2 ? 0.3 : 0.18;
+        ctx.strokeStyle = TERRAIN.mixHex(macroSlots[slot].colors[6 + kind], '#000010', 0.45);
+        ctx.lineWidth = kind === 2 ? 3 : 2;
+        ctx.stroke();
+        path.length = 0;
+      }
+    }
+    ctx.globalAlpha = 1;
+    macroBlobDrawn = drawn;
+  }
+
+  /**
+   * 宏观档的地表：色格（跨 chunk 同色批量落笔）+ 装饰斑。
+   *
+   * 与近景逐格档的两处差别，都是"这个尺度上什么才看得见"决定的：
+   *   1. 色格是**粗抽样**（`lodBlocks()`² 而不是 16²）：远档一块 4 格地表、中档一块 2 格 ——
+   *      远近视同一片地（同一个 `groundLevel` 哈希），只是抽样更粗；
+   *   2. 攒路径的范围从"一个 chunk"放大到"整个调色板槽"（= 所有同 band 的 chunk），
+   *      于是 139 个 chunk 只花几十次 fill，反而比"每 chunk 一次 fillRect"更省。
+   */
+  function drawGroundMacro(ctx, camera, chunks, seed) {
+    var blocks = lodBlocks();
+    var block = CHUNK.CHUNK_SIZE / blocks;
+    var blobLimit = BAL.view.lodDecorBlobs > 0 ? Math.round(BAL.view.lodDecorBlobs) : 0;
+    var i;
+    var bx;
+    var by;
+    var level;
+    var start;
+    var slot;
+    var origin;
+    var band;
+    var theme;
+    var tint;
+    var levels;
+    var runs;
+    var j;
+    var cx;
+    var cy;
+
+    macroSlotUsed = 0;
+    macroBlobDrawn = 0;
+
+    for (i = 0; i < chunks.length; i += 1) {
+      cx = chunks[i].cx;
+      cy = chunks[i].cy;
+      band = G.SPAWN.chunkCenterBand(cx, cy);
+      theme = TERRAIN.themeForBand(band);
+      tint = TERRAIN.deepBandIntensity(band);
+      slot = macroSlotFor(band, theme, tint);
+      origin = toScreen(camera, CHUNK.chunkOrigin(cx), CHUNK.chunkOrigin(cy));
+      levels = macroLevels(seed, cx, cy, blocks);
+
+      // 底色（第 0 档）整块先记上：第 0 档因此不参与下面的粗色格（与近景同一个口径）
+      macroPushRun(slot * GROUND_LEVELS, origin.x, origin.y, CHUNK.CHUNK_SIZE, CHUNK.CHUNK_SIZE);
+
+      for (by = 0; by < blocks; by += 1) {
+        bx = 0;
+        while (bx < blocks) {
+          level = levels[by * blocks + bx];
+          if (level === 0) {
+            bx += 1;
+            continue;
+          }
+          start = bx;
+          while (bx < blocks && levels[by * blocks + bx] === level) bx += 1;
+          macroPushRun(
+            slot * GROUND_LEVELS + level,
+            origin.x + start * block,
+            origin.y + by * block,
+            (bx - start) * block,
+            block
+          );
+        }
+      }
+    }
+
+    // 落笔：每个（槽 × 档）一次 fill —— 一整屏的地表于是只花几十笔
+    for (i = 0; i < macroSlotUsed; i += 1) {
+      for (level = 0; level < GROUND_LEVELS; level += 1) {
+        runs = macroRuns[i * GROUND_LEVELS + level];
+        if (!runs || runs.length === 0) continue;
+        ctx.beginPath();
+        for (j = 0; j < runs.length; j += 4) ctx.rect(runs[j], runs[j + 1], runs[j + 2], runs[j + 3]);
+        ctx.fillStyle = macroSlots[i].colors[level];
+        ctx.fill();
+        runs.length = 0; // 复用这串数字（下一帧从 0 开始攒）
+      }
+    }
+
+    if (blobLimit > 0) drawMacroBlobs(ctx, camera, chunks, seed, blobLimit);
+  }
+
+  /** 自检用：上一次宏观档的规模（几个调色板槽 = 几组主题 / 色偏、几个装饰斑、每 chunk 几个色格） */
+  function macroStats() {
+    return { slots: macroSlotUsed, blobs: macroBlobDrawn, blocks: lodBlocks(), blockTiles: lodBlockTiles() };
+  }
+
+  /**
+   * 地表：每 chunk 一块主题底色 + `tileSize` 网格的色块（结构色 × 亮暗档，全部来自哈希），
    * 最后在原点盖上营地的石砖地。
    *
-   * A6 的做法差别：同色的色块**攒进一条路径**再一次性 fill —— 一个 chunk 从最多 16 次落笔降到 3 次，
-   * 省下来的预算换成"更细的网格 + 每 chunk 一撮土斑"，于是画面更细而帧上的落笔更少。
+   * A6 的做法差别：同档的色块**攒进一条路径**再一次性 fill。于是网格从 5×5 变成 16×16 之后，
+   * 每 chunk 的落笔还是 7 次（底色 + 5 档 + 细纹），块却从 25 张变成 256 张 —— 一格一格的接缝由
+   * 亮暗档 + 每 chunk 40 道细纹揉开，远看是"一片有细节的地"，不是"一堆方块"。
+   * 性能账见 `tools\perf-frame.mjs`（落笔预算 900）。
+   * A8：倍率压到 0.176（一屏 128 格）之后，视野里的 chunk 从 ~15 涨到 ~171 —— 逐格档在这个
+   * 尺度上既看不见又贵，于是远距档整个交给 `drawGroundMacro`（粗色格 + 装饰斑）。
    */
   function drawGround(ctx, camera) {
     var rect = viewRect(camera);
     var chunks = CHUNK.chunksInRect(rect.minX, rect.minY, rect.maxX, rect.maxY, 0);
     var seed = BAL.season.worldSeed;
-    var blocks = GROUND_BLOCKS;
+    var blocks = TERRAIN.tileCountPerChunk();
     var block = CHUNK.CHUNK_SIZE / blocks;
+    var level;
+
+    // A9 远距宏观档：一格只剩 ~2.9 CSS px，逐格色档 / 土斑 / 逐件装饰都成了亚像素噪点 ——
+    // 换成"同一份哈希的粗抽样 + 装饰斑"（细节从"更细"转向"更大"）
+    if (lowDetail()) {
+      drawGroundMacro(ctx, camera, chunks, seed);
+      drawCampPlaza(ctx, camera, rect);
+      return;
+    }
 
     for (var i = 0; i < chunks.length; i += 1) {
       var cx = chunks[i].cx;
@@ -281,29 +701,38 @@ G.RENDER = (function () {
       var ground = theme.ground;
       var origin = toScreen(camera, CHUNK.chunkOrigin(cx), CHUNK.chunkOrigin(cy));
 
-      // 底色：深带用 accent 混一点，让"越走越远"有视觉反馈
-      ctx.fillStyle = TERRAIN.mixHex(ground[0], '#000010', tint);
+      var levels = groundLevels(seed, cx, cy, blocks);
+
+      // 6 档颜色：结构色（ground[0..2]）先按亮 / 暗混一点，再叠深带的暗罩
+      for (level = 0; level < GROUND_LEVELS; level += 1) {
+        var base = TERRAIN.mixHex(ground[level >> 1], level & 1 ? '#ffffff' : '#000010', GROUND_SHADE);
+        groundColors[level] = TERRAIN.mixHex(base, '#000010', tint);
+      }
+
+      // 底色 = 最暗那一档，整块先铺满（第 0 档因此不用再建路径）
+      ctx.fillStyle = groundColors[0];
       ctx.fillRect(origin.x, origin.y, CHUNK.CHUNK_SIZE, CHUNK.CHUNK_SIZE);
 
-      var v;
-      for (v = 1; v < 3; v += 1) {
+      for (level = 1; level < GROUND_LEVELS; level += 1) {
         var any = false;
         ctx.beginPath();
         for (var by = 0; by < blocks; by += 1) {
-          for (var bx = 0; bx < blocks; bx += 1) {
-            if (TERRAIN.groundVariant(seed, cx, cy, bx, by) !== v) continue;
-            var bx0 = origin.x + bx * block;
-            var by0 = origin.y + by * block;
-            ctx.moveTo(bx0, by0);
-            ctx.lineTo(bx0 + block, by0);
-            ctx.lineTo(bx0 + block, by0 + block);
-            ctx.lineTo(bx0, by0 + block);
-            ctx.closePath();
+          // 同一行里相邻的同档块合成一个矩形（rect 一次画完）：路径长度几乎减半
+          var runStart = -1;
+          for (var bx = 0; bx <= blocks; bx += 1) {
+            var same = bx < blocks && levels[by * blocks + bx] === level;
+            if (same) {
+              if (runStart < 0) runStart = bx;
+              continue;
+            }
+            if (runStart < 0) continue;
+            ctx.rect(origin.x + runStart * block, origin.y + by * block, (bx - runStart) * block, block);
             any = true;
+            runStart = -1;
           }
         }
         if (!any) continue;
-        ctx.fillStyle = TERRAIN.mixHex(ground[v], '#000010', tint);
+        ctx.fillStyle = groundColors[level];
         ctx.fill();
       }
 
@@ -314,7 +743,7 @@ G.RENDER = (function () {
         var hy = G.RNG.hashInt([seed, cx, cy, s, 0x7c], 4096) / 4096;
         var sx = origin.x + hx * CHUNK.CHUNK_SIZE;
         var sy = origin.y + hy * CHUNK.CHUNK_SIZE;
-        var len = 3 + G.RNG.hashInt([seed, cx, cy, s, 0x11], 4);
+        var len = 2 + G.RNG.hashInt([seed, cx, cy, s, 0x11], 3);
         ctx.moveTo(sx, sy);
         ctx.lineTo(sx + len, sy);
         ctx.lineTo(sx + len, sy - len * 0.5);
@@ -512,7 +941,7 @@ G.RENDER = (function () {
     }
   }
 
-  /** 营地道具：帐篷 / 篝火 / 旗 / 木牌 / 箱子 / 树桩（摆位数据在 04-terrain 的 CAMP_PROPS） */
+  /** 营地道具：帐篷 / 篝火 / 旗 / 木牌 / 箱子 / 树桩 / 铁匠的铁砧（摆位数据在 04-terrain 的 CAMP_PROPS） */
   function drawCampProp(ctx, point, prop, nowMs) {
     var scale = prop.scale || 1;
     if (prop.kind === 'tent') drawTent(ctx, point, scale);
@@ -521,6 +950,8 @@ G.RENDER = (function () {
     else if (prop.kind === 'sign') drawSign(ctx, point, scale);
     else if (prop.kind === 'crate') drawCrate(ctx, point, scale);
     else if (prop.kind === 'stump') drawStump(ctx, point, scale);
+    // 铁匠（本次新增）：营地里唯一"会干活"的一件 —— 站在旁边屏幕上会多一枚「锻」键（20-main）
+    else if (prop.kind === 'forge') drawForge(ctx, point, scale, nowMs);
   }
 
   /** 帐篷：三角帆布（左亮右暗）+ 门洞 + 顶杆 */
@@ -602,6 +1033,109 @@ G.RENDER = (function () {
     ctx.fill();
   }
 
+  /**
+   * 铁匠（本次新增，用户要求"在公会营地里增加铁匠NPC"）：一台**铁砧 + 炭炉 + 斜靠的锤子**，
+   * 头顶挂一块「铁匠」小牌 —— 走近一眼看出"这个人能敲东西"。
+   * 炉火的抖动只跟**逻辑时间**走（与篝火同一套写法；16-render 在三角函数白名单里）。
+   */
+  function drawForge(ctx, point, scale, nowMs) {
+    var s = scale;
+    var flick = Math.sin(nowMs / 120) * 0.5 + Math.sin(nowMs / 61) * 0.5;
+    var i;
+    drawShadow(ctx, point, 40 * s, 0.24);
+
+    // ① 石台
+    ctx.fillStyle = CAMP_COLORS.stone;
+    ctx.beginPath();
+    ctx.moveTo(point.x - 40 * s, point.y);
+    ctx.lineTo(point.x + 40 * s, point.y);
+    ctx.lineTo(point.x + 30 * s, point.y - 20 * s);
+    ctx.lineTo(point.x - 30 * s, point.y - 20 * s);
+    ctx.closePath();
+    ctx.fill();
+
+    // ② 铁砧：腰身 + 台面（上沿亮一档，看得出是金属）
+    ctx.fillStyle = CAMP_COLORS.iron;
+    ctx.beginPath();
+    ctx.moveTo(point.x - 18 * s, point.y - 20 * s);
+    ctx.lineTo(point.x + 18 * s, point.y - 20 * s);
+    ctx.lineTo(point.x + 12 * s, point.y - 44 * s);
+    ctx.lineTo(point.x - 12 * s, point.y - 44 * s);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(point.x - 34 * s, point.y - 58 * s);
+    ctx.lineTo(point.x + 30 * s, point.y - 56 * s);
+    ctx.lineTo(point.x + 22 * s, point.y - 42 * s);
+    ctx.lineTo(point.x - 36 * s, point.y - 44 * s);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = CAMP_COLORS.ironTop;
+    ctx.beginPath();
+    ctx.moveTo(point.x - 34 * s, point.y - 58 * s);
+    ctx.lineTo(point.x + 30 * s, point.y - 56 * s);
+    ctx.lineTo(point.x + 30 * s, point.y - 50 * s);
+    ctx.lineTo(point.x - 34 * s, point.y - 52 * s);
+    ctx.closePath();
+    ctx.fill();
+
+    // ③ 炭炉：光晕 + 炉身 + 两支火苗（复用的是篝火那两支的画法）
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = CAMP_COLORS.glow;
+    ctx.beginPath();
+    ctx.arc(point.x - 46 * s, point.y - 12 * s, 24 * s + flick * 3, 0, TAU);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = CAMP_COLORS.wood;
+    ctx.beginPath();
+    ctx.moveTo(point.x - 60 * s, point.y);
+    ctx.lineTo(point.x - 32 * s, point.y);
+    ctx.lineTo(point.x - 36 * s, point.y - 18 * s);
+    ctx.lineTo(point.x - 56 * s, point.y - 18 * s);
+    ctx.closePath();
+    ctx.fill();
+    var flameHeight = 20 * s + flick * 5;
+    drawFlame(ctx, point.x - 46 * s, point.y - 16 * s, 16 * s, flameHeight, CAMP_COLORS.fire, flick);
+    drawFlame(ctx, point.x - 46 * s, point.y - 16 * s, 8 * s, flameHeight * 0.6, CAMP_COLORS.fireCore, -flick);
+
+    // ④ 斜靠在砧边的锤子
+    ctx.strokeStyle = CAMP_COLORS.wood;
+    ctx.lineWidth = 6 * s;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(point.x + 22 * s, point.y);
+    ctx.lineTo(point.x + 44 * s, point.y - 44 * s);
+    ctx.stroke();
+    ctx.fillStyle = CAMP_COLORS.iron;
+    ctx.beginPath();
+    ctx.moveTo(point.x + 36 * s, point.y - 42 * s);
+    ctx.lineTo(point.x + 56 * s, point.y - 60 * s);
+    ctx.lineTo(point.x + 44 * s, point.y - 72 * s);
+    ctx.lineTo(point.x + 26 * s, point.y - 54 * s);
+    ctx.closePath();
+    ctx.fill();
+
+    // ⑤ 火星：三颗往上飘（位置只由逻辑时间决定，重放同一个时刻一定同画面）
+    for (i = 0; i < 3; i += 1) {
+      var rise = (nowMs / 600 + i / 3) % 1;
+      ctx.globalAlpha = 0.8 * (1 - rise);
+      ctx.fillStyle = '#ffd479';
+      ctx.beginPath();
+      ctx.arc(point.x - 18 * s + i * 17 * s, point.y - 62 * s - rise * 34 * s, 3 * s, 0, TAU);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // ⑥ 名牌「铁匠」：与营地那块「新手营地」同一套写法（跟着世界缩放，站在近处才看得清）
+    ctx.globalAlpha = 0.78;
+    ctx.fillStyle = '#ffd479';
+    ctx.font = '24px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('铁匠', point.x, point.y - 88 * s);
+    ctx.globalAlpha = 1;
+  }
+
   /** 旗：木杆 + 会飘的布（布每时每刻都在动，让营地"活着"） */
   function drawBanner(ctx, point, scale, nowMs) {
     var wave = Math.sin(nowMs / 320) * 6 * scale;
@@ -681,6 +1215,9 @@ G.RENDER = (function () {
    * 造型表在 DECOR_STYLE；每件装饰自带 band，所以"这块地是荒漠还是雪原"一眼就能看出来。
    */
   function drawDecor(ctx, camera, decor) {
+    // A8/A9 远距档：拉远到 `view.lodZoom` 以下之后，一件装饰只有 1~2 CSS px（纯噪点）——
+    // 整层跳过，交给 `drawGroundMacro` 的宏观斑（草甸 / 石滩 / 林地）去表达"这里是什么地"
+    if (lowDetail()) return;
     for (var i = 0; i < decor.length; i += 1) {
       var item = decor[i];
       var theme = TERRAIN.themeForBand(
@@ -991,12 +1528,16 @@ G.RENDER = (function () {
       // 每只怪一个固定的相位偏移：同一张地图上的怪不会"齐步走"（id 是纯整数，可复现）
       var phase = walkPhase(now + (monster.id % 97) * 13, moving, ACTOR_STYLE.walkMs + (monster.id % 5) * 20);
       var flashing = monster.hurtUntil > 0 && now < monster.hurtUntil;
+      // A9 演员层：怪也一起放大（不然玩家看得到自己、看不到怪）
+      var scale = actorScale();
+
+      beginActor(ctx, point, scale);
 
       // 仇恨提示：正在追 / 正在打的怪脚下加一圈暗色（一眼看出谁醒了）
       if (monster.state === 'chase' || monster.state === 'attack') {
         ctx.globalAlpha = 0.4;
         ctx.fillStyle = dark;
-        ellipsePath(ctx, point.x, point.y + monster.radius * 0.5, monster.radius + 10, monster.radius * 0.6);
+        ellipsePath(ctx, point.x, point.y + monster.radius * 0.5 * scale, (monster.radius + 10) * scale, monster.radius * 0.6 * scale);
         ctx.fill();
         ctx.globalAlpha = 1;
       }
@@ -1015,15 +1556,18 @@ G.RENDER = (function () {
       if (monster.elite) {
         ctx.strokeStyle = '#ffd479';
         ctx.lineWidth = 4;
-        ellipsePath(ctx, point.x, point.y + monster.radius * 0.55, monster.radius + 8, monster.radius * 0.5);
+        ellipsePath(ctx, point.x, point.y + monster.radius * 0.55 * scale, (monster.radius + 8) * scale, monster.radius * 0.5 * scale);
         ctx.stroke();
-        drawCrown(ctx, point.x, point.y - monster.radius * 2.5, monster.radius * 0.5);
+        drawCrown(ctx, point.x, point.y - monster.radius * 2.5 * scale, monster.radius * 0.5 * scale);
       }
 
-      // 血条：只在掉过血或正在交战时画；位置抬到新造型头顶之上
+      ctx.restore(); // 身体画完就恢复：血条与名字是**设计像素**（字号不跟着放大 4.55 倍）
+
+      // 血条：只在掉过血或正在交战时画；抬升量跟着演员层放大（否则会被放大后的身体盖住），
+      // 条宽与字号仍是设计像素 —— 一眼能读，而不会被放大成一条糊上去的横幅。
       if (monster.hp < monster.hpMax || monster.state === 'attack' || monster.state === 'chase') {
         var barW = Math.max(36, monster.radius * 2.4);
-        var barY = point.y - monster.radius * 2.9 - 10;
+        var barY = point.y - (monster.radius * 2.9 + 10) * scale;
         var ratio = monster.hpMax > 0 ? monster.hp / monster.hpMax : 0;
         if (ratio < 0) ratio = 0;
         ctx.fillStyle = 'rgba(0,0,0,0.55)';
@@ -1037,7 +1581,7 @@ G.RENDER = (function () {
         ctx.font = '18px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(monster.name + ' Lv.' + monster.level, point.x, point.y + monster.radius + 22);
+        ctx.fillText(monster.name + ' Lv.' + monster.level, point.x, point.y + (monster.radius + 22) * scale);
       }
     }
   }
@@ -1245,14 +1789,14 @@ G.RENDER = (function () {
     ctx.fill();
   }
 
-  /** 自动战斗的目标环（哪只在被打，一眼可见） */
+  /** 自动战斗的目标环（哪只在被打，一眼可见）；A9：跟着演员层放大，环正好箍住放大后的怪 */
   function drawTargetRing(ctx, camera, target) {
     if (!target) return;
     var point = toScreen(camera, target.x, target.y);
     ctx.strokeStyle = '#ff6b6b';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.arc(point.x, point.y, target.radius + 12, 0, Math.PI * 2);
+    ctx.arc(point.x, point.y, (target.radius + 12) * actorScale(), 0, Math.PI * 2);
     ctx.stroke();
   }
 
@@ -1285,6 +1829,27 @@ G.RENDER = (function () {
   }
 
   /**
+   * 玩家标记（A11，用户："玩家视角更加清晰"）：脚下常亮的一圈细环。
+   *
+   * 为什么需要它：视角拉到远档（128 格一屏）时，"我在哪"是第一个会丢的信息 ——
+   * 角色本身靠演员层保持 ~20 CSS px，但它周围的地、怪、装饰全在同一片低对比的色块里。
+   * 一圈**屏幕尺寸恒定**的金色细环（+ 很轻的呼吸感）就能把它钉住，而且不骗人：
+   * 它是指示物（和名牌 / 血条同一条纪律），不是范围，所以不随演员层放大。
+   * 呼吸只用 `Math.sin`（纯视觉，16-render 在三角白名单里），不参与任何随机流。
+   */
+  function drawPlayerMark(ctx, point, nowMs, dead) {
+    var radius = BAL.view.playerMarkRadius;
+    if (!(radius > 0)) return;
+    var pulse = 1 + Math.sin(((nowMs % 1600) / 1600) * TAU) * 0.08;
+    ctx.globalAlpha = dead ? 0.22 : 0.46;
+    ctx.strokeStyle = dead ? '#8d9bb5' : '#ffe08a';
+    ctx.lineWidth = BAL.view.playerMarkWidth;
+    ellipsePath(ctx, point.x, point.y + radius * 0.18, radius * pulse, radius * 0.34 * pulse);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  /**
    * 玩家：自绘 Q版小人（八方向朝向 + 走路摆腿摆臂 + 出手挥砍 + 受击闪红 + 倒地躺平）。
    * `stats` 只用来推出手间隔，好让"挥砍"跟得上真正的攻速；`nowMs` 缺省取逻辑时间。
    * `look` = 身上四件装备的外观（09-equipment 的 lookOf，20-main 每帧传进来）：
@@ -1299,27 +1864,38 @@ G.RENDER = (function () {
     var swing = player.dead ? 1 : swingPhase(now, player.lastAttackAt, interval);
     var flashing = player.dead !== true && player.hurtUntil > 0 && now < player.hurtUntil;
     var palette = player.dead ? PLAYER_DOWN : flashing ? PLAYER_FLASH : PLAYER_PALETTE;
+    var scale = actorScale();
 
-    // 打击范围（淡淡一圈，帮助理解为什么"差一点就打不到"）
-    ctx.globalAlpha = 0.1;
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(point.x, point.y, BAL.player.attackRange, 0, TAU);
-    ctx.stroke();
-    ctx.globalAlpha = 1;
+    // 打击范围（淡淡一圈，帮助理解为什么"差一点就打不到"）：**世界比例**，不跟着演员层放大。
+    // A9：宏观视角下角色被放大 4.55 倍，这一圈会被身体整个盖住 —— 那时干脆不画
+    // （它本来就只剩 ~8 CSS px，判断不了任何东西），而不是把它也放大成"假的攻击范围"。
+    if (scale === 1) {
+      ctx.globalAlpha = 0.1;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, BAL.player.attackRange, 0, TAU);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // A9 演员层：影子与身体一起放大（"角色多大，影子就多大"，不然像浮在地上）
+    // A11：先画玩家标记（屏幕尺寸恒定的一圈细环），它压在影子与身体之下
+    drawPlayerMark(ctx, point, now, player.dead === true);
+    beginActor(ctx, point, scale);
 
     drawShadow(ctx, point, BAL.player.radius, player.dead ? 0.2 : 0.3);
 
     ctx.save();
     if (player.dead) {
-      // 倒地：整个人绕脚踝转 90°，再压暗一点
+      // 倒地：整个人绕脚踝转 90°，再压暗一点（在演员层放大后的坐标系里转，绕的还是脚踝）
       ctx.globalAlpha = 0.55;
       ctx.translate(point.x, point.y);
       ctx.rotate(-Math.PI / 2);
       ctx.translate(-point.x, -point.y);
     }
     drawHumanoid(ctx, point, BAL.player.radius, index, walkPhase(now, moving), palette, swing, look || EMPTY_LOOK);
+    ctx.restore();
     ctx.restore();
   }
 
@@ -1726,6 +2302,32 @@ G.RENDER = (function () {
   }
 
   /**
+   * 角色预览（A10，用户要求"上方放置角色预览图"）：把同一个小人按**指定像素半径**画在界面里。
+   *
+   * 与 drawPlayer 共用 `drawHumanoid` 和同一份 look（09-equipment 的 lookOf），所以
+   * "穿上什么就像什么"在面板里与地图上完全一致 —— 绝不会变成两套说法。
+   * 与 drawPlayer 的差别只有三点，而且都是"界面层必须自己说了算"的部分：
+   *   1. **不读相机**：(cx, cy) 就是屏幕设计坐标（cy 是脚底）；
+   *   2. **不读 zoom / actorScale**：尺寸由调用方给 —— 面板里的角色不该随镜头远近变大变小；
+   *   3. 不画攻击范围环、不做受击闪红：预览要的是"我现在长什么样"。
+   * `index` 是八方向下标（0 = 面向镜头，见 facingIndex），`phase` 是走路相位（0 = 站定）。
+   */
+  function drawHeroPreview(ctx, cx, cy, radius, look, index, phase) {
+    var point = { x: cx, y: cy };
+    drawShadow(ctx, point, radius, 0.3);
+    drawHumanoid(
+      ctx,
+      point,
+      radius,
+      typeof index === 'number' ? index : 0,
+      typeof phase === 'number' ? phase : 0,
+      PLAYER_PALETTE,
+      1,
+      look || EMPTY_LOOK
+    );
+  }
+
+  /**
    * 左上角头像（HUD 用）：程序自绘的圆脸 + 护额。
    * `seed` 决定肤色/发色（纯整数取模，不占任何随机流，所以同一角色永远同一张脸）。
    */
@@ -1787,7 +2389,8 @@ G.RENDER = (function () {
   function drawNameplate(ctx, camera, info) {
     if (!info || !info.name) return;
     var point = toScreen(camera, info.x, info.y);
-    var lift = (info.radius || 24) * 2.6 + BAL.view.nameplate.offsetY;
+    // A9：抬升量跟着演员层放大（角色被放大 4.55 倍后，名牌得跟着离开头顶）；条宽与字号仍是设计像素
+    var lift = ((info.radius || 24) * 2.6 + BAL.view.nameplate.offsetY) * actorScale();
     var barW = info.barWidth || BAL.view.nameplate.barWidth;
     var barH = BAL.view.nameplate.barHeight;
     var barY = point.y - lift;
@@ -1893,7 +2496,9 @@ G.RENDER = (function () {
         continue;
       }
 
-      var radius = effect.radius * (0.85 + 0.4 * played);
+      // A9：刀光跟着演员层放大 —— 它是"手上的刀扫过去"，必须贴住被放大的身体；
+      // 上面已经 continue 掉的 ring / mend / bolt 是技能特效（含真实 AoE 半径），保持世界尺寸
+      var radius = effect.radius * (0.85 + 0.4 * played) * actorScale();
       var from = angle - 1.15 + played * 1.35;
 
       ctx.globalAlpha = life * (effect.crit ? 0.95 : 0.7);
@@ -1928,13 +2533,14 @@ G.RENDER = (function () {
     }
   }
 
-  /** 远程弹道：一个小亮点沿直线飞 */
+  /** 远程弹道：一个小亮点沿直线飞；A9：亮点跟着演员层放大（否则宏观视角下只有 1 px） */
   function drawProjectiles(ctx, camera, shots) {
     ctx.fillStyle = '#9ad4ff';
+    var scale = actorScale();
     for (var i = 0; i < shots.length; i += 1) {
       var point = toScreen(camera, shots[i].x, shots[i].y);
       ctx.beginPath();
-      ctx.arc(point.x, point.y, 7, 0, Math.PI * 2);
+      ctx.arc(point.x, point.y, 7 * scale, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -1966,7 +2572,14 @@ G.RENDER = (function () {
     ellipsePath: ellipsePath,
     toScreen: toScreen,
     viewRect: viewRect,
+    tier: tier,
     zoom: zoom,
+    lodBlocks: lodBlocks,
+    lodBlockTiles: lodBlockTiles,
+    groundDetailAt: groundDetailAt,
+    actorScale: actorScale,
+    beginActor: beginActor,
+    macroStats: macroStats,
     beginWorld: beginWorld,
     endWorld: endWorld,
     facingIndex: facingIndex,
@@ -1974,6 +2587,7 @@ G.RENDER = (function () {
     facesAway: facesAway,
     walkPhase: walkPhase,
     swingPhase: swingPhase,
+    groundLevel: groundLevel,
     drawGround: drawGround,
     drawRoads: drawRoads,
     drawCamp: drawCamp,
@@ -1982,6 +2596,8 @@ G.RENDER = (function () {
     drawMonsters: drawMonsters,
     drawTargetRing: drawTargetRing,
     drawPlayer: drawPlayer,
+    drawPlayerMark: drawPlayerMark,
+    drawHeroPreview: drawHeroPreview,
     drawAvatar: drawAvatar,
     drawNameplate: drawNameplate,
     drawEffects: drawEffects,

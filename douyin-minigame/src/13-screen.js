@@ -93,11 +93,6 @@ G.SCREEN = (function () {
     return state.width / 2;
   }
 
-  /** 自动选目标的视野半径（世界单位）：沿用 balance.combat.visionRange */
-  function visionRadius() {
-    return BAL.combat.visionRange;
-  }
-
   return {
     DESIGN_WIDTH: DESIGN_WIDTH,
     resize: resize,
@@ -109,7 +104,6 @@ G.SCREEN = (function () {
     safeBottom: safeBottom,
     pointer: pointer,
     centerX: centerX,
-    visionRadius: visionRadius,
     state: state
   };
 })();

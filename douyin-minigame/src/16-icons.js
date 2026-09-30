@@ -14,6 +14,12 @@
  *      人物身上由 16-render.js 画，背包里由这里画；
  *   3. **部位占位**（`slotPlaceholder`）与**阶色边框**（`frame`）：空部位也要看得出是哪个部位。
  *
+ * **A12 的第四组：阶的发光**（用户：给不同等阶的装备添加发光颜色，分别为白色，蓝色，紫色，金色，红色，炫彩）：
+ * 颜色挂在 `balance.equipment.tiers[].glow` 上（六阶是一串颜色 = 炫彩），画法规格在 `balance.view.iconGlow`。
+ * `frame` 给「有货」的格子描完阶色后再往外画 `layers` 层发光环（越外越淡 + 呼吸），
+ * `heroGlow` 给背包面板的角色预览加一束「身上最高那一阶」的光。
+ * 发光 = **多层描边 / 多层圆**（假 canvas 没有 shadowBlur），时间基准由调用方（18-panels 的 glowPhase）传进来。
+ *
  * 注意：本文件**不引入三角函数**（齿轮的斜齿用显式坐标的菱形），
  * 于是 check-minigame.ps1 的三角函数白名单一个字都不用改。
  */
@@ -27,11 +33,159 @@ G.ICONS = (function () {
   /** 六阶阶色（唯一一份：18-panels 的 tierColor 也读它，免得两处各写一套颜色） */
   var TIER_COLORS = ['#c7c7c7', '#8ce99a', '#a9d5ff', '#d0a9ff', '#ff9b5a', '#ffd479'];
 
+  /**
+   * 六阶**发光色**的兜底表（真正的那一份在 `balance.equipment.tiers[].glow`）：
+   * 只在这个字段缺失时兜底，保证「画得出、不白屏」。一阶一个颜色，六阶天赐是一串 = 炫彩。
+   */
+  var TIER_GLOW_FALLBACK = [
+    ['#ffffff'],                                                        // 1 普通：白
+    ['#3f8cff'],                                                        // 2 专家：蓝
+    ['#a855f7'],                                                        // 3 史诗：紫
+    ['#ffd479'],                                                        // 4 传说：金
+    ['#ff4d4d'],                                                        // 5 神话：红
+    ['#ff4d4d', '#ffa64d', '#ffe066', '#5ce65c', '#4dc3ff', '#b06bff']   // 6 天赐：炫彩
+  ];
+
   /** 图标里的"暗色"（锁扣 / 门洞 / 中心孔这类负形） */
   var DARK = '#1b2438';
 
   function tierColor(tier) {
     return TIER_COLORS[tier - 1] || '#c7c7c7';
+  }
+
+  /* ------------------------------------------------------------ 阶色与发光 */
+
+  /**
+   * 某一阶的发光色（数组）：一阶一个颜色，**六阶天赐是一串 = 炫彩**（见 balance 的 equipment.tiers[].glow）。
+   * G.EQUIP 由 09-equipment.js 加载，比本文件早，所以这里直接问它 —— 颜色永远只有 balance 那一份。
+   */
+  function tierGlow(tier) {
+    var def = G.EQUIP && G.EQUIP.tierById ? G.EQUIP.tierById(tier) : null;
+    var list = def ? def.glow : null;
+    if (list && list.length) return list;
+    var index = (tier > 0 ? tier : 1) - 1;
+    return TIER_GLOW_FALLBACK[index] || TIER_GLOW_FALLBACK[0];
+  }
+
+  /** 发光规格（balance.view.iconGlow）：尺寸与节奏只在 balance 一处，代码只读它 */
+  function glowConfig() {
+    var config = BAL.view.iconGlow;
+    return config && typeof config === 'object' ? config : null;
+  }
+
+  /**
+   * 呼吸系数：1 = 最亮、1 - pulseAmp = 最暗。用**三角波**算 —— 本文件从 A6 起就是 trig-free 的
+   * （check-minigame.ps1 的三角函数白名单里没有 16-icons.js），所以这里不要写 sin / cos。
+   */
+  function glowPulse(phase) {
+    var config = glowConfig();
+    if (!config) return 1;
+    var period = config.pulseMs;
+    if (!(period > 0)) return 1;
+    var raw = typeof phase === 'number' && isFinite(phase) ? phase : 0;
+    var t = ((raw % period) + period) % period;
+    var wave = 1 - Math.abs((t / period) * 2 - 1);
+    var amp = typeof config.pulseAmp === 'number' ? config.pulseAmp : 0;
+    if (amp < 0) amp = 0;
+    if (amp > 1) amp = 1;
+    return 1 - amp * (1 - wave);
+  }
+
+  /**
+   * 第 layer 层用哪个颜色：单色阶永远同一色；**炫彩阶每过 spinMs 换一格**，
+   * 层与层之间还错开一位 —— 于是三层的环同时挂三种颜色，看着才像在流动。
+   */
+  function glowColorAt(tier, layer, phase) {
+    var colors = tierGlow(tier);
+    if (colors.length <= 1) return colors[0];
+    var config = glowConfig();
+    var spinMs = config && config.spinMs > 0 ? config.spinMs : 0;
+    var raw = typeof phase === 'number' && isFinite(phase) ? phase : 0;
+    var step = spinMs > 0 ? Math.floor(raw / spinMs) : 0;
+    var index = ((step + layer) % colors.length + colors.length) % colors.length;
+    return colors[index];
+  }
+
+  /** 一份 look（四件装备，见 09-equipment 的 lookOf）里**最高那一阶**：发光取它（0 = 光身板，不发光） */
+  function lookTier(look) {
+    if (!look) return 0;
+    var best = 0;
+    var slots = G.EQUIP.SLOT_IDS;
+    for (var i = 0; i < slots.length; i += 1) {
+      var part = look[slots[i]];
+      var tier = part && part.tier > 0 ? part.tier : 0;
+      if (tier > best) best = tier;
+    }
+    return best;
+  }
+
+  /** 八角路径（切角 = 边长 × 0.2，与 frame 同一份比例）：pad > 0 = 往框外扩出去的那一圈 */
+  function octPath(ctx, x, y, side, pad) {
+    var x0 = x - pad;
+    var y0 = y - pad;
+    var s = side + pad * 2;
+    var k = s * 0.2;
+    path(ctx, [
+      [x0 + k, y0],
+      [x0 + s - k, y0],
+      [x0 + s, y0 + k],
+      [x0 + s, y0 + s - k],
+      [x0 + s - k, y0 + s],
+      [x0 + k, y0 + s],
+      [x0, y0 + s - k],
+      [x0, y0 + k]
+    ]);
+  }
+
+  /**
+   * 框外的发光（用户：给不同等阶的装备添加发光颜色，分别为白色，蓝色，紫色，金色，红色，炫彩）：
+   * 沿八角框往外画 `layers` 层描边，**越外越淡**、每层带呼吸，颜色按阶取。
+   * 假 canvas 没有 shadowBlur，所以发光就是「多层描边」—— 与地表石碑 / 营地火光同一套画法。
+   * 返回画了几层（0 = 关掉了 / 不是装备格），自检拿它断言「空位不发光、有装就发光」。
+   */
+  function glowRing(ctx, x, y, side, tier, phase) {
+    var config = glowConfig();
+    if (!config || config.enabled === false) return 0;
+    var layers = Math.floor(config.layers);
+    if (!(layers > 0) || !(side > 0)) return 0;
+    var spread = side * (config.spreadRatio > 0 ? config.spreadRatio : 0);
+    var alpha = config.alpha > 0 ? config.alpha : 0.4;
+    var pulse = glowPulse(phase);
+    ctx.lineWidth = config.lineWidth > 0 ? config.lineWidth : 2;
+    for (var layer = 0; layer < layers; layer += 1) {
+      ctx.globalAlpha = alpha * ((layer + 1) / layers) * pulse;
+      ctx.strokeStyle = glowColorAt(tier, layer, phase);
+      octPath(ctx, x, y, side, (spread * (layers - layer)) / layers);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    return layers;
+  }
+
+  /**
+   * 角色身上那束光（背包面板的角色预览）：半径 = 传入半径 × iconGlow.haloRadiusMul，颜色取身上最高那一阶 ——
+   * 「穿一身天赐 = 一圈炫彩」就是这么来的。画在人物**之前**，所以它是从背后透出来的一束。
+   * 返回发光用的阶（0 = 光身板，一个圆都不画）。
+   */
+  function heroGlow(ctx, cx, cy, radius, look, phase) {
+    var tier = lookTier(look);
+    var config = glowConfig();
+    if (tier <= 0 || !config || config.enabled === false || !(radius > 0)) return 0;
+    var layers = Math.floor(config.haloLayers);
+    if (!(layers > 0)) return 0;
+    var alpha = config.haloAlpha > 0 ? config.haloAlpha : 0.22;
+    var mul = config.haloRadiusMul > 0 ? config.haloRadiusMul : 1.9;
+    var pulse = glowPulse(phase);
+    var out = radius * mul;
+    for (var layer = 0; layer < layers; layer += 1) {
+      ctx.globalAlpha = alpha * ((layer + 1) / layers) * pulse;
+      ctx.fillStyle = glowColorAt(tier, layer, phase);
+      ctx.beginPath();
+      ctx.arc(cx, cy, (out * (layers - layer)) / layers, 0, TAU);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    return tier;
   }
 
   /* ------------------------------------------------------------ 基本图元 */
@@ -186,6 +340,48 @@ G.ICONS = (function () {
     bar(ctx, cx - s * 0.3, cy + s * 0.3, cx + s * 0.26, cy - s * 0.26, color, s * 0.14);
     triangle(ctx, cx + s * 0.44, cy - s * 0.44, cx + s * 0.46, cy - s * 0.14, cx + s * 0.14, cy - s * 0.46, color);
     bar(ctx, cx - s * 0.34, cy + s * 0.16, cx - s * 0.14, cy + s * 0.36, '#ffd479', s * 0.08);
+  }
+
+  /** 商城：钱袋（袋身 + 束口 + 一枚币）—— 与「会 / 设」并排也一眼认得出 */
+  function shop(ctx, cx, cy, s, color) {
+    var w = s * 0.74;
+    var h = s * 0.6;
+    var x = cx - w / 2;
+    var y = cy - h * 0.2;
+    poly(
+      ctx,
+      [
+        [x + w * 0.34, y - h * 0.2],
+        [x + w * 0.66, y - h * 0.2],
+        [x + w, y + h * 0.3],
+        [x + w * 0.78, y + h * 0.76],
+        [x + w * 0.22, y + h * 0.76],
+        [x, y + h * 0.3]
+      ],
+      color
+    );
+    bar(ctx, cx - w * 0.2, y - h * 0.2, cx + w * 0.2, y - h * 0.2, DARK, s * 0.09);
+    circle(ctx, cx, y + h * 0.3, s * 0.14, DARK);
+    rect(ctx, cx - s * 0.04, y + h * 0.06, s * 0.08, s * 0.3, DARK);
+  }
+
+  /** 铁匠：铁砧 + 一把锤子 + 两点火星（强化 = 敲在砧上） */
+  function smith(ctx, cx, cy, s, color) {
+    poly(
+      ctx,
+      [
+        [cx - s * 0.44, cy + s * 0.04],
+        [cx + s * 0.44, cy + s * 0.04],
+        [cx + s * 0.24, cy + s * 0.34],
+        [cx - s * 0.24, cy + s * 0.34]
+      ],
+      color
+    );
+    rect(ctx, cx - s * 0.5, cy - s * 0.08, s * 0.98, s * 0.14, color);
+    bar(ctx, cx - s * 0.06, cy - s * 0.46, cx + s * 0.3, cy - s * 0.1, color, s * 0.1);
+    rect(ctx, cx + s * 0.2, cy - s * 0.54, s * 0.3, s * 0.2, color);
+    circle(ctx, cx - s * 0.42, cy - s * 0.3, s * 0.07, '#ffd479');
+    circle(ctx, cx - s * 0.54, cy - s * 0.14, s * 0.045, '#ffd479');
   }
 
   /* ------------------------------------------------------------ 技能键图标 */
@@ -432,8 +628,13 @@ G.ICONS = (function () {
     ctx.closePath();
   }
 
-  /** 装备格 / 图标外框：阶色描边（dim = 空位或等级不够时压淡） */
-  function frame(ctx, x, y, size, tier, dim) {
+  /**
+   * 装备格 / 图标外框：**阶色描边 + 阶的发光**（用户：给不同等阶的装备添加发光颜色）。
+   * `dim` = 空位或等级不够时压淡 —— 这种格子是「占位」不是「货」，所以**只描边、不发光**；
+   * `phase` = 发光的时间基准（世界时钟，见 18-panels 的 glowPhase）。三档都读 balance。
+   */
+  function frame(ctx, x, y, size, tier, dim, phase) {
+    if (!dim) glowRing(ctx, x, y, size, tier || 1, phase);
     var k = size * 0.2;
     var points = [
       [x + k, y],
@@ -519,6 +720,164 @@ G.ICONS = (function () {
     rect(ctx, cx + s * 0.16, baseY - s * 0.78, w, s * 0.78, color);
   }
 
+  /* ------------------------------------------------------------ 属性图标（A10） */
+
+  /**
+   * 属性图标（A10）：背包 / 属性面板的每一行属性前面一枚小图标。
+   *
+   * 为什么放在这个文件：与功能键图标同一套纪律 —— 方框里、以 (cx, cy) 为中心、
+   * 只用 fillRect / moveTo / lineTo / arc / fill / stroke，**不引入三角函数**
+   * （check-minigame.ps1 的三角函数白名单因此一个字都不用改）。
+   * 图标名跟着 10-player 的属性定义走（breakdown 的 `icon`），认不出来时 dispatch 退化成圆环，
+   * 于是加一项属性不会出现"有数值没图标"的白格子。
+   */
+
+  /** 等级：三级台阶（练级的形状） */
+  function iconLevel(ctx, cx, cy, s, color) {
+    var base = cy + s * 0.4;
+    rect(ctx, cx - s * 0.44, base - s * 0.26, s * 0.26, s * 0.26, color);
+    rect(ctx, cx - s * 0.13, base - s * 0.5, s * 0.26, s * 0.5, color);
+    rect(ctx, cx + s * 0.18, base - s * 0.78, s * 0.26, s * 0.78, color);
+  }
+
+  /** 战力：一只握紧的拳头（"看谁更硬"） */
+  function iconPower(ctx, cx, cy, s, color) {
+    rect(ctx, cx - s * 0.34, cy - s * 0.14, s * 0.6, s * 0.46, color);
+    circle(ctx, cx - s * 0.2, cy - s * 0.22, s * 0.11, color);
+    circle(ctx, cx, cy - s * 0.24, s * 0.11, color);
+    circle(ctx, cx + s * 0.18, cy - s * 0.2, s * 0.1, color);
+    rect(ctx, cx - s * 0.44, cy - s * 0.04, s * 0.14, s * 0.32, color);
+    bar(ctx, cx - s * 0.1, cy + s * 0.06, cx + s * 0.2, cy + s * 0.06, DARK, s * 0.05);
+  }
+
+  /** 生命：一颗心 */
+  function iconHp(ctx, cx, cy, s, color) {
+    circle(ctx, cx - s * 0.17, cy - s * 0.12, s * 0.22, color);
+    circle(ctx, cx + s * 0.17, cy - s * 0.12, s * 0.22, color);
+    triangle(ctx, cx - s * 0.37, cy - s * 0.04, cx + s * 0.37, cy - s * 0.04, cx, cy + s * 0.44, color);
+  }
+
+  /** 防御：盾牌 + 一道横梁 */
+  function iconDefense(ctx, cx, cy, s, color) {
+    poly(
+      ctx,
+      [[cx - s * 0.36, cy - s * 0.36], [cx + s * 0.36, cy - s * 0.36], [cx + s * 0.36, cy + s * 0.02], [cx, cy + s * 0.44], [cx - s * 0.36, cy + s * 0.02]],
+      color
+    );
+    rect(ctx, cx - s * 0.22, cy - s * 0.18, s * 0.44, s * 0.08, DARK);
+  }
+
+  /** 攻速：一道闪电 */
+  function iconSpeed(ctx, cx, cy, s, color) {
+    poly(
+      ctx,
+      [
+        [cx + s * 0.06, cy - s * 0.46],
+        [cx - s * 0.32, cy + s * 0.06],
+        [cx - s * 0.04, cy + s * 0.06],
+        [cx - s * 0.12, cy + s * 0.46],
+        [cx + s * 0.32, cy - s * 0.1],
+        [cx + s * 0.02, cy - s * 0.1]
+      ],
+      color
+    );
+  }
+
+  /** 暴击率：准星 */
+  function iconCrit(ctx, cx, cy, s, color) {
+    ring(ctx, cx, cy, s * 0.3, color, s * 0.08);
+    bar(ctx, cx, cy - s * 0.46, cx, cy - s * 0.26, color, s * 0.08);
+    bar(ctx, cx, cy + s * 0.26, cx, cy + s * 0.46, color, s * 0.08);
+    bar(ctx, cx - s * 0.46, cy, cx - s * 0.26, cy, color, s * 0.08);
+    bar(ctx, cx + s * 0.26, cy, cx + s * 0.46, cy, color, s * 0.08);
+    circle(ctx, cx, cy, s * 0.09, color);
+  }
+
+  /** 暴击伤害：一道四角爆芒 */
+  function iconCritDamage(ctx, cx, cy, s, color) {
+    poly(ctx, [[cx, cy - s * 0.44], [cx + s * 0.17, cy], [cx, cy + s * 0.44], [cx - s * 0.17, cy]], color);
+    poly(ctx, [[cx - s * 0.44, cy], [cx, cy - s * 0.17], [cx + s * 0.44, cy], [cx, cy + s * 0.17]], color);
+  }
+
+  /** 增伤：向上的箭头 + 一道地基（"打得更疼"） */
+  function iconDamage(ctx, cx, cy, s, color) {
+    triangle(ctx, cx, cy - s * 0.46, cx + s * 0.24, cy - s * 0.12, cx - s * 0.24, cy - s * 0.12, color);
+    rect(ctx, cx - s * 0.08, cy - s * 0.16, s * 0.16, s * 0.5, color);
+    bar(ctx, cx - s * 0.34, cy + s * 0.24, cx + s * 0.34, cy + s * 0.24, color, s * 0.09);
+  }
+
+  /** 减伤：盾牌 + 向下的实心块（"打进来的少") */
+  function iconReduce(ctx, cx, cy, s, color) {
+    poly(
+      ctx,
+      [[cx - s * 0.36, cy - s * 0.36], [cx + s * 0.36, cy - s * 0.36], [cx + s * 0.36, cy + s * 0.02], [cx, cy + s * 0.44], [cx - s * 0.36, cy + s * 0.02]],
+      color
+    );
+    triangle(ctx, cx - s * 0.22, cy - s * 0.1, cx + s * 0.22, cy - s * 0.1, cx, cy + s * 0.2, DARK);
+  }
+
+  /** 移动速度：一只靴子 */
+  function iconMove(ctx, cx, cy, s, color) {
+    rect(ctx, cx - s * 0.22, cy - s * 0.42, s * 0.3, s * 0.58, color);
+    poly(
+      ctx,
+      [[cx - s * 0.22, cy + s * 0.04], [cx + s * 0.34, cy + s * 0.04], [cx + s * 0.34, cy + s * 0.28], [cx - s * 0.22, cy + s * 0.28]],
+      color
+    );
+    rect(ctx, cx - s * 0.3, cy + s * 0.28, s * 0.68, s * 0.1, DARK);
+  }
+
+  /** 拾取范围：一块磁铁（两极上色，一眼知道是"吸东西"） */
+  function iconPickup(ctx, cx, cy, s, color) {
+    bar(ctx, cx - s * 0.26, cy - s * 0.34, cx - s * 0.26, cy + s * 0.1, color, s * 0.16);
+    bar(ctx, cx + s * 0.26, cy - s * 0.34, cx + s * 0.26, cy + s * 0.1, color, s * 0.16);
+    arc(ctx, cx, cy + s * 0.1, s * 0.26, 0, Math.PI, color, s * 0.16);
+    rect(ctx, cx - s * 0.34, cy - s * 0.46, s * 0.16, s * 0.14, '#ff8a8a');
+    rect(ctx, cx + s * 0.18, cy - s * 0.46, s * 0.16, s * 0.14, '#8cd0ff');
+  }
+
+  /** 经验加成：一本摊开的书 + 一颗星 */
+  function iconXp(ctx, cx, cy, s, color) {
+    rect(ctx, cx - s * 0.34, cy - s * 0.4, s * 0.68, s * 0.8, color);
+    rect(ctx, cx - s * 0.26, cy - s * 0.32, s * 0.44, s * 0.64, DARK);
+    rect(ctx, cx - s * 0.36, cy - s * 0.4, s * 0.1, s * 0.8, 'rgba(255,255,255,0.28)');
+    poly(ctx, [[cx + s * 0.02, cy - s * 0.2], [cx + s * 0.1, cy], [cx + s * 0.02, cy + s * 0.2], [cx - s * 0.06, cy]], color);
+  }
+
+  /** 金币加成：一枚铜钱（中方孔） */
+  function iconGold(ctx, cx, cy, s, color) {
+    circle(ctx, cx, cy, s * 0.42, color);
+    rect(ctx, cx - s * 0.12, cy - s * 0.12, s * 0.24, s * 0.24, DARK);
+  }
+
+  /** 属性名 → 画法（10-player 的 breakdown 给的 icon 名就是这里的键） */
+  var STAT_ICONS = {
+    level: iconLevel,
+    power: iconPower,
+    attack: attack,
+    hp: iconHp,
+    defense: iconDefense,
+    attackSpeed: iconSpeed,
+    crit: iconCrit,
+    critDamage: iconCritDamage,
+    damage: iconDamage,
+    reduce: iconReduce,
+    move: iconMove,
+    pickup: iconPickup,
+    xp: iconXp,
+    gold: iconGold
+  };
+
+  /** 画一枚属性图标（认不出的名字退化成圆环，绝不留白格） */
+  function statIcon(ctx, key, cx, cy, s, color) {
+    var painter = STAT_ICONS[key];
+    if (!painter) {
+      ring(ctx, cx, cy, s * 0.36, color, s * 0.08);
+      return;
+    }
+    painter(ctx, cx, cy, s, color);
+  }
+
   /* ------------------------------------------------------------ 按钮图标分发 */
 
   var SKILL_ICONS = [cleave, mend, pierce, whirl];
@@ -536,6 +895,8 @@ G.ICONS = (function () {
     if (id === 'camp') return camp(ctx, cx, cy, s, color);
     if (id === 'menu') return menu(ctx, cx, cy, s, color);
     if (id === 'auto') return auto(ctx, cx, cy, s, color);
+    if (id === 'shop') return shop(ctx, cx, cy, s, color);
+    if (id === 'smith') return smith(ctx, cx, cy, s, color);
     if (id === 'attack') return attack(ctx, cx, cy, s, color);
     if (id === 'login') return login(ctx, cx, cy, s, color);
     if (id === 'user') return user(ctx, cx, cy, s, color);
@@ -545,6 +906,11 @@ G.ICONS = (function () {
     if (id === 'stat') return stat(ctx, cx, cy, s, color);
     if (typeof id === 'string' && id.indexOf('skill') === 0) {
       skillIcon(Number(id.slice(5)) || 0, ctx, cx, cy, s, color);
+      return;
+    }
+    // A10：属性图标也走这个统一入口（背包 / 属性面板按 10-player 给的 icon 名调用）
+    if (STAT_ICONS[id]) {
+      statIcon(ctx, id, cx, cy, s, color);
       return;
     }
     ring(ctx, cx, cy, s * 0.36, color, s * 0.08);
@@ -559,6 +925,13 @@ G.ICONS = (function () {
   return {
     TIER_COLORS: TIER_COLORS,
     tierColor: tierColor,
+    tierGlow: tierGlow,
+    glowConfig: glowConfig,
+    glowPulse: glowPulse,
+    glowColorAt: glowColorAt,
+    glowRing: glowRing,
+    heroGlow: heroGlow,
+    lookTier: lookTier,
     size: size,
     frame: frame,
     item: item,
@@ -573,6 +946,8 @@ G.ICONS = (function () {
     camp: camp,
     menu: menu,
     auto: auto,
+    shop: shop,
+    smith: smith,
     attack: attack,
     cleave: cleave,
     mend: mend,
@@ -584,6 +959,7 @@ G.ICONS = (function () {
     dice: dice,
     trash: trash,
     stat: stat,
+    statIcon: statIcon,
     skillIcon: skillIcon,
     button: button
   };

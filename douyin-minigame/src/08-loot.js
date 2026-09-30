@@ -7,6 +7,12 @@
  *     精英至少给**专家箱**（balance.chests.drop.eliteMinTier）—— 兑现文档里"精英必出 ≥ 专家箱"；
  *   - **保底**：连续 50 箱未出「史诗」→ 下一箱强制 ≥ 史诗；连续 500 箱未出「神话」→ 强制 ≥ 神话。
  *     计数器存在存档里（chest_stat.pity_epic / pity_mythic，压到服务端时同一套语义）。
+ *   - 面板只读这里：`countByTier(chests)` 按阶数出背包里有几口箱（A13 的宝箱清单读它，**不看袋子顺序**）。
+ *
+ * A14（用户："宝箱可以设置是否自动开启——对应不同等阶不同的开启按钮"）：本文件末尾挂着那一套
+ * `defaultAutoFlags / autoEnabled / autoCount` —— 一阶一枚的**自动开启**开关（默认全关）。
+ * 勾上的那一阶掉出来就当场开掉（真正开箱的 `autoOpenChest` 在 20-main），判定集中在这里，
+ * 于是"开关表坏了 / 老存档没有这个字段怎么办"只有一个答案：当关。
  *
  * 归属（决策 #1）：宝箱与经验一样，只给**对该怪累计伤害最高**的玩家 —— 这里只负责"抽"，谁抽由
  * 07-combat 的 rewardWinnerId() 决定，两者拼起来才是完整规则。
@@ -118,6 +124,54 @@ G.LOOT = (function () {
     return BAL.chests.bagCap;
   }
 
+  /**
+   * 宝箱背包**按阶计数**（A13 的宝箱清单只读它）：返回长度 = 阶数的一串数，`[0]` 是一阶箱的个数。
+   * 只数**合法阶号**的箱子（坏数据既不会多占一行，也不会把清单撑破），也不看袋子里的先后顺序 ——
+   * 面板要的是"普通 × 12 / 天赐 × 1"，不是"第 8 口是什么"。
+   */
+  function countByTier(chests) {
+    var counts = [];
+    var i;
+    for (i = 0; i < BAL.chests.tiers.length; i += 1) counts.push(0);
+    for (i = 0; i < chests.length; i += 1) {
+      var tier = chests[i] ? chests[i].tier : 0;
+      if (tier >= 1 && tier <= counts.length) counts[tier - 1] += 1;
+    }
+    return counts;
+  }
+
+  /* ------------------------------------------------ A14：按阶的「自动开启」开关 */
+
+  /**
+   * 自动开启开关表的默认值（A14）：**一阶一枚、默认全关**。
+   * 它是\"玩家勾的偏好\"而不是数值平衡，所以真正的家在存档 `settings.chestAuto`（11-save 的
+   * `defaultSettings` 直接调这个函数）—— 两边永远同一份，改阶数也不会让开关表长度对不上。
+   */
+  function defaultAutoFlags() {
+    var flags = [];
+    for (var i = 0; i < BAL.chests.tiers.length; i += 1) flags.push(false);
+    return flags;
+  }
+
+  /**
+   * 这一阶勾了\"自动开启\"没有（A14）：就是 `flags[tier - 1] === true`。
+   * 老存档没有这个字段 / 坏值 / 长度对不上 / 阶号离谱 —— 一律当**关**：宁可不开，也别替玩家花掉箱子。
+   */
+  function autoEnabled(flags, tierId) {
+    if (!flags || typeof flags !== 'object') return false;
+    if (!(tierId >= 1) || tierId > BAL.chests.tiers.length) return false;
+    return flags[tierId - 1] === true;
+  }
+
+  /** 勾了几阶（0 = 全关）：宝箱面板小标题里那句\"自动 N 阶\"用的就是它 */
+  function autoCount(flags) {
+    var total = 0;
+    for (var i = 0; i < BAL.chests.tiers.length; i += 1) {
+      if (autoEnabled(flags, i + 1)) total += 1;
+    }
+    return total;
+  }
+
   return {
     tiers: tiers,
     tierById: tierById,
@@ -127,6 +181,10 @@ G.LOOT = (function () {
     rollChestTier: rollChestTier,
     salvageGold: salvageGold,
     bagFull: bagFull,
-    bagCap: bagCap
+    bagCap: bagCap,
+    countByTier: countByTier,
+    defaultAutoFlags: defaultAutoFlags,
+    autoEnabled: autoEnabled,
+    autoCount: autoCount
   };
 })();

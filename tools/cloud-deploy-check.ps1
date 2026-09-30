@@ -149,5 +149,5 @@ Write-Output ('RESULT PASS  ' + $warn + ' warning(s) -- the container contract m
 Write-Output '      1) push the change: git deploy pulls from GitHub, an unpushed fix changes nothing'
 Write-Output '      2) console -> service settings -> deploy: GitHub / chenjian301/1 / main / Dockerfile = Dockerfile'
 Write-Output '      3) publish, then read the log: expect  [run.sh] cwd=/opt/application  entry=./index.js  port=8000'
-Write-Output '      4) curl.exe "<domain>/api/health"  ->  {"ok":true,"service":"phaser-game-svr","version":"0.2.0",...}'
+Write-Output '      4) curl.exe "<domain>/api/health"  ->  {"ok":true,"service":"phaser-game-svr","version":"0.3.0",...}'
 exit 0

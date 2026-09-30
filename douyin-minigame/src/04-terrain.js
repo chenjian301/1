@@ -94,7 +94,7 @@ G.TERRAIN = (function () {
   /** 每种用途一个盐值：同一 chunk 里"怪"和"装饰"的随机流互不干扰 */
   var TERRAIN_SALT = 0x7e11a1;
 
-  /** chunk 内每张地表块的噪声网格边长：512 / 64 = 8×8 块 */
+  /** chunk 内每张地表块的噪声网格边长：`chunkSize / world.tileSize`（A7 修订后 512 / 32 = 16×16 块） */
   function tileCountPerChunk() {
     return Math.max(1, Math.round(CHUNK.CHUNK_SIZE / BAL.world.tileSize));
   }
@@ -138,6 +138,102 @@ G.TERRAIN = (function () {
     return out;
   }
 
+  /**
+   * 宏观斑的取值口径（A9）：一个斑至少要 2 件装饰才画（1 件的"斑"只是噪点），
+   * 半径 48~150 世界单位（在 128 格视野下 = 8~26 设计 px = 4~14 CSS px 的可见圆点）。
+   */
+  var DECOR_BLOB_MIN_COUNT = 2;
+  var DECOR_BLOB_MIN_RADIUS = 48;
+  var DECOR_BLOB_MAX_RADIUS = 150;
+
+  /**
+   * 把一个 chunk 的装饰**聚合**成最多 `maxBlobs` 个宏观斑（A9，渲染层在远距档用它代替逐件装饰）。
+   *
+   * 为什么这么做：一屏 128 格时，一件装饰只有 1~2 CSS px（纯噪点），逐件画既看不见又贵；
+   * 但"这里是一片林子"这种事在宏观视角下**看得出来**。于是把同一个 chunk 的装饰按种类聚合：
+   * 每种算出质心（sumX/count）与散布（bbox），画成一个斑 —— 草甸 / 石滩 / 林地于是有了形状。
+   *
+   * 关键约束：本函数按 `buildChunkDecor` **完全相同的调用顺序**跑同一条随机流（只是不建对象、只累加），
+   * 所以"远看那片林子"就是"走过去看到的那片林子"的粗抽样，不是另画一套示意 —— 走进去不会"树没了"。
+   * 它只**读**装饰流，不产生任何新数据，因此不参与世界指纹。
+   *
+   * 返回 `[{ kind, x, y, r, count }]`，按数量从多到少（最多 maxBlobs 项；每种最多出现一次）。
+   */
+  function decorBlobs(seed, cx, cy, band, maxBlobs) {
+    var rng = RNG.chunkRng(seed, cx, cy, TERRAIN_SALT);
+    var theme = themeForBand(band);
+    var count = rng.int(BAL.world.decorPerChunk.min, BAL.world.decorPerChunk.max);
+    var originX = CHUNK.chunkOrigin(cx);
+    var originY = CHUNK.chunkOrigin(cy);
+    var margin = 24;
+    var kinds = DECOR_ORDER.length;
+    var sumX = [];
+    var sumY = [];
+    var seen = [];
+    var minX = [];
+    var maxX = [];
+    var minY = [];
+    var maxY = [];
+    var k;
+    for (k = 0; k < kinds; k += 1) {
+      sumX[k] = 0;
+      sumY[k] = 0;
+      seen[k] = 0;
+      minX[k] = 0;
+      maxX[k] = 0;
+      minY[k] = 0;
+      maxY[k] = 0;
+    }
+
+    for (var i = 0; i < count; i += 1) {
+      var index = rng.weightedIndex(theme.decorWeights);
+      var x = originX + rng.float(margin, CHUNK.CHUNK_SIZE - margin);
+      var y = originY + rng.float(margin, CHUNK.CHUNK_SIZE - margin);
+      // size / flip 是 buildChunkDecor 也会取的数：聚合用不到，但必须照样消费，否则流会错位
+      rng.rounded(0.8, 1.4, 2);
+      rng.chance(0.5);
+
+      if (seen[index] === 0) {
+        minX[index] = x;
+        maxX[index] = x;
+        minY[index] = y;
+        maxY[index] = y;
+      } else {
+        if (x < minX[index]) minX[index] = x;
+        if (x > maxX[index]) maxX[index] = x;
+        if (y < minY[index]) minY[index] = y;
+        if (y > maxY[index]) maxY[index] = y;
+      }
+      sumX[index] += x;
+      sumY[index] += y;
+      seen[index] += 1;
+    }
+
+    var limit = Math.max(1, Math.round(maxBlobs || 1));
+    var out = [];
+    while (out.length < limit) {
+      var best = -1;
+      for (k = 0; k < kinds; k += 1) {
+        if (seen[k] < DECOR_BLOB_MIN_COUNT) continue;
+        if (best < 0 || seen[k] > seen[best]) best = k;
+      }
+      if (best < 0) break;
+      var spread = ((maxX[best] - minX[best]) + (maxY[best] - minY[best])) / 2;
+      var radius = 0.3 * spread + 9 * seen[best];
+      if (radius < DECOR_BLOB_MIN_RADIUS) radius = DECOR_BLOB_MIN_RADIUS;
+      if (radius > DECOR_BLOB_MAX_RADIUS) radius = DECOR_BLOB_MAX_RADIUS;
+      out.push({
+        kind: DECOR_ORDER[best],
+        x: sumX[best] / seen[best],
+        y: sumY[best] / seen[best],
+        r: radius,
+        count: seen[best]
+      });
+      seen[best] = 0; // 已用掉，避免下一轮又选中它
+    }
+    return out;
+  }
+
   /* ---------------------------------------------------------------- 新手营地（原点） */
 
   /**
@@ -171,12 +267,30 @@ G.TERRAIN = (function () {
     { kind: 'crate', x: 248, y: 302, scale: 0.95 },
     { kind: 'crate', x: 300, y: 246, scale: 0.8 },
     { kind: 'stump', x: -246, y: 384, scale: 1 },
-    { kind: 'stump', x: -302, y: 318, scale: 0.85 }
+    { kind: 'stump', x: -302, y: 318, scale: 0.85 },
+    /**
+     * 铁匠（本次新增）：营地里唯一的 NPC —— 一件**手工摆位的道具**（与帐篷 / 篝火一样，
+     * 不消耗任何随机流，所以世界指纹一个字节都不变）。画法在 16-render 的 drawForge，
+     * 交互（走到 talkRadius 内屏幕上多一枚「锻」键）在 20-main 的 smithButton / enhanceItem。
+     * 摆位不与别的道具重叠：左边是箱子（248, 302），后面是帐篷（336, -216）。
+     */
+    { kind: 'forge', x: 392, y: 104, scale: 1 }
   ];
 
   /** 营地道具（返回副本：渲染层只读，改了也不会污染地图形状） */
   function campProps() {
     return CAMP_PROPS.slice();
+  }
+
+  /**
+   * 营地铁匠的位置（本次新增）：从摆位表里**找出来**，而不是在 20-main 里再写一遍坐标 ——
+   * 移动他只需要改上面那一行。找不到（有人把他删了）返回 null，调用方据此不画那枚键。
+   */
+  function smithSpot() {
+    for (var i = 0; i < CAMP_PROPS.length; i += 1) {
+      if (CAMP_PROPS[i].kind === 'forge') return CAMP_PROPS[i];
+    }
+    return null;
   }
 
   /* ---------------------------------------------------------------- 路网（小径） */
@@ -329,9 +443,11 @@ G.TERRAIN = (function () {
     tileCountPerChunk: tileCountPerChunk,
     groundVariant: groundVariant,
     buildChunkDecor: buildChunkDecor,
+    decorBlobs: decorBlobs,
     campCenter: campCenter,
     isInCamp: isInCamp,
     campProps: campProps,
+    smithSpot: smithSpot,
     roadSpanChunks: roadSpanChunks,
     roadNodeFor: roadNodeFor,
     roadGroupOf: roadGroupOf,

@@ -62,11 +62,41 @@ G.INPUT = (function () {
     return null;
   }
 
-  /** 摇杆区（左下角的一块矩形，避开底部安全区）：只有落在这里才起摇杆 */
-  function inStickZone(x, y) {
-    var zoneW = SCREEN.width() * BAL.input.zoneWidthRatio;
+  /**
+   * 摇杆区下边：**底部动作栏的顶边** `HUD.bottomBarTop()`（A7 修订）。
+   *
+   * 拿不到 HUD 时退化成屏幕最底 —— 只有单测 15-input 这种"没有界面层"的场合会走到这里。
+   */
+  function zoneBottom() {
+    var hud = G.HUD;
+    if (hud && hud.bottomBarTop) {
+      var top = hud.bottomBarTop();
+      if (top > 0 && top <= SCREEN.height()) return top;
+    }
+    return SCREEN.height();
+  }
+
+  /**
+   * 摇杆触发区（A7 修订）：**左边缘起 `input.zoneWidthRatio` 宽，从底栏顶边往上 `input.zoneHeightRatio` 高**。
+   *
+   * 用户要求：摇杆区别压到按钮区域。所以下边不再是"屏幕最底"，而是吸底动作栏的顶边 ——
+   * 功能键 / 技能键那一整条从此不在触发区里，手指点偏了也只是"没反应"，
+   * 不会变成"想点技能，结果推了摇杆"（17-hud 的 `bottomBarTop()` 是这条线的唯一出处）。
+   *
+   * 几何只在这里算一次：自检与 tools\hud-preview.mjs 都读这个函数，画出来的框就是真判定。
+   */
+  function stickZone() {
+    var bottom = zoneBottom();
     var zoneH = SCREEN.height() * BAL.input.zoneHeightRatio;
-    return x >= 0 && x <= zoneW && y >= SCREEN.height() - SCREEN.safeBottom() - zoneH && y <= SCREEN.height();
+    var top = bottom - zoneH;
+    if (top < 0) top = 0;
+    return { left: 0, right: SCREEN.width() * BAL.input.zoneWidthRatio, top: top, bottom: bottom };
+  }
+
+  /** 落点是否在摇杆区里（矩形命中测试） */
+  function inStickZone(x, y) {
+    var zone = stickZone();
+    return x >= zone.left && x <= zone.right && y >= zone.top && y <= zone.bottom;
   }
 
   function reset() {
@@ -202,6 +232,7 @@ G.INPUT = (function () {
     setButtons: setButtons,
     buttons: buttons,
     buttonAt: buttonAt,
+    stickZone: stickZone,
     inStickZone: inStickZone,
     reset: reset,
     begin: begin,

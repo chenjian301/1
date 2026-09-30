@@ -11,8 +11,8 @@
  *   ① 界面在登录 / 创建角色 → G.LOGIN 吃；
  *   ② 面板卡片开着且这一点落在**卡片里**（或关闭键上）→ 18-panels 吃；
  *   ③ 其余一律给 15-input（摇杆 + 右下圆形功能键）。
- *   第 ② 条的"卡片里"是 A4 的关键：卡片只占 1/3 屏，**卡片外面照旧能推摇杆**，
- *   加上 step() 不再因为面板开着而 return，"打开背包 / 设置时游戏不停止"才真的成立。
+ *   第 ② 条的"卡片里"是 A4 的关键：卡片只占一部分屏（A4 是 1/3，2026-10-01 改成约 2/3 屏高），
+ *   **卡片外面照旧能推摇杆**，加上 step() 不再因为面板开着而 return，"打开背包 / 设置时游戏不停止"才真的成立。
  *
  * 界面状态机（A4）：'welcome'（登录）→ 'createRole'（创建角色 / 输入昵称）→ 'playing'。
  *   只有 'playing' 才跑世界逻辑，登录界面上的世界是静止的（还没登录，不该被怪打）。
@@ -20,6 +20,21 @@
  * 玩法结算（经验 / 金币 / 掉箱 / 开箱 / 装备 / 商城 / 公会）放在这里的原因：
  *   它是**改存档的唯一地方**。阶段 B 起把这些函数原样搬到服务端即可 ——
  *   抽奖用的 rng 已经是传入的，接口一行都不用改（决策 #1 的前提）。
+ *
+ * A14（用户："宝箱可以设置是否自动开启——对应不同等阶不同的开启按钮"）的两条新路径也落在这里：
+ *   - 按阶开箱：`openChestsOfTier`（宝箱清单每行右侧那枚「全开」）→ 真正扣箱的那一步在 `openChestAt`
+ *     （A7 修订 2 的"先出装备、再扣箱"就在那里，"开箱必出装备"因此对两条路都成立）；
+ *   - 自动开启：`autoOpenChest` —— 勾上的那一阶，箱子**一掉出来就当场开**（不进背包、不占 bagCap），
+ *     调用点是 `applyKill` 的掉箱分支。勾选表本身是存档数据（`settings.chestAuto`，见 11-save / 08-loot）。
+ *
+ * 本次新增（用户：商城要能买强化石 + 营地里加铁匠NPC 强化装备）：
+ *   - `buyStone`：商城的第二件货（100 金币一颗，`balance.shop.stone`），与 `buyHorn` 同一套规矩；
+ *   - `enhanceItem(slotId)`：铁匠强化**已穿**的那一件 —— 扣强化石 → 09-equipment 的 `applyEnhance`
+ *     （唯一改等级的地方）→ 重算属性快照。要几颗石头、涨多少主属性全在 `balance.enhance`，
+ *     本文件一个数字都不写死；
+ *   - `smithButton` / `nearSmith`：营地铁匠头顶那枚「锻」键 —— 只有站在他 `talkRadius` 以内才进
+ *     HUD 按钮表（按相机投影算坐标），于是"画法 / 命中 / 点击"三者天然一致；
+ *     18-panels 里的营地面板还有一行同样的入口（走不到他跟前也能开强化面板）。
  */
 
 G.GAME = (function () {
@@ -39,6 +54,8 @@ G.GAME = (function () {
   var HUD = G.HUD;
   var PANELS = G.PANELS;
   var RENDER = G.RENDER;
+  /** 公会的规则与记录（本次新增）：等级怎么算、名字合不合法、服务端那份怎么变成本地镜像 */
+  var GUILD = G.GUILD;
 
   var STEP_MS = 1000 / CONFIG.logicHz;
 
@@ -48,6 +65,8 @@ G.GAME = (function () {
     player: null,
     stats: null,
     camera: { x: 0, y: 0 },
+    /** 相机前瞻偏移（A11）：跟着"正在走的方向 / 正在打的目标"平滑移动。纯表现 —— 逻辑层不读它 */
+    cameraLook: { x: 0, y: 0 },
     /** 表现用的闪光提示（升级 / 掉箱 / 抢怪…），到点自己消失 */
     flash: { text: '', until: 0 },
     fps: 0,
@@ -82,8 +101,24 @@ G.GAME = (function () {
     /** 全局冷却（A5）：两次技能之间的最短间隔，防止四个键在同一帧里一起炸出去 */
     skillGlobalAt: 0,
     /** 最近放过的技能名（调试面板用）—— A5 */
-    lastSkill: ''
+    lastSkill: '',
+    /**
+     * 公会那一块的**运行态**（本次新增；不进存档）：网络提示 / 忙闲 / 服务端列表。
+     *   note     —— 面板上那一行「服务端」说明（正在连 / 刚同步过 / 连不上）
+     *   busy     —— 有没有一个请求在路上（防重复发包，也用来画"正在连接"）
+     *   list     —— `GET/POST /api/guild/list` 拿到的公会列表（点一行加入）
+     *   listAt   —— 上次刷新列表的世界时刻（面板上显示"x 分钟前"）
+     *   autoAt   —— 上次自动刷新的时刻；**0 = 还没同步过**（打开面板时立刻来一次）
+     * 存档里那份（成员 / 等级 / 锚点）在 `state.save.guild`，两者拼起来就是界面读的 view。
+     */
+    guild: { note: '', busy: false, list: [], listAt: 0, listNote: '', autoAt: 0 }
   };
+
+  /**
+   * 缩放轴拖动途中最近应用过的格数（A11 之二）：move 事件比像素还密，
+   * 同一格重复调用没有意义（见 `applySliderDrag`）；一次触摸开始时归零。
+   */
+  var lastSliderTiles = 0;
 
   /** 屏幕中央的一条提示（小游戏没有原生 toast，自绘最省事） */
   function flash(message, ms) {
@@ -120,7 +155,8 @@ G.GAME = (function () {
    * 做成一个独立函数的原因：自检可以直接喂一份假的 events 断言数值，不用真去打一只怪。
    *   - 普通命中 45ms / 暴击 110ms（balance.view.hitStopMs）——顿帧太短没感觉，太长会"卡"；
    *   - 挨打也有 30ms：让"我被打了"这件事在画面上一顿，比飘字更快被感知；
-   *   - 暴击震屏 26px/240ms，挨打 12px/150ms（balance.view.shake）。
+   *   - 震屏**只有暴击**（26px/240ms，balance.view.shake）—— A7 修订 2 按用户要求
+   *     "去掉受伤震屏"：挨打不再抖屏幕（挨打仍保留顿帧 + 音效 + 手机震动，反馈一点没少）。
    */
   function applyHitFeedback(events) {
     var hits = events && events.hits ? events.hits : [];
@@ -149,7 +185,8 @@ G.GAME = (function () {
     if (hurt.length > 0) {
       playSfx('hurt');
       if (BAL.view.hitStopMs.hurt > stop) stop = BAL.view.hitStopMs.hurt;
-      setShake(BAL.view.shake.hurtMs, BAL.view.shake.hurtPower);
+      // A7 修订 2：挨打**不震屏**（用户要求"去掉受伤震屏"）—— 只顿帧 + 音效 + 手机震动；
+      // 震屏留给暴击，那个才需要"咬手"。自检里有"挨打震屏幅度保持 0"这条断言。
       if (state.save.settings.vibrate !== false) PLAT.vibrate(20);
     }
     if (stop > state.hitStopMs) state.hitStopMs = stop;
@@ -187,6 +224,199 @@ G.GAME = (function () {
     return { x: state.camera.x + offset.x, y: state.camera.y + offset.y };
   }
 
+  /**
+   * 相机归位（A11）：把相机钉在玩家身上，并把前瞻偏移清零。
+   * 传送 / 复活 / 读档 / 换档 / 重置存档都要走它 —— 否则镜头会带着上一处的前瞻偏移"飘"过去。
+   */
+  function snapCamera() {
+    state.camera.x = state.player.x;
+    state.camera.y = state.player.y;
+    state.cameraLook.x = 0;
+    state.cameraLook.y = 0;
+  }
+
+  /**
+   * 相机前瞻（A11）：镜头往"正在走的方向 / 正在打的目标"前移一点。
+   *
+   * 为什么：屏幕正中永远钉着玩家时，**前进方向上是盲的** —— 一半的屏幕被"走过的路"占着。
+   * 规则：推着摇杆 → 朝摇杆（推得越满前移越多）；自动战斗 → 朝当前目标（没目标就朝最近的那只）；否则归零。
+   * **纯表现**：只改 `state.cameraLook`，逻辑层读到的 player 坐标一个字节都不变。
+   *
+   * A11 之三（用户："视角没有锁定以角色为中心"）：`view.cameraLookAhead` 现在是 **0** ——
+   * 这个偏移以**世界单位**计，近距离视角下它占屏幕的比例会大到把角色挤到边上
+   * （22 格时占半屏的 34%、16 格时 47%），所以正式关掉：镜头锁定以角色为中心。
+   * 机制留着（把 balance 里的数改回非 0 就恢复），下面的 `span <= 0` 分支就是那个开关。
+   */
+  function updateCameraLook(player) {
+    var look = state.cameraLook;
+    var span = BAL.view.cameraLookAhead;
+    if (!(span > 0)) {
+      // 锁定：前瞻恒为 0（不是"衰减到 0"，是压根不产生偏移）
+      look.x = 0;
+      look.y = 0;
+      return;
+    }
+    var tx = 0;
+    var ty = 0;
+    if (player && !player.dead) {
+      var direction = INPUT.direction();
+      if (direction.magnitude > 0) {
+        tx = direction.x * direction.magnitude;
+        ty = direction.y * direction.magnitude;
+      } else if (state.save && state.save.settings && state.save.settings.autoBattle) {
+        var target = WORLD.monsterById(player.targetId) || WORLD.pickTarget(player);
+        if (target) {
+          var dx = target.x - player.x;
+          var dy = target.y - player.y;
+          var length = Math.sqrt(dx * dx + dy * dy);
+          if (length > 0.0001) {
+            tx = dx / length;
+            ty = dy / length;
+          }
+        }
+      }
+    }
+    var rate = BAL.view.cameraLookLerp;
+    look.x += (tx * span - look.x) * rate;
+    look.y += (ty * span - look.y) * rate;
+  }
+
+  /**
+   * 相机跟随（A11 之三，用户："视角没有锁定以角色为中心"）：**把镜头钉在角色身上**。
+   *
+   * `view.cameraLerpPerTick >= 1` = 锁定：每逻辑帧直接把相机放到"玩家 + 前瞻"上 ——
+   * 角色因此永远画在屏幕正中（前瞻已被关掉 = 0，见 `updateCameraLook`）。
+   * 这里刻意用整块赋值而不是插值：`x += (t - x) * 1` 在浮点下仍可能差最后一位，
+   * 而"锁定"是个硬要求（自检断言的是**逐字节相等**）。
+   *
+   * 小于 1 时退回缓动跟随（镜头落后玩家一点点），换档 / 传送 / 读档 / 拖缩放轴
+   * 仍然走 `snapCamera` 直接贴合 —— 缓动再小也不会把镜头丢在上一处。
+   */
+  function followCamera(player) {
+    var rate = BAL.view.cameraLerpPerTick;
+    var tx = player.x + state.cameraLook.x;
+    var ty = player.y + state.cameraLook.y;
+    if (!(rate < 1)) {
+      state.camera.x = tx;
+      state.camera.y = ty;
+      return;
+    }
+    if (!(rate > 0)) rate = 1;
+    state.camera.x += (tx - state.camera.x) * rate;
+    state.camera.y += (ty - state.camera.y) * rate;
+  }
+
+  /**
+   * 当前视角的一份"人话"视图（A11 / A11 之二）：档名 / 一屏几格 / 倍率 / 宏观色格边长 / 一格几 CSS px。
+   * 调试面板、设置面板那一行缩放轴、自检都读它 —— 界面层因此不用自己算"现在到底能看清什么"。
+   *
+   * 拖到两个档位之间时 `name` 是「自定义」（档名不再等于实际倍率，写个"中"就是在骗玩家），
+   * `custom` 给自检与调试面板一个布尔量，不用去比字符串。
+   */
+  function zoomView() {
+    var tiers = BAL.view.cameraTiers;
+    var index = Math.floor(BAL.view.cameraTier);
+    if (!(index >= 0) || index >= tiers.length) index = 0;
+    var current = tiers[index];
+    var tiles = Math.round(BAL.view.zoomTiles) > 0 ? Math.round(BAL.view.zoomTiles) : current.tiles;
+    var zoom = RENDER.zoom();
+    return {
+      index: index,
+      id: current.id,
+      name: tiles === current.tiles ? current.name : '自定义',
+      custom: tiles !== current.tiles,
+      tiles: tiles,
+      zoom: zoom,
+      lodBlocks: RENDER.lodBlocks(),
+      /** 一格在手机上几 CSS px（设计 px × 屏缩放 = cssW / designWidth） */
+      tileCssPx: Math.round(zoom * BAL.world.tileSize * SCREEN.scale() * 100) / 100
+    };
+  }
+
+  /** 离这个格数最近的那个预设档位（拖到两档之间时，宏观规格按更近的一档走） */
+  function nearestZoomTier(tiles) {
+    var tiers = BAL.view.cameraTiers;
+    var best = 0;
+    var bestGap = -1;
+    for (var i = 0; i < tiers.length; i += 1) {
+      var gap = Math.abs(tiers[i].tiles - tiles);
+      if (bestGap < 0 || gap < bestGap) {
+        bestGap = gap;
+        best = i;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * 把视角缩放到"一屏 tiles 格"（A11 之二，用户："玩家设置中添加视角缩放滚动轴，可以缩到16-64"）。
+   *
+   * 一次写三处，它们是"一个数"的三张脸：
+   *   1. `view.zoomTiles` —— 渲染层读的倍率来源（`RENDER.zoom` = designWidth / (tiles × tileSize)）；
+   *   2. `view.cameraTier` —— **最近的预设档位**：宏观色格边长 / 装载环 / 小地图半径都挂在档位上，
+   *      按"离哪一档近"取规格，于是拖动时这些"档"级别的数字不会每格乱跳；
+   *   3. 存档 `settings.zoomTiles`（重开还记得）+ `settings.zoomTier`（跟着写成最近那一档）——
+   *      两个字段因此在任何时候都自洽，不会出现"档位写着中档、格数却是 22"。
+   *
+   * `quiet = true`：只应用、不提示、**不写磁盘** —— 拖动过程中每一格都写一次存储会把手机拖卡，
+   * 松手那一下（`setZoomTiles(tiles, false)`）才落盘 + 给一句带数字的提示。
+   * 界面上的"咔"一声由 20-main 的 handleAction 统一播（这里不重复播）。
+   */
+  function setZoomTiles(tiles, quiet) {
+    var value = SAVE.clampZoomTiles(tiles);
+    BAL.view.zoomTiles = value;
+    BAL.view.cameraTier = nearestZoomTier(value);
+    if (state.save && state.save.settings) {
+      state.save.settings.zoomTiles = value;
+      state.save.settings.zoomTier = BAL.view.cameraTier;
+    }
+    if (state.player) snapCamera();
+    if (!quiet) {
+      var info = zoomView();
+      flash('视角：一屏 ' + info.tiles + ' 格（一格 ' + info.tileCssPx + ' CSS px）', 1600);
+      writeSave();
+    }
+    return value;
+  }
+
+  /**
+   * 切到第 index 档视角（A11，用户："相机视角还需要优化"）：写 `view.cameraTier`（渲染层读它）
+   * + 存档 `settings.zoomTier`（重开还记得）+ 相机归位 + 一句带数字的提示。
+   *
+   * 为什么做成"运行时可切"而不是写死一个数：**细节与视野是一对取舍** ——
+   * 一格几 CSS px = `tileSize × zoom × 屏缩放`，所以"一眼看到 128 格"和"看清脚下每一格"不可能同时成立。
+   * 把选择交给玩家，并把代价（一格几 CSS px、宏观色格几格）直接写在提示里。
+   * `quiet = true` 时只应用不提示（开机读档走这条）。
+   *
+   * A11 之二：档位现在是**预设** —— 切档同时把缩放轴放到这一档的格数上（`setZoomTiles` 的反方向），
+   * 两个入口因此永远指向同一个倍率，不会出现"档位写着中档、倍率却是别的"。
+   */
+  function setZoomTier(index, quiet) {
+    var tiers = BAL.view.cameraTiers;
+    var i = Math.floor(index);
+    if (!(i >= 0)) i = 0;
+    if (i >= tiers.length) i = tiers.length - 1;
+    BAL.view.cameraTier = i;
+    BAL.view.zoomTiles = tiers[i].tiles;
+    if (state.save && state.save.settings) {
+      state.save.settings.zoomTier = i;
+      state.save.settings.zoomTiles = tiers[i].tiles;
+    }
+    if (state.player) snapCamera();
+    if (!quiet) {
+      var info = zoomView();
+      flash('视角：' + info.name + '（一屏 ' + info.tiles + ' 格 · 一格 ' + info.tileCssPx + ' CSS px）', 1800);
+      playSfx('ui');
+      writeSave();
+    }
+    return i;
+  }
+
+  /** 点一下换下一档（设置面板那一行）：远 → 中 → 近 → 远 */
+  function cycleZoomTier() {
+    return setZoomTier(zoomView().index + 1, false);
+  }
+
   /* ---------------------------------------------------------------- 启动 */
 
   function boot() {
@@ -199,8 +429,14 @@ G.GAME = (function () {
     state.player = PLAYER.create(state.save);
     state.stats = PLAYER.statsOf(state.save.level, state.save.loadout);
     state.player.hp = state.stats.hpMax;
-    state.camera.x = state.player.x;
-    state.camera.y = state.player.y;
+    snapCamera();
+    // A11：把存档里的视角档位应用到渲染层（静默 —— 开机不刷提示）
+    // A11 之二：缩放轴是"档位之上"的那一层 —— 老存档没有 zoomTiles 时 normalizeSettings 已把它对齐到档位，
+    // 有的话就以它为准。**先把值取出来再切档**：setZoomTier 会把 settings.zoomTiles 拉回档位值
+    // （自检盯着这条：拖到 48 格再重开，必须还是 48，不能悄悄回到档位的 64）。
+    var savedZoomTiles = state.save.settings.zoomTiles;
+    setZoomTier(state.save.settings.zoomTier, true);
+    setZoomTiles(savedZoomTiles, true);
 
     WORLD.reset(BAL.season.worldSeed);
     WORLD.ensureChunks(state.player.x, state.player.y);
@@ -398,6 +634,41 @@ G.GAME = (function () {
     });
   }
 
+  /**
+   * 平台键盘输入公会名（本次新增：用户要求"创建公会需要自己输入公会名"）。
+   * 与登录页的 `typeNameAction` 是同一套办法：小游戏里没有 `<input>`，只能靠 `tt.showKeyboard`
+   * （`PLAT.editText`）。**拿不到键盘就把随机名填进去**并说明原因 —— 模拟器里没有这个 API，
+   * 那条路上"建会"不能断（与登录页的「换一个随机昵称」同一条兜底思路）。
+   */
+  function typeGuildName() {
+    var current = PANELS.draftGuildName();
+    var check = current ? GUILD.validate(current) : { ok: false };
+    PLAT.editText({ defaultValue: check.ok ? check.name : '', maxLength: BAL.guild.nameMax }).then(function (value) {
+      if (value === null || value === undefined) {
+        var fallback = PANELS.nextGuildName(Math.round(state.now) + 41);
+        PANELS.setDraftGuildName(fallback);
+        flash('平台键盘不可用 → 已填一个随机公会名「' + fallback + '」，不满意可以再点一次', 3200);
+        return;
+      }
+      PANELS.setDraftGuildName(value);
+      var now = GUILD.validate(PANELS.draftGuildName());
+      flash(now.ok ? '公会名可用：' + now.name : GUILD.reasonText(now.reason), 2600);
+    });
+  }
+
+  /** 平台键盘输入"要加入的公会名"（与上面同一条路，只是草稿是另一个） */
+  function typeJoinName() {
+    PLAT.editText({ defaultValue: PANELS.joinDraftName(), maxLength: BAL.guild.nameMax }).then(function (value) {
+      if (value === null || value === undefined) {
+        flash('平台键盘不可用 → 从下面的公会列表里点一行加入', 3200);
+        return;
+      }
+      PANELS.setJoinDraftName(value);
+      var check = GUILD.validate(PANELS.joinDraftName());
+      flash(check.ok ? '要加入的公会名：' + check.name : GUILD.reasonText(check.reason), 2600);
+    });
+  }
+
   /** 登录 / 创建角色界面上的按钮 → 动作（与 PANELS 的 action 同构，20-main 统一执行） */
   function handleLoginAction(action) {
     if (!action) return;
@@ -419,7 +690,8 @@ G.GAME = (function () {
    * 自动战斗的**走位**那一半（用户要求："自动战斗时不仅会自动释放技能，还会自动走向最近的怪物"）。
    * 出手由 14-world.playerAttack 负责（它本来就是自动的），这里只负责"走过去"：
    *   1. 摇杆只要推着就手动优先 —— 自动模式随时可以被玩家接管；
-   *   2. 没有目标 / 目标死了就按"视野内最近"重选（与出手共用同一份 pickTarget / targetId）；
+   *   2. 没有目标 / 目标死了就按"距离最近"重选（默认全地图：`combat.targetRange` = 0，
+   *      与出手共用同一份 pickTarget / targetId）；
    *   3. 走到 `怪半径 + 攻击距离 × auto.moveStopRatio` 就站住：贴脸打容易被围殴，
    *      这个比例就是"贴上去"和"留半个身位"之间的取舍（在 balance 里，不在代码里）。
    * 返回当前目标（自检要断言"确实朝着最近的怪走了"）。
@@ -462,11 +734,11 @@ G.GAME = (function () {
     var settings = state.save.settings;
     settings.autoBattle = settings.autoBattle !== true;
     writeSave();
-    flash(settings.autoBattle ? '自动战斗已开启：自动走向视野内最近的怪' : '自动战斗已关闭：手动摇杆走位', 2200);
+    flash(settings.autoBattle ? '自动战斗已开启：自动走向全地图最近的怪' : '自动战斗已关闭：手动摇杆走位', 2200);
     return settings.autoBattle;
   }
 
-  /* ------------------------------------------------ 技能栏（A5 新增） */
+  /* ------------------------------------------------ 技能栏（A5 新增，A10 加勾选） */
 
   /** 冷却数组按技能个数补齐 / 截断（读档、改表之后长度都可能不一样） */
   function skillCooldowns() {
@@ -478,6 +750,80 @@ G.GAME = (function () {
   }
 
   /**
+   * 四个技能键的「自动释放」勾选（A10）：读存档，再按**技能表长度**对齐一份新数组。
+   *
+   * 为什么要在 20-main 里对齐：勾选表是存档数据（可能有缺项、可能比技能表短），
+   * 而 `SKILLS.autoChoice` 与 17-hud 都只该认一份"长度正确、值正确"的数组 ——
+   * 于是"存档里有几个、现在有几个技能"这类对齐只在一个地方做（缺项当"勾上"）。
+   */
+  function skillAutoFlags() {
+    var total = G.SKILLS.count();
+    var list = state.save && state.save.settings ? state.save.settings.skillAuto : null;
+    var out = [];
+    for (var i = 0; i < total; i += 1) out.push(G.SKILLS.autoEnabled(list, i));
+    return out;
+  }
+
+  /**
+   * 切换第 i 个技能的"自动释放"（技能键右上角的勾选框，以及背包面板里的技能条都走它）。
+   * 写存档 + 立刻给一句提示（"关了只是不会自动放，手动点照样能放"）。
+   * 越界 / 没存档一律返回 null（界面上按空不该炸）。
+   */
+  function toggleSkillAuto(index) {
+    if (!state.save || !state.save.settings) return null;
+    var i = typeof index === 'number' ? Math.floor(index) : -1;
+    if (!(i >= 0) || i >= G.SKILLS.count()) return null;
+    var flags = skillAutoFlags();
+    flags[i] = flags[i] !== true;
+    state.save.settings.skillAuto = flags;
+    writeSave();
+    var slot = G.SKILLS.slotAt(i);
+    playSfx('ui');
+    flash(
+      (slot ? slot.name : '技能') + '：自动释放已' + (flags[i] ? '开启' : '关闭') + (flags[i] ? '' : '（手动点它照样能放）'),
+      1800
+    );
+    return flags;
+  }
+
+  /**
+   * 按阶的「自动开启」勾选表（A14）：读存档 `settings.chestAuto`，再按**阶数**对齐一份新数组。
+   *
+   * 与技能勾选（`skillAutoFlags`）同一条纪律：对齐只在这一个地方做，18-panels 与 08-loot 都只认
+   * "长度正确、值正确"的数组 —— 缺项 / 坏值 / 上个版本没有这个字段，一律当**关**
+   * （判定在 `LOOT.autoEnabled`，于是"开关表坏了怎么办"只有一个答案：不替玩家花箱子）。
+   */
+  function chestAutoFlags() {
+    var list = state.save && state.save.settings ? state.save.settings.chestAuto : null;
+    var total = G.LOOT.tiers().length;
+    var out = [];
+    for (var i = 0; i < total; i += 1) out.push(G.LOOT.autoEnabled(list, i + 1));
+    return out;
+  }
+
+  /**
+   * 切换某一阶宝箱的"自动开启"（A14，宝箱清单每行右侧那枚勾选）：写存档 + 立刻给一句提示。
+   * 越界 / 没存档一律返回 null（界面上按空不该炸）。
+   *
+   * 那句提示特意写明"掉出来就当场开"：勾了之后玩家不会再看到箱子进背包，说明白才不会被当成 bug。
+   * 音效不在这里放 —— handleAction 已经为所有"非开箱"的 action 统一放了"咔"的一声，这里再放一次就成双响。
+   */
+  function toggleChestAuto(tierId) {
+    if (!state.save || !state.save.settings) return null;
+    var tier = typeof tierId === 'number' ? Math.floor(tierId) : -1;
+    if (!(tier >= 1) || tier > G.LOOT.tiers().length) return null;
+    var flags = chestAutoFlags();
+    flags[tier - 1] = flags[tier - 1] !== true;
+    state.save.settings.chestAuto = flags;
+    writeSave();
+    flash(
+      LOOT.tierName(tier) + '宝箱：自动开启已' + (flags[tier - 1] ? '开启（掉出来就当场开）' : '关闭（照旧进背包）'),
+      1800
+    );
+    return flags;
+  }
+
+  /**
    * 技能栏视图：每个栏位算好"解锁 / 冷却比例 / 剩余秒数"，界面层只认这一份
    * （决策 #4：界面不读玩法数据）。20-main 是唯一知道"技能表长什么样、冷却还剩多少"的地方，
    * 17-hud 只负责画圆和扇形 —— 与功能键一模一样的分工。
@@ -486,6 +832,7 @@ G.GAME = (function () {
     var nowMs = WORLD.now();
     var level = state.save ? state.save.level : 1;
     var cooldowns = skillCooldowns();
+    var flags = skillAutoFlags();
     var slots = [];
     for (var i = 0; i < G.SKILLS.count(); i += 1) {
       var slot = G.SKILLS.slotAt(i);
@@ -502,7 +849,9 @@ G.GAME = (function () {
         ready: unlocked && remain <= 0,
         remainMs: remain,
         cool: remain > 0 && slot.cooldownMs > 0 ? remain / slot.cooldownMs : 0,
-        state: !unlocked ? 'lock' : remain > 0 ? 'cool' : 'ready'
+        state: !unlocked ? 'lock' : remain > 0 ? 'cool' : 'ready',
+        /** A10：这个技能勾上"自动释放"了吗（17-hud 的勾选框与背包面板的技能条都读它） */
+        auto: flags[i]
       });
     }
     return {
@@ -510,6 +859,8 @@ G.GAME = (function () {
       unlocked: G.SKILLS.unlockedCount(level),
       total: G.SKILLS.count(),
       auto: !!(state.save && state.save.settings && state.save.settings.autoBattle === true),
+      /** A10：勾上了自动释放的技能个数（HUD 的调试面板与自检读它） */
+      autoCount: G.SKILLS.autoCount(flags),
       slots: slots
     };
   }
@@ -589,6 +940,8 @@ G.GAME = (function () {
    * 自动释放技能（A5）：自动战斗开着的逻辑帧调一次。
    * 挑哪个由 07-skills 的 `autoChoice` 决定（纯函数，可以单独断言）：从左到右第一个能用的，
    * 伤害技要有怪在打击范围内，治疗只在血量低于 `skills.autoHealRatio` 时放。
+   * **A10**：只挑"勾上了自动释放"的技能（`settings.skillAuto`）—— 没勾的只不会被自动放，
+   * 手动点那个键照样能放（见 castSkillSlot）。
    * 这就是 A4 决策 #10c 里说的"真要做技能得单开一个工作包"的那个工作包。
    */
   function autoCastStep() {
@@ -601,6 +954,7 @@ G.GAME = (function () {
       globalAt: state.skillGlobalAt,
       nowMs: WORLD.now(),
       level: state.save.level,
+      auto: skillAutoFlags(),
       hpRatio: stats.hpMax > 0 ? player.hp / stats.hpMax : 1,
       x: player.x,
       y: player.y,
@@ -617,7 +971,7 @@ G.GAME = (function () {
    * A4 的两处关键改动：
    *   1. 只有 `screen === 'playing'` 才跑世界 —— 登录 / 创建角色界面上的世界是静止的；
    *   2. **面板开着不再暂停世界**（用户要求"打开背包、设置等界面时游戏不停止"）：
-   *      卡片只占 1/3 屏、卡片外还能推摇杆，于是玩家可以边开着背包边跑图。
+   *      卡片只占约 2/3 屏高（2026-10-01 从 1/3 屏改过来）、卡片外还能推摇杆，于是玩家可以边开着背包边跑图。
    *      代价写在 04-decisions #10：站着开箱会被怪打 —— 这是"不暂停"的必然结果。
    */
   function step(dtMs) {
@@ -645,7 +999,7 @@ G.GAME = (function () {
         // 摇杆推得越满走得越快（magnitude 就是模拟量），这是"手感"的一半；手动永远优先
         PLAYER.move(player, direction.x * direction.magnitude, direction.y * direction.magnitude, dtMs / 1000, stats);
       } else if (state.save.settings.autoBattle) {
-        // 自动战斗：自动走向视野内最近的怪（出手本来就有 14-world.playerAttack 负责）
+        // 自动战斗：自动走向**全地图**最近的怪（combat.targetRange = 0；出手本来就有 14-world.playerAttack 负责）
         autoStep(player, stats, dtMs);
       } else {
         PLAYER.move(player, 0, 0, dtMs / 1000, stats);
@@ -660,9 +1014,12 @@ G.GAME = (function () {
     for (var i = 0; i < events.kills.length; i += 1) applyKill(events.kills[i]);
     if (events.playerDown) flash('被打倒了，3 秒后原地复活', 1600);
 
-    // 相机缓动跟随（view.cameraLerpPerTick 是"每逻辑帧"的插值比例）
-    state.camera.x += (player.x - state.camera.x) * BAL.view.cameraLerpPerTick;
-    state.camera.y += (player.y - state.camera.y) * BAL.view.cameraLerpPerTick;
+    // 相机跟随（A11 之三：**锁定以角色为中心** —— `view.cameraLerpPerTick = 1` = 每逻辑帧直接贴合）。
+    // A11 时代这里还叠了一笔"前瞻偏移"（镜头看向"我 + 我要去的地方"），近距离视角下那个
+    // 固定世界单位的偏移会把角色挤出屏幕中心，用户要的是锁定，所以前瞻已关（`cameraLookAhead = 0`，
+    // 见 `updateCameraLook`）。逻辑层读到的 player 坐标一个字节都没动。
+    updateCameraLook(player);
+    followCamera(player);
 
     // 进出营地时提示一次：营地是回血 / 商店 / 传送的入口（用户要的"营地交互入口"）
     var camp = inCamp();
@@ -673,6 +1030,8 @@ G.GAME = (function () {
 
     state.save.stats.playMs += dtMs;
     state.now = WORLD.now();
+    // 公会面板开着时自动保鲜（每 balance.guild.syncIntervalMs 一次；关掉面板就静默）—— 本次新增
+    guildAutoSync();
   }
 
   /* ---------------------------------------------------------------- 结算 */
@@ -700,7 +1059,10 @@ G.GAME = (function () {
 
     if (WORLD.rng().chance(LOOT.dropChance(monster.band, monster.elite))) {
       var tier = LOOT.rollChestTier(monster.band, monster.elite, WORLD.rng(), save.pity);
-      if (SAVE.pushChest(save, tier, monster.level)) {
+      // A14：这一阶勾了「自动开启」→ 箱子**不进背包**，当场开掉（于是也不占 bagCap、不会被自动分解）
+      if (LOOT.autoEnabled(save.settings.chestAuto, tier)) {
+        autoOpenChest(tier, monster.level);
+      } else if (SAVE.pushChest(save, tier, monster.level)) {
         flash(LOOT.tierName(tier) + ' 到手（背包 ' + save.chests.length + '/' + LOOT.bagCap() + '）', 1600);
       } else {
         var salvage = LOOT.salvageGold(tier);
@@ -728,6 +1090,10 @@ G.GAME = (function () {
   /**
    * 开箱时的装备等阶：以**箱阶为下限**，在同阶及以上按（band 调整过的）权重抽。
    * 这条规则兑现了 01-game-design §7 的"普通箱开出 ≥ 普通、天赐箱必是天赐"。
+   *
+   * 兜底（A7 修订 2）：池子为空 = 一件都抽不出来（只会发生在箱阶数据坏掉时，比如 tier 缺失 / 越界）。
+   * 这时**回落到合法范围内的箱阶**（1~6），保证永远给得出一个等阶 —— "开箱必出装备"的底线在
+   * `openOneChest()`：它先拿到装备才扣箱，所以最坏情况也只是"箱还在"。
    */
   function rollEquipmentTier(chestTier, band) {
     var weights = LOOT.tierWeights(band);
@@ -739,6 +1105,13 @@ G.GAME = (function () {
         pool.push(tier);
         poolWeights.push(weights[i]);
       }
+    }
+    if (pool.length === 0) {
+      var last = BAL.equipment.tiers.length;
+      var safe = Math.round(chestTier);
+      if (!(safe >= 1)) safe = 1;
+      if (safe > last) safe = last;
+      return safe;
     }
     return pool[WORLD.rng().weightedIndex(poolWeights)].id;
   }
@@ -753,16 +1126,28 @@ G.GAME = (function () {
     return false;
   }
 
-  /** 开一个箱：抽装备等阶 → 生成装备 →（默认）战力更高就直接穿上，否则进背包 */
+  /**
+   * 开一个箱（= 背包里第一口）：抽装备等阶 → 生成装备 →（默认）战力更高就直接穿上，否则进背包。
+   *
+   * **A7 修订 2（用户："打开宝箱必定出装备"）**：产出是**硬保证**，两个地方一起兜住 ——
+   *   ① 顺序：**先**把装备生成出来，**再**从背包里扣掉这只箱（A14 起这两步在 `openChestAt` 里，
+   *      手点开箱与按阶开箱共用它，所以"箱没了、装备也没有"两种失败都不成立）；
+   *      装备生成失败（数据坏、抛异常）时箱子原样留在包里；
+   *   ② `rollEquipmentTier` 在池子为空时回落合法箱阶（见那里）。
+   * 另外满背包也不会吞装备：装备入包不设上限（`SAVE.pushItem`），旧件换新件时旧件才折算成金币。
+   * 自检的 `checkChestOpen` 把这条锁成断言：开 N 箱必产出 N 件，且每件都落在"身上或背包里"。
+   */
   function openOneChest() {
-    var save = state.save;
-    if (save.chests.length === 0) return null;
-    var chest = save.chests.shift();
-    var band = CHUNK.bandOf(state.player.x, state.player.y);
-    var tier = rollEquipmentTier(chest.tier, band);
-    var item = EQUIP.generate(tier, chest.level, WORLD.rng(), 0);
-    save.stats.opened += 1;
+    return openChestAt(0);
+  }
 
+  /**
+   * 装备入账（A14 从 `openOneChest` 里原样抽出来）：**战力更高就直接穿上**（还要过等级门槛），
+   * 否则进背包。满背包也不会吞装备：装备入包不设上限（`SAVE.pushItem`），旧件换新件时旧件才折算成金币。
+   * 返回 { item, equipped } —— 手点开箱与"自动开启"共用这一份入账规则，从此只有一处。
+   */
+  function grantEquipment(item) {
+    var save = state.save;
     var worn = save.loadout[item.slotId];
     // A6：自动穿上也要过等级门槛 —— 不够就只进背包，等练上去再穿
     if (CONFIG.autoEquipBetter && EQUIP.canWear(item, save.level) && (!worn || item.power > worn.power)) {
@@ -773,6 +1158,69 @@ G.GAME = (function () {
     }
     SAVE.pushItem(save, item);
     return { item: item, equipped: false };
+  }
+
+  /**
+   * 开掉背包里第 index 口箱（A7 修订 2 的硬保证就落在这里：**先出装备、再扣箱** —— 装备生成失败时
+   * 箱子原样留在包里；`openOneChest` 与 A14 的按阶开箱都走它，于是"扣哪口箱"只有一处）。
+   * 下标越界返回 null。
+   */
+  function openChestAt(index) {
+    var save = state.save;
+    if (!(index >= 0) || index >= save.chests.length) return null;
+    var chest = save.chests[index];
+    var band = G.CHUNK.bandOf(state.player.x, state.player.y);
+    var tier = rollEquipmentTier(chest.tier, band);
+    var item = EQUIP.generate(tier, chest.level, WORLD.rng(), 0);
+    save.chests.splice(index, 1);
+    save.stats.opened += 1;
+    return grantEquipment(item);
+  }
+
+  /** 背包里**第一口**这一阶箱子的下标（一口都没有就 -1）：A14 的按阶开箱只认阶号，不认袋子顺序 */
+  function firstChestIndexOfTier(tierId) {
+    var chests = state.save.chests;
+    for (var i = 0; i < chests.length; i += 1) {
+      if (chests[i].tier === tierId) return i;
+    }
+    return -1;
+  }
+
+  /**
+   * 开掉某一阶的一口箱（A14）：抽装备只看**箱阶**与当前 band，同阶之间谁先谁后结果一样，
+   * 所以"从这一阶里拿第一口"和"拿最后一口"没有区别。这一阶一口也没有时返回 null。
+   */
+  function openOneChestOfTier(tierId) {
+    var index = firstChestIndexOfTier(tierId);
+    if (index < 0) return null;
+    return openChestAt(index);
+  }
+
+  /**
+   * 开箱的统一汇报（A14 抽出来，`openChests` 与 `openChestsOfTier` 共用）：
+   * 只报**最好的一件**（战力最高），免得刷屏 —— 每箱的结果都进背包 / 身上。
+   * `scope` 是"这次开的是哪一批"（大按钮 = 空字符串；某一阶 = `'传说宝箱 '`），只影响文案。
+   */
+  function reportOpened(scope, results) {
+    var best = results[0];
+    for (var k = 1; k < results.length; k += 1) {
+      if (results[k].item.power > best.item.power) best = results[k];
+    }
+    flash(
+      scope +
+        '开 ' +
+        results.length +
+        ' 箱：最好 ' +
+        EQUIP.tierById(best.item.tier).name +
+        ' ' +
+        best.item.slotName +
+        '（战力 ' +
+        best.item.power +
+        '）' +
+        (best.equipped ? ' · 已穿上' : ' · 进了背包'),
+      2800
+    );
+    return best;
   }
 
   /** 开 N 箱：只报"最好的一件"，免得刷屏（每箱的结果都进背包/身上） */
@@ -786,25 +1234,58 @@ G.GAME = (function () {
     }
     if (results.length === 0) {
       flash('没有宝箱：去打怪（普通怪约 8% 掉箱，精英 25%）', 1800);
-      return;
+      return 0;
     }
-    var best = results[0];
-    for (var k = 1; k < results.length; k += 1) {
-      if (results[k].item.power > best.item.power) best = results[k];
+    reportOpened('', results);
+    return results.length;
+  }
+
+  /**
+   * 开掉**这一阶**的全部箱子（A14：宝箱清单每行右侧那枚「全开」—— 用户要的"对应不同等阶不同的开启按钮"）。
+   *
+   * 口径与 `openChests` 一模一样：开局一声开箱音、只报"最好的一件"、每箱的结果都进背包 / 身上。
+   * 这一阶一口也没有时给一句明说（正常情况下点不出来 —— 那一枚按钮这时**不产出 action**，
+   * 这里兜的是"点了之后箱子被别处开掉了"这类竞态）。
+   * 返回这次真开了几箱（"自动开启"那条路也要用它）。
+   */
+  function openChestsOfTier(tierId) {
+    var tier = typeof tierId === 'number' ? Math.floor(tierId) : -1;
+    if (!(tier >= 1) || tier > G.LOOT.tiers().length) return 0;
+    playSfx('chest');
+    var results = [];
+    var result = openOneChestOfTier(tier);
+    while (result) {
+      results.push(result);
+      result = openOneChestOfTier(tier);
     }
-    flash(
-      '开 ' +
-        results.length +
-        ' 箱：最好 ' +
-        EQUIP.tierById(best.item.tier).name +
-        ' ' +
-        best.item.slotName +
-        '（战力 ' +
-        best.item.power +
-        '）' +
-        (best.equipped ? ' · 已穿上' : ' · 进了背包'),
-      2800
-    );
+    if (results.length === 0) {
+      flash(LOOT.tierName(tier) + '宝箱：背包里一口都没有', 1600);
+      return 0;
+    }
+    reportOpened(LOOT.tierName(tier) + '宝箱 ', results);
+    return results.length;
+  }
+
+  /**
+   * 自动开启（A14，用户："宝箱可以设置是否自动开启"）：这一阶勾了勾选时，箱子一掉出来就**当场开掉** ——
+   *
+   *   - 箱子**不进背包**：于是不占 `bagCap`、也不会被"背包满了自动分解"折算成金币；
+   *   - 走的是同一套规则：`rollEquipmentTier`（箱阶为下限）+ `grantEquipment`（更就穿，穿不上进背包），
+   *     所以"自动开出来的东西"和玩家手点开出来的**完全一样**；
+   *   - **不喊开箱音效**：挂机一晚就是几百箱，每箱都咔一声会变成噪音（这是刻意的，不是漏了）；
+   *   - 报一句"自动开出 …"：不报的话，玩家会觉得"箱子怎么没了"。
+   *
+   * 返回 { item, equipped }（没开成返回 null）。
+   */
+  function autoOpenChest(tier, level) {
+    var save = state.save;
+    if (!save || !(tier >= 1)) return null;
+    var band = G.CHUNK.bandOf(state.player.x, state.player.y);
+    var item = EQUIP.generate(rollEquipmentTier(tier, band), level, WORLD.rng(), 0);
+    save.stats.opened += 1;
+    var granted = grantEquipment(item);
+    flash('自动开出 ' + EQUIP.labelOf(granted.item) + (granted.equipped ? ' · 已穿上' : ' · 进了背包'), 1800);
+    return granted;
   }
 
   /** 穿上背包里的装备：旧件退回背包（不自动分解，交给"一键分解"处理） */
@@ -892,27 +1373,421 @@ G.GAME = (function () {
     flash('买到公会号角（持有 ' + save.horns + ' 个）', 1800);
   }
 
-  /** 建公会：消耗一个号角，**锚点就设在你脚下**（决策 #5 的"据点 = 回城锚点"） */
+  /**
+   * 买强化石（本次新增）：营地铁匠强化装备用的通货，100 金币一颗（`balance.shop.stone`）。
+   * 与买号角**同一套规矩**（20 级解锁、金币只在 20-main 扣、买完给一句提示），
+   * 只是没有"持有上限"这一说 —— 越往上强化越贵，让玩家自己算。
+   */
+  function buyStone() {
+    var save = state.save;
+    if (!PROG.shopUnlocked(save.level)) {
+      flash('需要 ' + BAL.guild.shopUnlockLevel + ' 级才能进商城（现在 ' + save.level + ' 级）', 1800);
+      return;
+    }
+    if (save.gold < BAL.shop.stone.priceGold) {
+      flash('金币不够：还差 ' + (BAL.shop.stone.priceGold - save.gold) + ' 金币', 1800);
+      return;
+    }
+    save.gold -= BAL.shop.stone.priceGold;
+    save.stones += 1;
+    flash('买到强化石（持有 ' + save.stones + ' 颗）', 1800);
+  }
+
+  /**
+   * 铁匠强化（本次新增）：把**已穿**的那一件升一级 —— 用户要求"+1 到 +10，等级越高消耗越多"。
+   *
+   * 这里只做三件事：查这份装备、扣强化石、把等级交给 09-equipment 的 `applyEnhance`（唯一改等级的入口）。
+   * "这一级要几颗"、"强化后主属性涨多少"全在 09-equipment / balance.enhance，本文件一个数字都不写死 ——
+   * 于是改数值只需要动 balance.json，界面（18-panels 的强化面板）也跟着变。
+   *
+   * 返回 true / false（自检用它；界面不看返回值，看 flash）。
+   */
+  function enhanceItem(slotId) {
+    var save = state.save;
+    if (!EQUIP.hasSlot(slotId)) return false;
+    var item = save.loadout[slotId];
+    if (!item) {
+      flash('这个部位还没穿装备：先去背包穿上再强化', 1800);
+      return false;
+    }
+    var level = EQUIP.enhanceLevel(item);
+    if (level >= EQUIP.maxEnhance()) {
+      flash(EQUIP.labelOf(item) + ' 已经满级（+' + EQUIP.maxEnhance() + '）', 1600);
+      return false;
+    }
+    var cost = EQUIP.nextEnhanceCost(item);
+    if (save.stones < cost) {
+      flash(
+        '强化石不够：+' + (level + 1) + ' 要 ' + cost + ' 颗，持有 ' + save.stones + ' 颗（商城 ' + BAL.shop.stone.priceGold + ' 金币一颗）',
+        2200
+      );
+      return false;
+    }
+    save.stones -= cost;
+    EQUIP.applyEnhance(item);
+    // 属性快照要重算：强化加的是主属性，战力与战斗数值都跟着变
+    state.stats = PLAYER.statsOf(save.level, save.loadout);
+    playSfx('levelup');
+    flash('强化成功：' + EQUIP.labelOf(item) + '（战力 ' + state.stats.power + ' · 还剩 ' + save.stones + ' 颗石头）', 2200);
+    return true;
+  }
+
+  /* ---------------------------------------------------------------- 公会（本次重做） */
+
+  /**
+   * 公会：**网络那一半**（规则在 11-save 的 `G.GUILD`，权威在服务端 `/api/guild/*`）。
+   *
+   * 用户要求："创建公会需要自己输入公会名，公会页面显示公会人员，公会等级，公会信息。"
+   * 于是这条链路是：面板输入名字 → 这里校验 + 发包 → 服务端登记（名字全服唯一）→
+   * 服务端回一份权威的成员表 → `G.GUILD.fromServer` 变成存档里的**镜像** → 面板照着画。
+   *
+   * 三条纪律：
+   *   1. **单机永远能玩**（决策 #10）：连不上云时建会在本机成立（`remote:false`），
+   *      以后能连上时由 `syncGuild` 的补登记分支把它登记到服务端（不重复扣号角）；
+   *   2. **服务端说的就是权威**：任何一次成功响应都把整条记录换成服务端那份，
+   *      本地只额外保留两样东西 —— 回城冷却 `teleportAt` 与同步时刻 `syncAt`；
+   *   3. **只有这里能改存档**：网络提示 / 列表 / 忙闲放在 `state.guild`（不进存档），
+   *      公会本身放在 `state.save.guild`；18-panels 两个都只读（自己拼成 view）。
+   */
+  function guildSelf() {
+    return { name: state.save.name, level: state.save.level };
+  }
+
+  /** 公会接口的公共头部：带上令牌（服务端有令牌时**只认令牌里的账号**，body 里的 openid 会被忽略） */
+  function guildRequest(path, data) {
+    var account = state.account || {};
+    var payload = {
+      account: account.id || '',
+      openid: account.openid || '',
+      token: account.token || ''
+    };
+    if (data) {
+      for (var key in data) {
+        if (Object.prototype.hasOwnProperty.call(data, key)) payload[key] = data[key];
+      }
+    }
+    return PLAT.cloud(path, { method: 'POST', data: payload });
+  }
+
+  /** 响应体（tt.request 的 res.data；拿不到就当空对象 —— 后面每一处都会判 ok） */
+  function guildBody(res) {
+    return res && res.data && typeof res.data === 'object' ? res.data : {};
+  }
+
+  /** 服务端的错误码 → 给玩家看的一句话（服务端只回 code，文案统一在这里） */
+  function guildErrorText(body) {
+    var error = body && body.error ? body.error : 'unknown';
+    if (error === 'name_taken') return '这个公会名全服已经有人用了，换一个';
+    if (error === 'invalid_name') return GUILD.reasonText(body.reason || 'illegal');
+    if (error === 'already_in_guild') return '你已经在一个公会里了（先退出再建）';
+    if (error === 'guild_full') return '这个公会人满了（上限 ' + BAL.guild.memberCap + ' 人）';
+    if (error === 'no_guild') return '服务端没有这个公会（名字打错了？）';
+    if (error === 'not_in_guild') return '你不在这个公会里';
+    if (error === 'owner_cannot_leave') return '你是会长：首版不能退出（先把成员请出去）';
+    if (error === 'anchor_too_close') return '离别的公会锚点太近了（至少 ' + BAL.guild.anchorMinDistance + ' 世界单位）';
+    if (error === 'anchor_cooldown') return '锚点刚挪过，冷却中';
+    if (error === 'missing_openid' || error === 'token_required') return '没拿到账号凭据：先登录一次';
+    if (error === 'not_configured') return '服务端还没配 DOUYIN_APPID / DOUYIN_SECRET';
+    return '服务端拒绝了：' + error;
+  }
+
+  /**
+   * 把服务端回的那一份记下来（**成功才换**；失败一律保留本机那份，绝不拿半截数据覆盖存档）。
+   * 返回新记录或 null。
+   */
+  function applyGuildBody(body) {
+    var record = GUILD.fromServer(body, guildSelf(), Math.round(WORLD.now()));
+    if (!record) return null;
+    // 回城冷却留在本机：服务端不管冷却，这里把老值带过去（新记录默认 0 = 没冷却）
+    var previous = state.save.guild;
+    if (previous && previous.name === record.name && previous.teleportAt) record.teleportAt = previous.teleportAt;
+    state.save.guild = record;
+    writeSave();
+    return record;
+  }
+
+  /** 云后端能不能用（没配 cloudBase / 当前环境没有 tt.request → 所有公会操作走本机路径） */
+  function guildCloudReady() {
+    return !!CONFIG.cloudBase && PLAT.hasTt();
+  }
+
+  /**
+   * 建公会（用户要求：**自己输入公会名**）。
+   *
+   * 四道拦截都在这里，顺序与面板上那几行一一对应：等级 → 号角 → 名字 → 扣号角。
+   * 之后分两条路：能连上云 = 服务端说了算（名字全服唯一）；连不上 = 本机先建（`remote:false`）。
+   * 号角**两条路都扣** —— 它是"建会资格"，不是"服务端登记费"。
+   */
   function createGuild() {
     var save = state.save;
+    var draft = PANELS.draftGuildName();
+    var check = GUILD.validate(draft);
     if (!PROG.guildUnlocked(save.level)) {
-      flash('需要 ' + BAL.guild.unlockLevel + ' 级才能建公会', 1600);
-      return;
+      flash('需要 ' + BAL.guild.unlockLevel + ' 级才能建公会（现在 ' + save.level + ' 级）', 1800);
+      return false;
     }
     if (save.horns <= 0) {
-      flash('没有号角：商城 ' + BAL.shop.horn.priceGold + ' 金币', 1800);
-      return;
+      flash('没有号角：商城 ' + BAL.shop.horn.priceGold + ' 金币一个', 1800);
+      return false;
     }
+    if (save.guild) {
+      // 已经有会了：再建一次不该白扣一个号角（服务端的 already_in_guild 是同一道闸门）
+      flash('你已经在一个公会里了：公会「' + save.guild.name + '」（先退出再建）', 2400);
+      return false;
+    }
+    if (!check.ok) {
+      flash('公会名还不能用：' + GUILD.reasonText(check.reason), 2400);
+      return false;
+    }
+    var anchor = { x: state.player.x, y: state.player.y };
     save.horns -= 1;
-    save.guild = {
-      name: PANELS.draftGuildName() || PANELS.nextGuildName(WORLD.now() | 0),
-      anchor: { x: state.player.x, y: state.player.y },
-      createdAt: Math.round(WORLD.now()),
-      teleportAt: 0,
-      members: [{ id: 1, name: '我', role: 'leader' }]
-    };
+    // 本机先记一份（离线 / 云不可用时它就是唯一真相；云可用时下面会被服务端那份覆盖）
+    save.guild = GUILD.create(check.name, guildSelf(), anchor, Math.round(WORLD.now()));
     PANELS.setDraftGuildName('');
-    flash('公会「' + save.guild.name + '」已建立，锚点就在脚下', 2600);
+    state.guild.note =
+      '公会「' + check.name + '」已在本机建立，锚点就在脚下（' + Math.round(anchor.x) + ', ' + Math.round(anchor.y) + '）';
+    writeSave();
+    flash('公会「' + check.name + '」已建立，锚点就在脚下', 2400);
+
+    if (!guildCloudReady()) {
+      state.guild.note += ' · 没连服务端（没配 cloudBase 或当前环境不支持网络），号角已扣';
+      return true;
+    }
+    state.guild.busy = true;
+    guildRequest('/api/guild/create', { name: check.name, x: anchor.x, y: anchor.y })
+      .then(function (res) {
+        var body = guildBody(res);
+        state.guild.busy = false;
+        if (body.ok === true && applyGuildBody(body)) {
+          state.guild.note = '服务端已登记：' + GUILD.memberText(state.save.guild) + '（公会名全服唯一）';
+          flash('服务端登记成功：公会「' + save.guild.name + '」', 2200);
+          return;
+        }
+        state.guild.note = '服务端没登记成功：' + guildErrorText(body) + ' —— 本机这份先留着，下次刷新会再试';
+      })
+      .catch(function (error) {
+        state.guild.busy = false;
+        state.guild.note =
+          '连不上服务端（' +
+          (error && error.message ? error.message : '未知错误') +
+          '）—— 本机这份先留着，回到游戏后点「刷新」补登记';
+      });
+    return true;
+  }
+
+  /**
+   * 加入公会（本次新增：不然"公会人员"永远只有自己一个人）。
+   * `name` 不给就用面板上那一行输入的草稿（`PANELS.joinDraftName()`）；
+   * 给了名字就是"公会列表里点的那一行"。
+   * 加入**必须由服务端登记** —— 连不上时不给过（否则会造出一个全服不存在的会籍）。
+   */
+  function joinGuild(name) {
+    var save = state.save;
+    var wanted = typeof name === 'string' && name ? name : PANELS.joinDraftName();
+    var check = GUILD.validate(wanted);
+    if (!check.ok) {
+      flash('公会名还不能用：' + GUILD.reasonText(check.reason), 2400);
+      return false;
+    }
+    if (save.guild) {
+      flash('你已经在公会「' + save.guild.name + '」里了（先退出再换）', 2200);
+      return false;
+    }
+    if (!guildCloudReady()) {
+      state.guild.note = '加入公会必须由服务端登记（本机没有别家公会的名单）—— 现在连不上';
+      flash('加入公会要连服务端：没配 cloudBase 时只能自己建一个', 2600);
+      return false;
+    }
+    state.guild.busy = true;
+    state.guild.note = '正在向服务端申请加入「' + check.name + '」…';
+    guildRequest('/api/guild/join', { name: check.name })
+      .then(function (res) {
+        var body = guildBody(res);
+        state.guild.busy = false;
+        if (body.ok === true && applyGuildBody(body)) {
+          PANELS.setJoinDraftName('');
+          state.guild.note = '已加入：' + GUILD.memberText(state.save.guild);
+          flash('已加入公会「' + state.save.guild.name + '」', 2200);
+          return;
+        }
+        state.guild.note = '加入失败：' + guildErrorText(body);
+        flash(state.guild.note, 2600);
+      })
+      .catch(function (error) {
+        state.guild.busy = false;
+        state.guild.note = '加入失败：连不上服务端（' + (error && error.message ? error.message : '未知错误') + '）';
+        flash(state.guild.note, 2600);
+      });
+    return true;
+  }
+
+  /**
+   * 退出公会（本次新增）：会籍在服务端，所以**要服务端点头**才清本地那份。
+   * 会长不能退（首版没有转让 / 解散，服务端回 owner_cannot_leave）。
+   * 例外：离线自建的会（`remote:false`）本来就没在服务端，直接清掉即可。
+   */
+  function guildLeave() {
+    var save = state.save;
+    if (!save.guild) {
+      flash('还没有公会', 1400);
+      return false;
+    }
+    if (GUILD.isLeader(save.guild)) {
+      flash('你是会长：首版不能退出（先把成员都请出去）', 2400);
+      return false;
+    }
+    if (!guildCloudReady()) {
+      if (!save.guild.remote) {
+        var localName = save.guild.name;
+        save.guild = null;
+        state.guild.note = '已退出本机公会「' + localName + '」（它没在服务端登记过）';
+        writeSave();
+        flash(state.guild.note, 2400);
+        return true;
+      }
+      flash('退出公会要连服务端：现在连不上', 2400);
+      return false;
+    }
+    state.guild.busy = true;
+    guildRequest('/api/guild/leave', {})
+      .then(function (res) {
+        var body = guildBody(res);
+        state.guild.busy = false;
+        if (body.ok === true) {
+          var left = state.save.guild ? state.save.guild.name : '';
+          state.save.guild = null;
+          state.guild.note = '已退出「' + left + '」（服务端会籍已删除）';
+          writeSave();
+          flash(state.guild.note, 2400);
+          return;
+        }
+        state.guild.note = '退出失败：' + guildErrorText(body);
+        flash(state.guild.note, 2400);
+      })
+      .catch(function (error) {
+        state.guild.busy = false;
+        state.guild.note = '退出失败：连不上服务端（' + (error && error.message ? error.message : '未知错误') + '）';
+        flash(state.guild.note, 2400);
+      });
+    return true;
+  }
+
+  /**
+   * 要一份最新的成员表（面板上那行「向服务端要一份最新成员表」+ 面板打开时的自动刷新都走它）。
+   *
+   * 三个分支（第三条是特意设计的**自愈**）：
+   *   1. 服务端回 `inGuild:true` → 整份换成服务端那份（成员 / 等级 / 锚点）；
+   *   2. 服务端回 `inGuild:false` 而本机有会 → 试着**补登记**（把离线建的会搬上去；
+   *      服务端现在还是内存版，重启会把公会弄丢 —— 这条自愈就是为那种情况准备的）；
+   *      名字被别人占了就保留本机那份并说明（**绝不静默删玩家的公会**）；
+   *   3. 本机也没有会 → 只更新一句提示。
+   */
+  function syncGuild(quiet) {
+    var save = state.save;
+    if (!guildCloudReady()) {
+      if (!quiet) {
+        state.guild.note = '没配 cloudBase（或当前环境不支持网络）—— 公会只在本机';
+        flash(state.guild.note, 2400);
+      }
+      return false;
+    }
+    if (state.guild.busy) return false;
+    state.guild.busy = true;
+    if (!quiet) state.guild.note = '正在向服务端要最新成员表…';
+    guildRequest('/api/guild/mine', {})
+      .then(function (res) {
+        var body = guildBody(res);
+        state.guild.busy = false;
+        if (body.ok !== true) {
+          state.guild.note = '同步失败：' + guildErrorText(body);
+          return;
+        }
+        if (body.inGuild === true) {
+          if (applyGuildBody(body)) {
+            state.guild.note =
+              '成员表已同步：' + GUILD.memberText(state.save.guild) + ' · 公会等级 Lv.' + state.save.guild.level;
+          }
+          return;
+        }
+        if (!save.guild) {
+          state.guild.note = '服务端上没有你的公会（去「创建公会」或从列表里加入一个）';
+          return;
+        }
+        var anchor = save.guild.anchor || { x: state.player.x, y: state.player.y };
+        state.guild.note = '本机有公会「' + save.guild.name + '」但服务端没有 → 正在补登记…';
+        guildRequest('/api/guild/create', { name: save.guild.name, x: anchor.x, y: anchor.y })
+          .then(function (res2) {
+            var body2 = guildBody(res2);
+            if (body2.ok === true && applyGuildBody(body2)) {
+              state.guild.note = '补登记成功：' + GUILD.memberText(state.save.guild);
+              return;
+            }
+            state.guild.note = '补登记失败：' + guildErrorText(body2) + ' —— 本机这份留着（不删玩家的公会）';
+          })
+          .catch(function (error) {
+            state.guild.note = '补登记失败：' + (error && error.message ? error.message : '未知错误');
+          });
+      })
+      .catch(function (error) {
+        state.guild.busy = false;
+        state.guild.note = '同步失败：连不上服务端（' + (error && error.message ? error.message : '未知错误') + '）';
+        if (!quiet) flash(state.guild.note, 2600);
+      });
+    return true;
+  }
+
+  /**
+   * 要一份公会列表（没有公会时面板上那块「公会列表」；点一行就能加入）。
+   * 列表项由服务端算好（等级 / 人数），客户端只负责画 —— 这里顺手按人数降序排一下，方便挑。
+   */
+  function guildList(quiet) {
+    if (!guildCloudReady()) {
+      state.guild.list = [];
+      state.guild.listNote = '没配 cloudBase（或当前环境不支持网络）—— 看不到别人的公会';
+      if (!quiet) flash(state.guild.listNote, 2400);
+      return false;
+    }
+    state.guild.busy = true;
+    guildRequest('/api/guild/list', { limit: BAL.guild.listLimit })
+      .then(function (res) {
+        var body = guildBody(res);
+        state.guild.busy = false;
+        if (body.ok !== true) {
+          state.guild.list = [];
+          state.guild.listNote = '列表拿不到：' + guildErrorText(body);
+          return;
+        }
+        var rows = body.guilds && body.guilds.length ? body.guilds : [];
+        rows.sort(function (a, b) {
+          return b.count - a.count;
+        });
+        state.guild.list = rows;
+        state.guild.listAt = Math.round(WORLD.now());
+        state.guild.listNote = rows.length
+          ? '服务端一共 ' + (body.total || rows.length) + ' 个公会（最多显示 ' + BAL.guild.listLimit + ' 个）'
+          : '服务端还没有任何公会：你可以去建第一个';
+        if (!quiet) flash(state.guild.listNote, 2400);
+      })
+      .catch(function (error) {
+        state.guild.busy = false;
+        state.guild.list = [];
+        state.guild.listNote = '列表拿不到：连不上服务端（' + (error && error.message ? error.message : '未知错误') + '）';
+      });
+    return true;
+  }
+
+  /**
+   * 公会面板开着时的自动刷新（每 `balance.guild.syncIntervalMs` 一次）：成员表 / 列表都靠它保鲜。
+   * 只在**面板真的开着**时才发包（关掉面板就静默）；`guildAutoSync` 由 step 每逻辑帧叫一次。
+   */
+  function guildAutoSync() {
+    if (PANELS.panelId() !== 'guild') return;
+    if (state.guild.busy) return;
+    // autoAt = 0（还没同步过）= 立刻来一次：打开面板那一下就该看到服务端的成员表
+    if (state.guild.autoAt > 0 && state.now - state.guild.autoAt < BAL.guild.syncIntervalMs) return;
+    state.guild.autoAt = state.now;
+    if (state.save.guild) syncGuild(true);
+    else guildList(true);
   }
 
   /** 回公会锚点：冷却 + 战斗中禁用（balance.guild.teleportCooldownMs / teleportCombatLockMs） */
@@ -933,8 +1808,7 @@ G.GAME = (function () {
     }
     state.player.x = save.guild.anchor.x;
     state.player.y = save.guild.anchor.y;
-    state.camera.x = state.player.x;
-    state.camera.y = state.player.y;
+    snapCamera();
     state.player.targetId = 0;
     save.guild.teleportAt = WORLD.now();
     WORLD.ensureChunks(state.player.x, state.player.y);
@@ -945,6 +1819,40 @@ G.GAME = (function () {
   function inCamp() {
     if (!state.player) return false;
     return G.TERRAIN.isInCamp(state.player.x, state.player.y);
+  }
+
+  /** 站在铁匠跟前吗（本次新增）：半径取 `balance.world.camp.smith.talkRadius`，坐标来自 04-terrain 的摆位表 */
+  function nearSmith() {
+    var smith = G.TERRAIN.smithSpot();
+    if (!smith || !state.player) return false;
+    var dx = state.player.x - smith.x;
+    var dy = state.player.y - smith.y;
+    var reach = BAL.world.camp.smith.talkRadius;
+    return dx * dx + dy * dy <= reach * reach;
+  }
+
+  /**
+   * 铁匠头顶那枚「锻」圆键（本次新增）：只有站在他跟前才出现在 HUD 按钮表里。
+   *
+   * 为什么走「HUD 按钮表」而不是给世界里的 NPC 单开一套命中：15-input 的 `buttonAt` 只看这一张表、
+   * 触摸也只有一条链 —— 于是这枚键与「箱 / 包 / 商」完全同源（按下有反馈、松手才触发、
+   * 面板开着也照样能点）。坐标按**相机投影**算（`RENDER.toScreen`），所以它钉在铁匠头顶跟着世界走。
+   * 不在跟前 / 世界里没有他 → 返回 null，uiView 会把它从表里去掉（否则玩家在野外摸到那一块屏幕
+   * 会莫名其妙弹出强化面板）。
+   */
+  function smithButton() {
+    var smith = G.TERRAIN.smithSpot();
+    if (!smith || !nearSmith()) return null;
+    var point = RENDER.toScreen(state.camera, smith.x, smith.y);
+    return {
+      id: 'smith',
+      label: '锻',
+      badge: 0,
+      state: 'on',
+      x: point.x,
+      y: point.y - 128,
+      r: BAL.view.functionBar.radius + 5
+    };
   }
 
   /** 营地治疗：按**缺失血量**收金币（balance.world.camp.heal）；满血就别让玩家白花钱 */
@@ -988,8 +1896,7 @@ G.GAME = (function () {
     var center = G.TERRAIN.campCenter();
     state.player.x = center.x;
     state.player.y = center.y;
-    state.camera.x = state.player.x;
-    state.camera.y = state.player.y;
+    snapCamera();
     state.player.targetId = 0;
     state.save.camp = { teleportAt: WORLD.now(), used: true };
     state.wasInCamp = true;
@@ -1042,6 +1949,13 @@ G.GAME = (function () {
       return;
     }
     state.resetArmed = false;
+    // 公会的运行态也一起清（列表是服务端的东西，重开号不该留着上一局的提示）—— 本次新增
+    state.guild.note = '';
+    state.guild.busy = false;
+    state.guild.list = [];
+    state.guild.listAt = 0;
+    state.guild.listNote = '';
+    state.guild.autoAt = 0;
     var keepName = state.save ? state.save.name : '';
     SAVE.clear();
     state.save = SAVE.create(BAL.season.worldSeed, 1);
@@ -1050,8 +1964,7 @@ G.GAME = (function () {
     state.player = PLAYER.create(state.save);
     state.stats = PLAYER.statsOf(state.save.level, state.save.loadout);
     state.player.hp = state.stats.hpMax;
-    state.camera.x = state.player.x;
-    state.camera.y = state.player.y;
+    snapCamera();
     WORLD.reset(BAL.season.worldSeed);
     WORLD.ensureChunks(state.player.x, state.player.y);
     writeSave();
@@ -1061,6 +1974,12 @@ G.GAME = (function () {
 
   /** 右下功能键 → 打开 / 收起面板；「自动」是开关（用户要求"自动战斗设置为按钮，点击开启"） */
   function onHudButton(id) {
+    // A10：技能键右上角的「自动释放」勾选框 —— 必须排在技能键前面判，
+    // 因为 'skillAuto0' 也以 'skill' 开头（顺序反了就会变成"点勾选框放了个技能"）
+    if (id.indexOf('skillAuto') === 0) {
+      toggleSkillAuto(Number(id.slice(9)));
+      return;
+    }
     // 技能键（A5）：技能有自己的声音（cast / mend），不再叠一声 UI 的"咔"
     if (id.indexOf('skill') === 0) {
       castSkillSlot(Number(id.slice(5)));
@@ -1076,12 +1995,26 @@ G.GAME = (function () {
     else if (id === 'guild') togglePanel('guild');
     else if (id === 'camp') togglePanel('camp');
     else if (id === 'menu') togglePanel('menu');
+    // 左侧边栏（本次新增）：两枚键各有自己的 id —— 商城与"回到营地"，与底部那行互不干扰。
+    // 「商」在 A15 是底部第 6 枚功能键，本次挪到侧边栏顶部（用户：商城放在侧边栏，回营地放它下面）。
+    else if (id === 'sideShop') togglePanel('shop');
+    else if (id === 'sideCamp') teleportCamp();
+    // 铁匠头顶那枚「锻」键（本次新增）：只有站在他跟前才会出现在按钮表里
+    else if (id === 'smith') togglePanel('enhance');
   }
 
-  /** 再点同一个功能键 = 收起面板（卡片只占 1/3 屏，功能键一直在，这是最顺手的关法） */
+  /** 再点同一个功能键 = 收起面板（卡片不铺满屏幕、功能键一直在，这是最顺手的关法） */
   function togglePanel(panel) {
-    if (PANELS.isOpen() && PANELS.panelId() === panel) PANELS.close();
-    else PANELS.open(panel);
+    if (PANELS.isOpen() && PANELS.panelId() === panel) {
+      PANELS.close();
+      return;
+    }
+    PANELS.open(panel);
+    // 打开公会面板：先给服务端要一份（成员表 / 列表）—— `autoAt = 0` 让 guildAutoSync 立刻发一次包
+    if (panel === 'guild') {
+      state.guild.autoAt = 0;
+      guildAutoSync();
+    }
   }
 
   /**
@@ -1123,13 +2056,30 @@ G.GAME = (function () {
     else if (type === 'toggleSfx') toggleSetting('sfx');
     else if (type === 'toggleBgm') toggleSetting('bgm');
     else if (type === 'toggleVibrate') toggleSetting('vibrate');
+    else if (type === 'skillAuto') toggleSkillAuto(action.index);
+    // A11：设置面板里那一行「视角」（点一下换下一档：远 → 中 → 近 → 远）
+    else if (type === 'zoomNext') cycleZoomTier();
+    // A11 之二：设置面板里的**视角缩放滚动轴**（松手时交出拖到的格数；拖动过程走 onTouchMove 的静默应用）
+    else if (type === 'setZoomTiles') setZoomTiles(action.tiles, false);
     else if (type === 'openChest') openChests(action.count || 1);
+    // A14：宝箱清单每行右侧那两枚按阶控件（「全开」/「自动」）
+    else if (type === 'openChestTier') openChestsOfTier(action.tier);
+    else if (type === 'toggleChestAuto') toggleChestAuto(action.tier);
     else if (type === 'equip') equipFromBag(action.itemId);
     else if (type === 'unequip') unequipSlot(action.slotId);
     else if (type === 'salvageAll') salvageAll();
     else if (type === 'buyHorn') buyHorn();
+    else if (type === 'buyStone') buyStone();
+    else if (type === 'enhance') enhanceItem(action.slotId);
     else if (type === 'createGuild') createGuild();
     else if (type === 'renameGuild') PANELS.setDraftGuildName(PANELS.nextGuildName((WORLD.now() | 0) + 7));
+    /* 公会（本次重做）：打字 / 加入 / 同步 / 列表 / 退会 —— 五个动作都落在这里 */
+    else if (type === 'typeGuildName') typeGuildName();
+    else if (type === 'typeJoinName') typeJoinName();
+    else if (type === 'joinGuild') joinGuild(action.name);
+    else if (type === 'guildSync') syncGuild(false);
+    else if (type === 'guildList') guildList(false);
+    else if (type === 'guildLeave') guildLeave();
     else if (type === 'teleportGuild') teleportGuild();
     else if (type === 'campHeal') campHeal();
     else if (type === 'campTeleport') teleportCamp();
@@ -1145,6 +2095,8 @@ G.GAME = (function () {
   function uiView() {
     // 技能栏视图先算一次：功能键与技能键合并成同一份按钮表交给输入层（画法与命中共用一份坐标）
     var skills = skillView();
+    // 铁匠头顶那枚「锻」键（本次新增）：站远了就是 null，不进按钮表（画法、命中、点击都读这一份）
+    var smith = smithButton();
     return {
       save: state.save,
       player: state.player,
@@ -1155,9 +2107,17 @@ G.GAME = (function () {
       activeMonsters: WORLD.activeMonsterCount(),
       /**
        * 只有 HUD 的功能键在这里（面板的关闭键由 18-panels 自己命中）：
-       * 卡片只占 1/3 屏，功能键必须一直可点，所以它不随面板开合而变。
+       * 卡片只占约 2/3 屏高，功能键必须一直可点，所以它不随面板开合而变。
+       * A10：技能键右上角的四个「自动释放」勾选框排在技能键**前面** ——
+       * 15-input 的 buttonAt 取第一个命中的，于是小方框永远优先于整个圆键。
+       * 本次新增的「锻」（铁匠）排在功能键之后、勾选框与技能键**之前**：它在屏幕中上部
+       * （铁匠头顶），与底下那两行键在位置上永远不会撞上；顺序上则要保持"**技能键永远在最后**"
+       * （自检盯着 `uiButtons[length-4..length-1] === skill0..skill3` 这一条）。
        */
-      buttons: HUD.buttons({ save: state.save, inCamp: inCamp() }).concat(HUD.skillButtons({ skills: skills })),
+      buttons: HUD.buttons({ save: state.save, inCamp: inCamp() })
+        .concat(smith ? [smith] : [])
+        .concat(HUD.skillAutoButtons({ skills: skills }))
+        .concat(HUD.skillButtons({ skills: skills })),
       /** A5：技能栏视图（每个栏位的解锁 / 冷却比例 / 剩余毫秒）—— 17-hud 只认它，不读 balance */
       skills: skills,
       /** A5：最近放过的技能名（调试面板） */
@@ -1175,8 +2135,17 @@ G.GAME = (function () {
       account: state.account,
       inCamp: inCamp(),
       autoBattle: !!(state.save.settings && state.save.settings.autoBattle === true),
+      /** A11：渲染用的相机（小地图的视野框画的是"镜头在看哪"，它带前瞻偏移，所以不等于玩家坐标） */
+      camera: state.camera,
+      /** A11 / A11 之二：当前视角（档位 + 缩放轴；调试面板 / 设置面板那一行滑块 / 自检都读它） */
+      zoom: zoomView(),
       /** A4：音频状态（设置面板要显示开关的当前值与平台是否支持） */
-      audio: PLAT.audioState()
+      audio: PLAT.audioState(),
+      /**
+       * 公会那一块的运行态（本次新增）：18-panels 的公会面板读它画"服务端"那一行、公会列表与忙闲；
+       * 公会本身（成员 / 等级 / 锚点）在 `view.save.guild` —— 两个都在这一份 view 里，面板不再各取一套。
+       */
+      guild: state.guild
     };
   }
 
@@ -1204,7 +2173,7 @@ G.GAME = (function () {
    *
    * 绘制顺序（A4 起 HUD 被拆成两半，就是为了这条链）：
    *   世界 → 摇杆 → HUD（吸顶 + 经验条 + 小地图）→ 面板卡片 → **功能键**
-   * 功能键放在最后：面板卡片只占 1/3 屏，右下那五个键要一直可用（点「包」能直接关掉背包）。
+   * 功能键放在最后：面板卡片不铺满屏幕（约 2/3 屏高，底部整条动作栏仍露在外面），右下那五个键要一直可用（点「包」能直接关掉背包）。
    * 登录 / 创建角色界面则整屏交给 G.LOGIN（世界不画，玩家还没进游戏）。
    */
   function renderTo(ctx) {
@@ -1281,6 +2250,7 @@ G.GAME = (function () {
     if (!point) return;
     // 首次触摸：解锁音频（平台硬要求"用户交互后才能播"），然后把 BGM 起起来
     if (PLAT.unlockAudio()) PLAT.bgm(true);
+    lastSliderTiles = 0;
     if (state.screen !== 'playing') {
       G.LOGIN.press(point);
       return;
@@ -1300,9 +2270,25 @@ G.GAME = (function () {
     if (state.screen !== 'playing') return;
     if (state.panelTouch) {
       PANELS.move(point, uiView());
+      applySliderDrag();
       return;
     }
     INPUT.move(point);
+  }
+
+  /**
+   * A11 之二：视角缩放轴拖到哪，世界就缩放到哪 —— **边拖边缩放**才是滑块该有的手感
+   * （卡片外面照旧露着世界，玩家一眼看到"拉近之后能看清什么"）。
+   *
+   * 静默应用（不提示、不写存储）：拖动途中每格都落盘会把手机拖卡，松手那一下由 release 的 action 收尾。
+   * 同一格重复调用直接跳过（move 事件比像素还密，没必要重复算）。
+   */
+  function applySliderDrag() {
+    var drag = PANELS.sliderDrag();
+    if (!drag || drag.tiles === lastSliderTiles) return false;
+    lastSliderTiles = drag.tiles;
+    setZoomTiles(drag.tiles, true);
+    return true;
   }
 
   function onTouchEnd(event) {
@@ -1314,7 +2300,9 @@ G.GAME = (function () {
     }
     if (state.panelTouch) {
       state.panelTouch = false;
-      handleAction(PANELS.release(point, uiView()));
+      var action = PANELS.release(point, uiView());
+      lastSliderTiles = 0;
+      handleAction(action);
       return;
     }
     var button = INPUT.end(point);
@@ -1385,6 +2373,14 @@ G.GAME = (function () {
     toggleAutoBattle: toggleAutoBattle,
     castSkillSlot: castSkillSlot,
     autoCastStep: autoCastStep,
+    skillAutoFlags: skillAutoFlags,
+    toggleSkillAuto: toggleSkillAuto,
+    zoomView: zoomView,
+    setZoomTier: setZoomTier,
+    setZoomTiles: setZoomTiles,
+    nearestZoomTier: nearestZoomTier,
+    applySliderDrag: applySliderDrag,
+    cycleZoomTier: cycleZoomTier,
     skillView: skillView,
     skillCooldowns: skillCooldowns,
     toggleSetting: toggleSetting,
@@ -1397,10 +2393,32 @@ G.GAME = (function () {
     applyKill: applyKill,
     onLevelUp: onLevelUp,
     openChests: openChests,
+    openOneChest: openOneChest,
+    /* A14：按阶开箱（宝箱清单每行的「全开」）+ 自动开启（勾选表 / 切换 / 掉出来就当场开） */
+    openChestsOfTier: openChestsOfTier,
+    openOneChestOfTier: openOneChestOfTier,
+    autoOpenChest: autoOpenChest,
+    chestAutoFlags: chestAutoFlags,
+    toggleChestAuto: toggleChestAuto,
     equipFromBag: equipFromBag,
     salvageAll: salvageAll,
     buyHorn: buyHorn,
+    /* 本次新增：商城的强化石 + 铁匠的强化（两者都是"改存档"的入口，界面只发 action） */
+    buyStone: buyStone,
+    enhanceItem: enhanceItem,
+    nearSmith: nearSmith,
+    smithButton: smithButton,
     createGuild: createGuild,
+    /* 本次新增：公会的网络那一半（成员表 / 列表 / 加入 / 退会 / 自动刷新） */
+    joinGuild: joinGuild,
+    guildLeave: guildLeave,
+    syncGuild: syncGuild,
+    guildList: guildList,
+    guildAutoSync: guildAutoSync,
+    guildCloudReady: guildCloudReady,
+    guildErrorText: guildErrorText,
+    typeGuildName: typeGuildName,
+    typeJoinName: typeJoinName,
     teleportGuild: teleportGuild,
     inCamp: inCamp,
     campHeal: campHeal,
@@ -1428,4 +2446,3 @@ G.GAME = (function () {
  * 这正是"逻辑层与平台分离"带来的好处：同一份代码既能上手机也能进测试。
  */
 G.GAME.start();
-

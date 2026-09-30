@@ -2,7 +2,8 @@
  * 07-combat.js —— 自动战斗的纯计算部分（阶段 A2 新增）
  *
  * 只做四件事，都不碰画布、不碰 tt，所以能在 node 里直接断言（决策 #7 的替代验证通道）：
- *   1. 选目标：**视野内最近**的可攻击怪；同距取 **ID 小**的（确定性，不然帧率一变目标就跳）；
+ *   1. 选目标：**距离最近**的可攻击怪（默认全地图，见 `combat.targetRange`）；
+ *      同距取 **ID 小**的（确定性，不然帧率一变目标就跳）；
  *   2. 伤害：`max(1, 攻击 × (1 + 增伤) − 目标防御 × 0.6)`，暴击再 ×暴击伤害；
  *   3. 伤害归属：累计到怪身上（决策 #1 —— 奖励归**累计伤害最高**的玩家）；
  *   4. 抢怪缓解的两个**预留开关**：`combat.firstHitProtectionMs`（首击保护）与
@@ -17,9 +18,13 @@ G.COMBAT = (function () {
 
   var BAL = G.BAL;
 
-  /** 选目标的视野半径（设计像素）：比怪的最大仇恨半径（380）大一截，够"自动战斗看得见" */
-  function visionRange() {
-    return BAL.combat.visionRange;
+  /**
+   * 选目标的距离上限（设计像素）。
+   * `0` = **不限距离**：在**已装载的全部怪**里找最近的那只（A7 修订，用户要求"找全地图最近的怪"）。
+   * 只有真的想限制"只看眼前一圈"时才把它调成正数。
+   */
+  function targetRange() {
+    return BAL.combat.targetRange;
   }
 
   /** 出手间隔（毫秒）= 1000 / 攻速 */
@@ -52,12 +57,14 @@ G.COMBAT = (function () {
   }
 
   /**
-   * 选目标：视野内距离最近的活着的怪；同距取 ID 小的。
+   * 选目标：**距离最近**的活着的怪；同距取 ID 小的。
+   * `range <= 0` = 不限距离（默认）：在传进来的**全部怪**（= 已装载的怪）里找最近的 ——
+   * A7 修订，用户要求"自动战斗找全地图最近的怪"（之前写死视野 540，屏幕外一格的怪就当看不见）。
    * 用平方距离比较（省一次开方，也让比较保持整数）。
    */
   function pickTarget(x, y, monsters, range) {
     var best = null;
-    var bestSq = range * range;
+    var bestSq = range > 0 ? range * range : Infinity;
     for (var i = 0; i < monsters.length; i += 1) {
       var monster = monsters[i];
       if (!monster || monster.state === 'dead') continue;
@@ -129,7 +136,7 @@ G.COMBAT = (function () {
   }
 
   return {
-    visionRange: visionRange,
+    targetRange: targetRange,
     attackIntervalMs: attackIntervalMs,
     rollDamage: rollDamage,
     monsterDamage: monsterDamage,

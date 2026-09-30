@@ -249,12 +249,92 @@ G.EQUIP = (function () {
   /** 把主属性 + 词条折算成战力（同一条词条再次出现时叠加，天赐专属就是靠这个翻倍） */
   function powerOf(item) {
     var weights = BAL.equipment.powerWeights;
-    var power = (weights[item.main.stat] || 0) * item.main.value;
+    // 强化只放大**主属性**那一项（与 applyTo 用的是同一个倍率函数，两处不会各算一套）
+    var power = (weights[item.main.stat] || 0) * item.main.value * enhanceMul(item);
     for (var i = 0; i < item.affixes.length; i += 1) {
       var affix = item.affixes[i];
       power += (weights[affix.id] || 0) * affix.value;
     }
     return Math.round(power);
+  }
+
+  /* ------------------------------------------------------- 强化（营地铁匠，本次新增） */
+
+  /**
+   * 铁匠那一套规则（`balance.enhance`）：等级上限 / 每级成本 / 每级加成只有这一份来源。
+   *
+   * 等级挂在**装备自己身上**（`item.enhance`）—— 于是它跟着这件装备走：卖了就没了、
+   * 换一件就是另一套等级、背包里那件的等级也不会因为你换人就跑。
+   * 这里全是纯函数：改存档只发生在 20-main 的 `enhanceItem`（扣石头 + 调 `applyEnhance`）。
+   */
+  function enhanceRule() {
+    return BAL.enhance;
+  }
+
+  /** 强化等级上限（+10） */
+  function maxEnhance() {
+    return BAL.enhance.maxLevel;
+  }
+
+  /**
+   * 这件装备的强化等级：整数、夹在 [0, maxLevel]。
+   * 坏数据（缺字段 / 字符串 / NaN / 负数 / +999）一律当 0 或上限 —— 改包 / 坏存档不该白送等级。
+   */
+  function enhanceLevel(item) {
+    if (!item || typeof item.enhance !== 'number' || !isFinite(item.enhance)) return 0;
+    var level = Math.floor(item.enhance);
+    if (level < 0) return 0;
+    if (level > maxEnhance()) return maxEnhance();
+    return level;
+  }
+
+  /** 强化对**主属性**的倍率：0 级 = 1（与没强化过逐位相同），10 级 = 1 + 10 x statPerLevel */
+  function enhanceMul(item) {
+    return 1 + enhanceLevel(item) * BAL.enhance.statPerLevel;
+  }
+
+  /** 从 `level` 升到 `level + 1` 要几颗强化石（每级翻倍：1 / 2 / 4 / ... / 512；满级返回 0） */
+  function enhanceCost(level) {
+    var rule = BAL.enhance;
+    var step = Math.floor(level);
+    if (!(step > 0)) step = 0;
+    if (step >= rule.maxLevel) return 0;
+    return rule.baseStones * Math.pow(rule.growth, step);
+  }
+
+  /** 这件装备再升一级要几颗（满级返回 0 = 没得升了） */
+  function nextEnhanceCost(item) {
+    return enhanceCost(enhanceLevel(item));
+  }
+
+  /** 还能不能再强（没穿 / 已满级 = false） */
+  function canEnhance(item) {
+    return !!item && enhanceLevel(item) < maxEnhance();
+  }
+
+  /**
+   * 升一级：**改 `item.enhance` 与 `item.power` 的唯一一处**。
+   * 返回新的等级；已满级 / 坏数据时原样返回（不抛异常、也不加等级）。
+   */
+  function applyEnhance(item) {
+    var level = enhanceLevel(item);
+    if (!item || level >= maxEnhance()) return level;
+    item.enhance = level + 1;
+    item.power = powerOf(item);
+    return item.enhance;
+  }
+
+  /** 显示用的强化标记：` +3`；0 级是**空串** —— 于是所有拼接都不用先判断（labelOf 就是靠它） */
+  function enhanceTag(item) {
+    var level = enhanceLevel(item);
+    return level > 0 ? ' +' + level : '';
+  }
+
+  /** 存档迁移用：把一件装备的强化等级修成合法值（老存档没有这个字段 = 0 级） */
+  function normalizeEnhance(item) {
+    if (!item) return item;
+    item.enhance = enhanceLevel(item);
+    return item;
   }
 
   /**
@@ -284,6 +364,8 @@ G.EQUIP = (function () {
       slotName: slot.name,
       level: level,
       reqLevel: requirementForItem(def),
+      /** 强化等级（0 = 没强化过）：掉落时一律 0，之后由营地铁匠的 applyEnhance 往上加 */
+      enhance: 0,
       statMul: Math.round(mul * 1000) / 1000,
       main: {
         stat: slot.mainStat,
@@ -300,7 +382,8 @@ G.EQUIP = (function () {
   /** 一件装备的属性折成战斗加成（10-player.js 汇总 4 件时用） */
   function applyTo(totals, item) {
     if (!item) return totals;
-    totals[item.main.stat] = (totals[item.main.stat] || 0) + item.main.value;
+    // 强化等级加在**主属性**上（词条是掉落那一刻抽死的，铁匠不动它们）
+    totals[item.main.stat] = (totals[item.main.stat] || 0) + item.main.value * enhanceMul(item);
     for (var i = 0; i < item.affixes.length; i += 1) {
       var affix = item.affixes[i];
       totals[affix.id] = (totals[affix.id] || 0) + affix.value;
@@ -342,10 +425,10 @@ G.EQUIP = (function () {
     return '+' + (Math.round(value * 10) / 10) + ' ' + statName(stat);
   }
 
-  /** 界面文案：`天赐 天命之剑`（阶名 + 装备名；卡面与提示共用一份） */
+  /** 界面文案：`天赐 天命之剑 +3`（阶名 + 装备名 + 强化标记；卡面与提示共用一份） */
   function labelOf(item) {
     if (!item) return '空';
-    return (item.tierName || tierById(item.tier).name) + ' ' + (item.name || item.slotName);
+    return (item.tierName || tierById(item.tier).name) + ' ' + (item.name || item.slotName) + enhanceTag(item);
   }
 
   return {
@@ -373,6 +456,16 @@ G.EQUIP = (function () {
     rollAffixes: rollAffixes,
     rollUniqueAffix: rollUniqueAffix,
     powerOf: powerOf,
+    enhanceRule: enhanceRule,
+    maxEnhance: maxEnhance,
+    enhanceLevel: enhanceLevel,
+    enhanceMul: enhanceMul,
+    enhanceCost: enhanceCost,
+    nextEnhanceCost: nextEnhanceCost,
+    canEnhance: canEnhance,
+    applyEnhance: applyEnhance,
+    enhanceTag: enhanceTag,
+    normalizeEnhance: normalizeEnhance,
     generate: generate,
     applyTo: applyTo,
     totalsOf: totalsOf,

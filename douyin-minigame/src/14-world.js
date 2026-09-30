@@ -195,8 +195,21 @@ G.WORLD = (function () {
    * 保证玩家所在 chunk 周围 ring 圈已装载，并清理"太久没看"与超出上限的 chunk。
    * ring 默认 = `view.loadRingChunks`（预载一圈，跨 chunk 时画面才不空）。
    */
+  /**
+   * 装载环半径（A11）：**跟着视角档位走** —— 近档视野小，同样的环就能把整屏填满（环 2 = 5×5 chunk）；
+   * 中档视野大一倍，环 2 覆盖屏幕中间约六成；远档视野是 8×17 个 chunk，环保持 1（再大就装不下了，
+   * 那属于 03-roadmap 里记着的"远档要不要铺满屏幕"的取舍）。表里没写 loadRing 时退回 `view.loadRingChunks`。
+   */
+  function loadRing() {
+    var tiers = BAL.view.cameraTiers;
+    var index = Math.floor(BAL.view.cameraTier);
+    var tier = tiers && index >= 0 && index < tiers.length ? tiers[index] : null;
+    var ring = tier && tier.loadRing >= 0 ? Math.floor(tier.loadRing) : BAL.view.loadRingChunks;
+    return ring >= 0 ? ring : BAL.view.loadRingChunks;
+  }
+
   function ensureChunks(px, py, ring) {
-    if (!(ring >= 0)) ring = BAL.view.loadRingChunks;
+    if (!(ring >= 0)) ring = loadRing();
     var center = CHUNK.chunkOfWorld(px, py);
     var wanted = {};
     var dx;
@@ -516,7 +529,8 @@ G.WORLD = (function () {
 
   /**
    * 玩家出手（自动战斗的"出手"这一半）：
-   *   1. 当前目标还活着就继续打（不每帧跳目标，手感才稳）；否则按"视野内最近"重选；
+   *   1. 当前目标还活着就继续打（不每帧跳目标，手感才稳）；否则按"距离最近"重选
+   *      （默认全地图，见 `combat.targetRange` = 0）；
    *   2. 攻击距离 = `player.attackRange`，但按**中心距 − 怪半径**算（怪越大越好打，符合直觉）；
    *   3. 出手间隔 = `1000 / 攻速`（balance.player.attackSpeed，1.6 次/秒）；
    *   4. 伤害、暴击、归属全部走 07-combat，两个抢怪开关也是在那里读 balance 的。
@@ -524,21 +538,21 @@ G.WORLD = (function () {
   function playerAttack(player, stats, monsters, events) {
     var i;
     var target = null;
-    // 选目标（01-game-design §4）：每 `combat.targetIntervalMs`（0.1 秒）重算一次"**视野内最近**"；
+    // 选目标（01-game-design §4）：每 `combat.targetIntervalMs`（0.1 秒）重算一次"**距离最近**"；
     // 两次重算之间沿用当前目标（省 CPU，也免得目标每帧乱跳）——
     // ⚠️ 不能只在"目标死了"时重选：否则会锁着一只远处的怪，站在近怪堆里一直打不到。
+    // A7 修订：重选与沿用都**不再按视野距离过滤**（combat.targetRange = 0 = 全地图最近的怪）——
+    // 目标经常在屏幕外一格，按视野判会不断换目标，自动走位就走两步停一下。
     var due = nowMs - player.targetAt >= BAL.combat.targetIntervalMs;
     if (!due && player.targetId) {
       for (i = 0; i < monsters.length; i += 1) {
         var current = monsters[i];
         if (current.id !== player.targetId || current.state === 'dead') continue;
-        var cdx = current.x - player.x;
-        var cdy = current.y - player.y;
-        if (Math.sqrt(cdx * cdx + cdy * cdy) <= COMBAT.visionRange()) target = current;
+        target = current;
       }
     }
     if (!target) {
-      target = COMBAT.pickTarget(player.x, player.y, monsters, COMBAT.visionRange());
+      target = COMBAT.pickTarget(player.x, player.y, monsters, COMBAT.targetRange());
       player.targetId = target ? target.id : 0;
       player.targetAt = nowMs;
     }
@@ -748,12 +762,12 @@ G.WORLD = (function () {
   /* ------------------------------------------------ 自动战斗走位（A4 新增） */
 
   /**
-   * 视野内最近的可攻击怪。
+   * 距离最近的可攻击怪（默认**全地图**：`combat.targetRange` = 0 = 不限距离）。
    * 与 `playerAttack` 共用 07-combat 的同一份 pickTarget —— 走位与出手**必须**选同一只怪，
    * 否则会出现"走过去打另一只"的鬼畜现象。
    */
   function pickTarget(player) {
-    return COMBAT.pickTarget(player.x, player.y, allMonsters(), COMBAT.visionRange());
+    return COMBAT.pickTarget(player.x, player.y, allMonsters(), COMBAT.targetRange());
   }
 
   /** 按 id 取怪（走位每帧都要目标的实时坐标；死了 / 该 chunk 被卸掉就当没有） */
@@ -769,6 +783,7 @@ G.WORLD = (function () {
   return {
     reset: reset,
     setView: setView,
+    loadRing: loadRing,
     ensureChunks: ensureChunks,
     castSkill: castSkill,
     allMonsters: allMonsters,

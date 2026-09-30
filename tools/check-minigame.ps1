@@ -18,6 +18,7 @@
 #    11. Date.now inside logic      -> logic must be replayable; only platform/main may read it
 #    12. clashing module names      -> two parts assigning the same G.NAME silently overwrite
 #    13. mojibake in generated file -> a non-ASCII .ps1 writes mojibake (lived through it once)
+#    14. bare module name in a module  -> ReferenceError on the one path nobody tested (chest bug)
 #
 # ASCII only on purpose (see the note in tools\gen-minigame-balance.ps1).
 # Exit code 0 = everything passed, 1 = at least one FAIL.
@@ -221,6 +222,42 @@ if ($apiExports.Count -eq 0) {
 } else {
   Bad ("call sites that resolve to nothing (missing export?): " + ($apiMissing -join '; '))
 }
+Write-Output "== bare module names =="
+# A module IIFE only sees the names it aliases at the top ("var CHUNK = G.CHUNK;"). A bare module
+# name inside another module is a ReferenceError that no logic assertion can see until that exact
+# path runs -- and that is how the chest bug shipped: 2026-09-30 GAME.openOneChest called
+# "CHUNK.bandOf(...)" while 20-main.js aliases no CHUNK. Every chest opened in the real game threw
+# "CHUNK is not defined", and because the old code removed the chest from the bag BEFORE rolling the
+# item, the player saw the chest disappear with no equipment and no message -- the user's report
+# "opening a chest must always give equipment". All 594 assertions passed anyway, because no test
+# had ever called openOneChest. This scan is the cheap net for that whole class.
+# It would also have caught the G.LOGIN.isBusy style of problem earlier; the export-list scan below
+# only covers "G.MODULE.name" call sites, never bare ones.
+$bareHits = @()
+foreach ($part in $parts) {
+  $code = StripComments (ReadText $part.FullName)
+  # Quoted text can legitimately name a module ("see G.PLAT.sfx"), so strings are blanked too.
+  # Only this scan does it: the other scans look for API calls, which never live in a string.
+  $code = [Text.RegularExpressions.Regex]::Replace($code, "'(?:[^'\\\r\n]|\\.)*'", ' ')
+  $code = [Text.RegularExpressions.Regex]::Replace($code, '"(?:[^"\\\r\n]|\\.)*"', ' ')
+  foreach ($name in $namespaceMap.Keys) {
+    # The name is visible only if this file assigns it from G.NAME (declarations may be comma-joined,
+    # which is why the test is "NAME = G.NAME" per name instead of parsing the var statement).
+    # -cmatch, not -match: PowerShell's -match is case-insensitive, so "RNG" would also match the
+    # local "rng.nextUint32" and every module would look broken.
+    if ($code -cmatch ('(?<![\w$.])' + $name + '\s*=\s*G\.' + $name + '(?![\w])')) { continue }
+    if ($code -cmatch ('(?<![\w$.])' + $name + '\s*\.\s*[A-Za-z_]')) {
+      $bareHits += ($part.Name + ' -> ' + $name)
+    }
+  }
+}
+$bareHits = @($bareHits | Sort-Object -Unique)
+if ($bareHits.Count -eq 0) {
+  Ok ("module names are only reached through a local alias or the G. prefix (" + $namespaceMap.Count + " modules checked)")
+} else {
+  Bad ("bare module name without an alias -- runtime ReferenceError: " + ($bareHits -join '; '))
+}
+
 Write-Output "== tooling =="
 $scriptProblems = @()
 # PowerShell 5.1 reads a BOM-less .ps1 as ANSI, so one non-ASCII byte in one is mojibake at best
@@ -234,6 +271,13 @@ $scriptProblems = @()
 # "chcp 65001" before that line, which is a different mechanism from PS 5.1's ANSI parsing.
 # (Worth knowing: that also makes it depend on the code page being switched before line 30.
 #  Moving the sync script to an ASCII path would remove the dependency.)
+#
+# Same family of trap, source files this time (2026-09-30, cost a rebuild): a BOM-less UTF-8 .js read
+# with "Get-Content -Raw" / written with "Set-Content -Encoding UTF8" goes through PS 5.1's ANSI code
+# page, so every Chinese comment in it turns into GBK mojibake (and the file gains a BOM). Read and
+# write src\ files with [IO.File]::ReadAllText/WriteAllText + New-Object System.Text.UTF8Encoding($false),
+# or use an editor tool -- never Get-Content/Set-Content on them. src\ has no gate for this (only the
+# generated files do), so the damage is invisible to every check here.
 $toolScripts = Get-ChildItem (Join-Path $root 'tools') -Filter '*.ps1' -File
 foreach ($script in $toolScripts) {
   $nonAscii = 0

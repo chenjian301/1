@@ -570,6 +570,288 @@ async function main() {
     'status=' + preflight.status + ' allow-headers=' + preflight.headers['access-control-allow-headers']
   );
 
+  /* --------------------------------------------------------------- 公会（本次新增） */
+
+  /**
+   * 三个假账号（直接用 SESSION_SECRET 各签一个令牌）：公会端点认的就是 /api/save 那一套身份，
+   * 所以"三个人"用三条不同 sub 的令牌就够了，不必再跑三次登录链路。
+   */
+  const now = Date.now();
+  const leaderToken = mintToken({ sub: 'douyin:smoke-leader', iat: now, exp: now + 3600000, v: 1 }, SESSION_SECRET);
+  const memberToken = mintToken({ sub: 'douyin:smoke-member1', iat: now, exp: now + 3600000, v: 1 }, SESSION_SECRET);
+  const otherToken = mintToken({ sub: 'douyin:smoke-member2', iat: now, exp: now + 3600000, v: 1 }, SESSION_SECRET);
+  const sharedBalance = (() => {
+    try {
+      const p = path.join(HERE, '..', '..', 'shared', 'balance.json');
+      return existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : null;
+    } catch (error) {
+      return null;
+    }
+  })();
+  const guildRules = sharedBalance && sharedBalance.guild ? sharedBalance.guild : {};
+
+  const created = await request(base, 'POST', '/api/guild/create', {
+    token: leaderToken,
+    name: '烟测兄弟会',
+    x: 5000,
+    y: 6000,
+    playerName: '烟测会长',
+    playerLevel: 30
+  });
+  check(
+    'POST /api/guild/create：建会成功，我是会长，成员表里就我一个',
+    created.status === 200 &&
+      !!created.json &&
+      created.json.ok === true &&
+      created.json.role === 'leader' &&
+      created.json.guild.name === '烟测兄弟会' &&
+      created.json.guild.members.length === 1 &&
+      created.json.guild.members[0].role === 'leader' &&
+      created.json.guild.members[0].name === '烟测会长',
+    JSON.stringify(created.json)
+  );
+  check(
+    '公会人数上限与 shared\\balance.json 一致（服务端那份规则没有漂移）',
+    !!created.json && created.json.guild.memberCap === guildRules.memberCap,
+    'server=' + (created.json && created.json.guild.memberCap) + ' shared=' + guildRules.memberCap
+  );
+  check(
+    '公会等级 = 1 + floor(Σ成员等级 / levelDivisor)：30 级的会长 = 1 级、经验 30',
+    !!created.json && created.json.guild.level === 1 && created.json.guild.exp === 30,
+    JSON.stringify(created.json && { level: created.json.guild.level, exp: created.json.guild.exp })
+  );
+  check(
+    '锚点就记在建会时给的那一点上',
+    !!created.json && created.json.guild.anchor.x === 5000 && created.json.guild.anchor.y === 6000,
+    JSON.stringify(created.json && created.json.guild.anchor)
+  );
+  check(
+    '响应里不回 account / openid（成员表只给名字与等级）',
+    !!created.json && !created.text.includes('openid') && !created.text.includes('smoke-leader'),
+    created.text.slice(0, 200)
+  );
+
+  const dupName = await request(base, 'POST', '/api/guild/create', {
+    token: memberToken,
+    name: '烟测兄弟会',
+    x: 90000,
+    y: 90000,
+    playerName: '烟测乙',
+    playerLevel: 45
+  });
+  check(
+    '公会名全服唯一：第二个人用同一个名字建会回 409 name_taken',
+    dupName.status === 409 && !!dupName.json && dupName.json.error === 'name_taken',
+    JSON.stringify(dupName.json)
+  );
+
+  const dupCreate = await request(base, 'POST', '/api/guild/create', { token: leaderToken, name: '另一个名字' });
+  check(
+    '一个账号只能在一个公会里：再建一次回 409 already_in_guild',
+    dupCreate.status === 409 && !!dupCreate.json && dupCreate.json.error === 'already_in_guild',
+    JSON.stringify(dupCreate.json)
+  );
+
+  const badName = await request(base, 'POST', '/api/guild/create', { token: memberToken, name: '甲' });
+  check(
+    '公会名太短回 400 invalid_name（顺带回长度规则，与服务端那份平衡表一致）',
+    badName.status === 400 &&
+      !!badName.json &&
+      badName.json.error === 'invalid_name' &&
+      badName.json.reason === 'too_short' &&
+      badName.json.nameMin === guildRules.nameMin &&
+      badName.json.nameMax === guildRules.nameMax,
+    JSON.stringify(badName.json)
+  );
+
+  const joinNoGuild = await request(base, 'POST', '/api/guild/join', { token: memberToken, name: '根本没有这个会' });
+  check(
+    '加入一个不存在的公会回 404 no_guild',
+    joinNoGuild.status === 404 && !!joinNoGuild.json && joinNoGuild.json.error === 'no_guild',
+    JSON.stringify(joinNoGuild.json)
+  );
+
+  const joined = await request(base, 'POST', '/api/guild/join', {
+    token: memberToken,
+    name: '烟测兄弟会',
+    playerName: '烟测乙',
+    playerLevel: 45
+  });
+  check(
+    'POST /api/guild/join：第二个人进来了（角色是 member，人数 2）',
+    joined.status === 200 &&
+      !!joined.json &&
+      joined.json.ok === true &&
+      joined.json.role === 'member' &&
+      joined.json.guild.members.length === 2 &&
+      joined.json.guild.count === 2,
+    JSON.stringify(joined.json && { role: joined.json.role, count: joined.json.guild.count })
+  );
+  check(
+    '公会等级跟着成员等级之和涨：30 + 45 = 75 点，仍是 1 级（差 25 点升 2 级）',
+    !!joined.json && joined.json.guild.level === 1 && joined.json.guild.exp === 75,
+    JSON.stringify(joined.json && { level: joined.json.guild.level, exp: joined.json.guild.exp })
+  );
+  check(
+    '在线状态是个布尔（没有长连接，它表示"最近两分钟跟服务端说过话"）',
+    !!joined.json && typeof joined.json.guild.members[0].online === 'boolean' && joined.json.guild.online >= 1,
+    JSON.stringify(joined.json && { online: joined.json.guild.online })
+  );
+
+  const mine = await request(base, 'POST', '/api/guild/mine', { token: leaderToken });
+  check(
+    'POST /api/guild/mine：会长那边也看得见新成员（成员表是现算的）',
+    mine.status === 200 && !!mine.json && mine.json.inGuild === true && mine.json.role === 'leader' && mine.json.guild.count === 2,
+    JSON.stringify(mine.json && { role: mine.json.role, count: mine.json.guild && mine.json.guild.count })
+  );
+
+  const outsiderMine = await request(base, 'POST', '/api/guild/mine', { token: otherToken });
+  check(
+    '没入会的人 /api/guild/mine 回 inGuild:false（不是错误 —— 界面据此显示"创建 / 加入"）',
+    outsiderMine.status === 200 && !!outsiderMine.json && outsiderMine.json.ok === true && outsiderMine.json.inGuild === false,
+    JSON.stringify(outsiderMine.json)
+  );
+
+  const listed = await request(base, 'POST', '/api/guild/list', { token: memberToken, limit: 10 });
+  check(
+    'POST /api/guild/list：列表里有这个会，等级 / 人数都对',
+    listed.status === 200 &&
+      !!listed.json &&
+      listed.json.ok === true &&
+      listed.json.total >= 1 &&
+      listed.json.guilds[0].name === '烟测兄弟会' &&
+      listed.json.guilds[0].count === 2 &&
+      listed.json.guilds[0].level === 1,
+    JSON.stringify(listed.json && listed.json.guilds && listed.json.guilds[0])
+  );
+
+  const anchorByMember = await request(base, 'POST', '/api/guild/anchor', { token: memberToken, x: 1, y: 1 });
+  check(
+    '只有会长能挪锚点：成员调它回 403 not_leader',
+    anchorByMember.status === 403 && !!anchorByMember.json && anchorByMember.json.error === 'not_leader',
+    JSON.stringify(anchorByMember.json)
+  );
+  const anchorBad = await request(base, 'POST', '/api/guild/anchor', { token: leaderToken, x: 'x', y: null });
+  check(
+    '锚点坐标不是数时回 400 bad_anchor',
+    anchorBad.status === 400 && !!anchorBad.json && anchorBad.json.error === 'bad_anchor',
+    JSON.stringify(anchorBad.json)
+  );
+  const anchorCool = await request(base, 'POST', '/api/guild/anchor', { token: leaderToken, x: 40000, y: 40000 });
+  check(
+    '锚点有 24 小时冷却：刚建完会就挪回 409 anchor_cooldown（并回还要等多久）',
+    anchorCool.status === 409 &&
+      !!anchorCool.json &&
+      anchorCool.json.error === 'anchor_cooldown' &&
+      anchorCool.json.waitMs > 0,
+    JSON.stringify(anchorCool.json)
+  );
+
+  const guildB = await request(base, 'POST', '/api/guild/create', {
+    token: otherToken,
+    name: '烟测远征团',
+    x: 5000 + guildRules.anchorMinDistance + 1000,
+    y: 6000,
+    playerName: '烟测丙',
+    playerLevel: 5000
+  });
+  check(
+    '第二家公会在别的锚点上建得起来，且等级封顶在 balance 的 levelCap（5000 级的成员也超不过它）',
+    guildB.status === 200 && !!guildB.json && guildB.json.ok === true && guildB.json.guild.level === guildRules.levelCap,
+    JSON.stringify(guildB.json && guildB.json.guild)
+  );
+  const nearCreate = await request(base, 'POST', '/api/guild/create', {
+    token: mintToken({ sub: 'douyin:smoke-close', iat: now, exp: now + 3600000, v: 1 }, SESSION_SECRET),
+    name: '挨得太近的会',
+    x: 5000 + 10,
+    y: 6000
+  });
+  check(
+    '锚点离已有公会太近时建会回 409 anchor_too_close',
+    nearCreate.status === 409 && !!nearCreate.json && nearCreate.json.error === 'anchor_too_close',
+    JSON.stringify(nearCreate.json)
+  );
+
+  const leaveOwner = await request(base, 'POST', '/api/guild/leave', { token: leaderToken });
+  check(
+    '会长不能退会（首版没有转让 / 解散）：409 owner_cannot_leave',
+    leaveOwner.status === 409 && !!leaveOwner.json && leaveOwner.json.error === 'owner_cannot_leave',
+    JSON.stringify(leaveOwner.json)
+  );
+  const leftOk = await request(base, 'POST', '/api/guild/leave', { token: memberToken });
+  check(
+    '成员能退会：200 + left=<公会名>',
+    leftOk.status === 200 && !!leftOk.json && leftOk.json.ok === true && leftOk.json.left === '烟测兄弟会',
+    JSON.stringify(leftOk.json)
+  );
+  const afterLeave = await request(base, 'POST', '/api/guild/mine', { token: memberToken });
+  check(
+    '退会以后 /api/guild/mine 就回 inGuild:false 了',
+    afterLeave.status === 200 && !!afterLeave.json && afterLeave.json.inGuild === false,
+    JSON.stringify(afterLeave.json)
+  );
+
+  // 塞满这个公会：会长 + (memberCap - 1) 个成员 = memberCap，下一个人必须被挡住
+  let filled = true;
+  for (let i = 0; i < guildRules.memberCap - 1; i += 1) {
+    const fillToken = mintToken({ sub: 'douyin:smoke-fill-' + i, iat: now, exp: now + 3600000, v: 1 }, SESSION_SECRET);
+    const res = await request(base, 'POST', '/api/guild/join', {
+      token: fillToken,
+      name: '烟测兄弟会',
+      playerName: '烟测成员' + i,
+      playerLevel: 5
+    });
+    if (!(res.status === 200 && res.json && res.json.ok === true)) filled = false;
+  }
+  check('连着塞人进去：memberCap - 1 个请求都成功（刚退会那个人留下的位置也补上了）', filled, '');
+  const overflow = await request(base, 'POST', '/api/guild/join', {
+    token: mintToken({ sub: 'douyin:smoke-overflow', iat: now, exp: now + 3600000, v: 1 }, SESSION_SECRET),
+    name: '烟测兄弟会',
+    playerName: '烟测挤不进'
+  });
+  check(
+    '人满了回 409 guild_full',
+    overflow.status === 409 && !!overflow.json && overflow.json.error === 'guild_full',
+    JSON.stringify(overflow.json)
+  );
+  const fullView = await request(base, 'POST', '/api/guild/mine', { token: leaderToken });
+  check(
+    '人满之后成员表正好是 memberCap 行（一行不多）',
+    !!fullView.json && !!fullView.json.guild && fullView.json.guild.members.length === guildRules.memberCap,
+    String(fullView.json && fullView.json.guild && fullView.json.guild.members.length)
+  );
+
+  const guildNoIdentity = await request(base, 'POST', '/api/guild/create', { name: '没身份的会' });
+  check(
+    '建会必须带身份：既没令牌也没 openid 时回 400 missing_openid',
+    guildNoIdentity.status === 400 && !!guildNoIdentity.json && guildNoIdentity.json.error === 'missing_openid',
+    JSON.stringify(guildNoIdentity.json)
+  );
+  const guildBadToken = await request(base, 'POST', '/api/guild/mine', { token: 'not.a.token' });
+  check(
+    '坏令牌在公会端点上同样 401 bad_token（与存档同一道闸门）',
+    guildBadToken.status === 401 && !!guildBadToken.json && guildBadToken.json.error === 'bad_token',
+    JSON.stringify(guildBadToken.json)
+  );
+  const healthWithGuilds = await request(base, 'GET', '/api/health');
+  check(
+    '健康检查里能看到已建立的公会数（这次跑出来至少 2 个）',
+    !!healthWithGuilds.json && typeof healthWithGuilds.json.guilds === 'number' && healthWithGuilds.json.guilds >= 2,
+    'guilds=' + (healthWithGuilds.json && healthWithGuilds.json.guilds)
+  );
+  const guildNotFound = await request(base, 'POST', '/api/guild/nope', { token: leaderToken });
+  check(
+    '公会下的未知路由回 404（不把 /api/guild/* 整段放行成"什么都收"）',
+    guildNotFound.status === 404 && !!guildNotFound.json && guildNotFound.json.error === 'not_found',
+    JSON.stringify(guildNotFound.json)
+  );
+  const guildGetList = await request(base, 'GET', '/api/guild/list?limit=1&token=' + encodeURIComponent(leaderToken));
+  check(
+    'GET 也能拉公会列表（?limit=1 只回一条）',
+    guildGetList.status === 200 && !!guildGetList.json && guildGetList.json.ok === true && guildGetList.json.guilds.length === 1,
+    JSON.stringify(guildGetList.json && guildGetList.json.guilds.length)
+  );
+
   /* --- 严格实例（REQUIRE_TOKEN=1）：关掉过渡通道，且令牌跨实例依然有效 --- */
   const strictEnv = {
     DOUYIN_APPID: APPID,
@@ -615,6 +897,13 @@ async function main() {
       strictName.status === 200 && !!strictName.json && strictName.json.verified === false,
       JSON.stringify(strictName.json)
     );
+
+    const strictGuild = await request(strict.base, 'POST', '/api/guild/mine', { openid: 'smoke-openid' });
+    check(
+      'REQUIRE_TOKEN=1 时公会端点同样 401 token_required（与存档同一道闸门，这里没有已知口子）',
+      strictGuild.status === 401 && !!strictGuild.json && strictGuild.json.error === 'token_required',
+      JSON.stringify(strictGuild.json)
+    );
   }
 
   /* --- 裸实例（凭据一个都没给）：明确 503，绝不编造 openid --- */
@@ -652,6 +941,20 @@ async function main() {
       '裸实例仍能走过渡通道写存档（未配凭据 ≠ 后端不可用）',
       bareLegacy.status === 200 && !!bareLegacy.json && bareLegacy.json.verified === false,
       JSON.stringify(bareLegacy.json)
+    );
+
+    const bareGuild = await request(bare.base, 'POST', '/api/guild/create', {
+      openid: 'smoke-bare',
+      name: '裸实例公会',
+      x: 300000,
+      y: 300000,
+      playerName: '裸实例会长',
+      playerLevel: 12
+    });
+    check(
+      '没配 AppID / 密钥的实例也能建公会（公会只需要身份，不需要 code2session）',
+      bareGuild.status === 200 && !!bareGuild.json && bareGuild.json.ok === true && bareGuild.json.role === 'leader',
+      JSON.stringify(bareGuild.json)
     );
   }
 

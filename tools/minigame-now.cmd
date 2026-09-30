@@ -46,6 +46,8 @@ if errorlevel 1 goto fail
 
 echo.
 echo ALL GREEN -- now open douyin-minigame\ in the Douyin devtools (small game entry).
+echo Layout preview (no devtools needed): tools\hud-preview.cmd
+echo Layout edit loop: drag in that page, then tools\apply-hud-layout.cmd, then this file again.
 exit /b 0
 
 :fail
