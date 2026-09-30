@@ -183,13 +183,25 @@ foreach ($name in $namespaceMap.Keys) {
 }
 Write-Output "== tooling =="
 $scriptProblems = @()
-foreach ($script in (Get-ChildItem (Join-Path $root 'tools') -Filter '*minigame*.ps1' -File)) {
+# PowerShell 5.1 reads a BOM-less .ps1 as ANSI, so one non-ASCII byte in one is mojibake at best
+# and a broken tool at worst. Was "*minigame*.ps1" until 2026-09-30 -- widened to every .ps1 in
+# tools\ when tools\set-cloud-domain.ps1 was added, because that name contains no "minigame" and
+# it would have slipped past this gate unnoticed.
+#
+# .cmd files are deliberately NOT scanned, and this is not an oversight: a batch file may
+# legitimately carry UTF-8 text. tools\test-now.cmd is the live example -- it has to name the
+# Chinese sync-script path in "set SYNC=...", and it reads correctly because it runs
+# "chcp 65001" before that line, which is a different mechanism from PS 5.1's ANSI parsing.
+# (Worth knowing: that also makes it depend on the code page being switched before line 30.
+#  Moving the sync script to an ASCII path would remove the dependency.)
+$toolScripts = Get-ChildItem (Join-Path $root 'tools') -Filter '*.ps1' -File
+foreach ($script in $toolScripts) {
   $nonAscii = 0
   foreach ($byte in [IO.File]::ReadAllBytes($script.FullName)) { if ($byte -gt 127) { $nonAscii += 1 } }
   if ($nonAscii -gt 0) { $scriptProblems += ($script.Name + " has $nonAscii non-ASCII bytes") }
 }
 if ($scriptProblems.Count -gt 0) { Bad ("not ASCII-only: " + ($scriptProblems -join ', ')) }
-else { Ok "minigame tool scripts are ASCII-only (safe under PowerShell 5.1 ANSI parsing)" }
+else { Ok ("tool .ps1 scripts are ASCII-only (" + @($toolScripts).Count + " files, safe under PowerShell 5.1 ANSI parsing)") }
 
 $generatedProblems = @()
 foreach ($generated in @($bundlePath, $balanceJs)) {

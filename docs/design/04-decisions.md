@@ -42,7 +42,7 @@
   → 第 2 条里"能不能部署上去"这半截已经有了确定答案。
   **2026-09-30 晚复核修正**：① 上面那个域名**已失效**（`/` 回 `404 + X-Status-Code: 13005 not found server`，
   `/api/health` 超时）—— 文档里的具体域名只能当历史记录，以控制台现值为准；② 控制台里当前活着的是模板
-  演示服务 `auto_deploy_add`（路由只有 `/api/get_open_id`、`/api/text/antidirt`，**没有 `/api/health`**）；
+  演示服务 `demo-svr`（**`auto_deploy_add` 是它的路径规则名、不是服务名**；路由只有 `/api/get_open_id`、`/api/text/antidirt`，**没有 `/api/health`**）；
   ③ **抖音云没有官方 CLI**（只有控制台里的 Git 代码 / Docker 镜像两种部署方式，官方模板 README 原文），
   所以"上传代码"这最后一步必须人工点，其余都能脚本化：`tools\cloud-pack.ps1`（先跑真进程冒烟 41 项断言，
   过了才产出 `douyin-cloud\dist\svr-code-*.zip`）。
@@ -52,6 +52,12 @@
    而 `~\.ssh\config` 的 `Host *` 段开着 `IdentitiesOnly yes`，`ssh -v` 证明它**根本没被递出去**，
    已在 config 末尾补 `Host github.com` + `IdentityFile`）。
    步骤与两个 Dockerfile 的构建上下文映射见 `docs\douyin-cloud-deploy.md` §2.5 / §2.6。
+- ✅ **2026-09-30 决定：不新建服务，把代码部署进现有 `demo-svr`**（部署方式切 **git部署**）。理由：该服务已存在
+  （dev、服务正常）且访问控制里那条 `/api/*` 已放行，省掉"新建服务 + 加授权路径"两步；另外该服务的
+  「授权访问路径」总开关**未开启** = 所有路径都可被外网访问（页面原文），所以现在**不需要新增任何路径**。
+  前提与退路：`demo-svr` 原来是**模板部署**，若 git部署 页签被锁住/不可选 → 新建服务 `svr`（届时才要加 `/api/*`）。
+  代价：模板自带的 `/api/get_open_id`、`/api/text/antidirt` 被顶掉（我们不用）；域名必须现抄
+  （旧域名 2026-09-30 15:44 本机复测仍回 `13005 not found server`）。详见 `docs\douyin-cloud-deploy.md` §2.7。
 - 🟡 **REST 调用方式已明确**：小游戏侧走抖音云 SDK **`callContainer`**（官方文案："无需服务器及域名配置即可上线"）。
   阶段 B 第一件事就是用真机调一次 `/api/profile` 验证它是否真的免白名单。
   **2026-09-30 晚进展**：`/api/profile` 的**服务端那一半已经写完并自测过**（真 `code2session` 换 openid +

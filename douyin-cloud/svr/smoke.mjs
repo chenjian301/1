@@ -19,7 +19,8 @@
  *   tools\minigame-node.ps1 douyin-cloud\svr\smoke.mjs   本机没有独立 node 时（用抖音 IDE 的 Electron）
  *   node douyin-cloud\svr\smoke.mjs                      有 node 时；package.json 的 `npm run smoke` 就是它
  *
- * SMOKE_PORT 可换端口（默认 8099 —— 特意避开 8080，免得撞上本地已经在跑的东西）。
+ * SMOKE_PORT 可换端口（默认 8099 —— 特意避开 8000：那是服务的线上默认端口，也是官方模板的端口，
+ * 免得撞上本机已经在跑的东西）。
  * 这里只连 127.0.0.1，不碰抖音云、不产生任何费用。
  */
 

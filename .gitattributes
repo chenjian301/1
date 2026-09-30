@@ -1,0 +1,14 @@
+# 换行符保险（2026-09-30 新增）。
+#
+# 为什么需要：抖音云的容器运行时固定执行 /opt/application/run.sh，
+# 而 run.sh 靠 shebang（#!/bin/sh）启动。shebang 行尾只要多一个 \r，
+# 内核就会拿 "#!/bin/sh\r" 去找解释器 —— 报 "not found" / "bad interpreter"，
+# 现象和「文件不存在」几乎一样（2026-09-30 的发布失败就是这个错误码族）。
+# 本机与 CI 的编辑器/检出设置都可能把 LF 改回 CRLF（仓库里 core.autocrlf=false，
+# 但换台机器就不一定），所以在这里按路径钉死。
+#
+# 只钉这两个 sh 脚本和两个 Dockerfile，不动其它文件的换行（仓库其它文件是 CRLF）。
+run.sh text eol=lf
+douyin-cloud/run.sh text eol=lf
+Dockerfile text eol=lf
+douyin-cloud/Dockerfile text eol=lf

@@ -1,7 +1,9 @@
 # cloud-pack.ps1 -- build the exact zip the Douyin Cloud console wants for "upload a code package".
 #
 # Why: the console takes a code package (there is also an online editor and a Docker image path).
-# This script produces a minimal, reproducible zip of douyin-cloud\svr -- index.js + package.json,
+# This script produces a minimal, reproducible zip of douyin-cloud\svr -- index.js + package.json
+# + the repo-root run.sh (the platform's container runtime executes /opt/application/run.sh, so a
+# package without it fails with "run.sh: not found"; see tools\cloud-deploy-check.ps1) --
 # deliberately WITHOUT smoke.mjs, which is a local dev tool and should never be part of the upload --
 # and it refuses to build that zip unless the local smoke test is green, because "the service never
 # listened" is the most expensive bug to discover after uploading (see the smoke.mjs header).
@@ -28,8 +30,9 @@ $svr   = Join-Path $root 'douyin-cloud\svr'
 $dist  = Join-Path $root 'douyin-cloud\dist'
 $entry = Join-Path $svr 'index.js'
 $meta  = Join-Path $svr 'package.json'
+$runsh = Join-Path $root 'run.sh'
 
-foreach ($file in @($entry, $meta)) {
+foreach ($file in @($entry, $meta, $runsh)) {
   if (-not (Test-Path $file)) {
     Write-Output "FAIL  missing $file"
     exit 2
@@ -49,19 +52,21 @@ if ($SkipSmoke) {
   }
 }
 
-Write-Output '[2/3] packaging douyin-cloud\svr'
+Write-Output '[2/3] packaging douyin-cloud\svr + run.sh'
 if (-not (Test-Path $dist)) {
   New-Item -ItemType Directory -Path $dist | Out-Null
 }
 $zip = Join-Path $dist ('svr-code-' + (Get-Date -Format 'yyyyMMdd-HHmm') + '.zip')
-Compress-Archive -Path $entry, $meta -DestinationPath $zip -Force
+Compress-Archive -Path $entry, $meta, $runsh -DestinationPath $zip -Force
 Write-Output ('      ' + $zip + '  (' + (Get-Item $zip).Length + ' bytes)')
 
 Write-Output '[3/3] what is left is console-side and cannot be scripted (no deploy CLI exists)'
 Write-Output '      1) console -> service settings -> deploy: prefer git deploy (repo-root Dockerfile + a'
 Write-Output '         repo-root build context, or douyin-cloud/Dockerfile + a douyin-cloud context -- see'
-Write-Output '         docs\douyin-cloud-deploy.md 2.6). The zip above is the offline fallback only.'
-Write-Output '      2) start command: node index.js        port: 8080'
+Write-Output '         docs\douyin-cloud-deploy.md 2.6). Both contexts must now contain run.sh, which is'
+Write-Output '         COPYed to /opt/application/run.sh -- the platform runs that file and ignores CMD.'
+Write-Output '         The zip above is the offline fallback only.'
+Write-Output '      2) start command: /opt/application/run.sh (the platform runs it itself); port: 8000'
 Write-Output '      3) Access control: authorize path /api/*  (GET + POST), then redeploy'
 Write-Output '      4) copy the default domain into douyin-minigame\src\00-config.js (cloudBase, no trailing slash)'
 Write-Output '      5) curl.exe "<domain>/api/health"  ->  expect {"ok":true,"service":"phaser-game-svr","version":"0.2.0",...}'

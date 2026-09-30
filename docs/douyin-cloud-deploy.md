@@ -12,7 +12,7 @@
 >    默认域名 `https://1mfj3tamsd9m-env-XHvhMYJ9qm.service.douyincloud.run`、外网路径 `/api/*` 已授权。
 >    **那个域名现在已失效**：`GET /` 回 `404 + X-Status-Code: 13005 not found server`（网关说该环境下
 >    没有这个服务），`GET /api/health` 直接连接超时。→ **本文里出现的任何具体域名都只是历史痕迹，一律以控制台现值为准。**
-> 2. 控制台里现在活着的是**模板演示服务** `auto_deploy_add`（外网路径 `/api/*` 已授权）。它是官方模板，
+> 2. 控制台里现在活着的是**服务 `demo-svr`**（`auto_deploy_add` 是它访问控制里的**路径规则名**，**不是服务名**；已有一条 `/api/*`，域名访问=开启）。它是官方模板，
 >    路由只有 `GET /api/get_open_id` 与 `POST /api/text/antidirt` —— **没有 `/api/health`**。
 >    要验的是**我们自己的代码**（第 0.5 / 2 步），别把"模板部署成功"当成"后端已就绪"。
 > 3. **抖音云只有控制台里的「Git 代码 / Docker 镜像」两种部署方式，没有官方 CLI**
@@ -20,9 +20,31 @@
 >    不过页面提示里写了一句「可使用抖音云CLI自动生成dockerfile」——**这条没查证**（我们自己准备了两个
 >    Dockerfile 兜底，见 §2.6）。也就是说在控制台点「部署」这最后一步**无法脚本自动化**；
 >    但它前面每一步都能，见 §0.5。
-> 4. **仓库已推上 GitHub（2026-09-30）**：`chenjian301/1` 的 `main` 现在 HEAD = `3462ffe`。
+> 4. **仓库已推上 GitHub（2026-09-30）**：`chenjian301/1` 的 `main` 现在 HEAD = `b49a472`（用 https 克隆到本地 `d:\douy\1` 复核过：与本地 `HEAD` 一致）。
 >    所以 git部署 这条路是通的 —— 接着按 §2.6 填表 → 部署 → §3 授权 `/api/*` →
 >    §3.5 配环境变量 → §4 抄域名验证。**卡在"推代码"上的那一步已经过去了。**
+>
+> 5. **2026-09-30 决定：不新建服务，把代码部署进现成的 `demo-svr`**（见下文 §2.7）。两条事实先记住：
+>    ① 该服务的「访问控制 → 授权访问路径」**总开关当前是未开启**（页面原文：未启用状态则所有路径都可被外网访问）
+>    → **不需要再新增任何授权路径**；表里那条路径名称 `auto_deploy_add` 的 `/api/*` 是"以后打开总开关"时的保险。
+>    ② 默认域名**必须以控制台现值为准**：2026-09-30 15:44 本机 `curl` 复测，`docs\douyin-minigame-stage0.md` §9.1
+>    记的那个域名仍然回 `404 + X-Status-Code: 13005 not found server`（`/` 与 `/api/health` 都是 0 字节 404，
+>    `Server: volcalb`）—— 极可能服务被重建（名字仍叫 `demo-svr`、服务 ID 已变）或换了环境。
+> 6. **2026-09-30 07:59 复核：控制台的「本地调试」开关不等于发布。** 那个开关的原文是"开启后将在 dev 环境下
+>    部署一个函数服务实例用于转发请求"—— 它给的是**转发用的函数服务实例**（控制台里显示的那两个实例 ID 就是它），
+>    只有"把云端请求转给本机正在跑的进程"和"本机直连 dev VPC 数据库"两个用途，会按**函数服务用量**计费。
+>    它**不是**我们的容器服务版本，**没有**可用域名，开关一关就没了；而且它必须有一个**本机在跑的进程**可转发
+>    （本机无 node → 无从转发）。同一时刻把该域名下 4 条路径（`/api/health`、`/api/version`、`/api/get_open_id`、`/`）
+>    全探一遍，**仍然全部是 `404` + `X-Status-Code: 13005 not found server`** → 环境里没有任何运行中的服务版本。
+>    所以服务列表里那句"上次发布在 X 小时前"**不能**当成"我们的代码已经上去了"的证据。
+> 7. **2026-09-30 发布失败复盘（已修，见 §2.8）**：控制台发布状态**失败**，日志是
+>    `ulimit -n ... && /opt/application/run.sh` → `sh: /opt/application/run.sh: not found`
+>    （exit status 127）×3。平台的容器运行时**固定执行 `/opt/application/run.sh`**，它不看镜像里的
+>    `CMD`，而仓库里当时**一个 run.sh 都没有**。已按官方模板补齐（仓库根 + `douyin-cloud\` 各一份
+>    `run.sh`、两个 Dockerfile 都 `WORKDIR /opt/application/` + `CMD /opt/application/run.sh`），
+>    并且**顺手纠正了端口：平台认 8000，不是 8080**（官方模板硬编码 8000，平台日志也写 port 8000）。
+>    改完**必须重新 push** —— git部署 是从 GitHub 拉代码的。
+>    新增的本地关卡：`tools\cloud-deploy-check.ps1`（查容器约定）。
 >
 > 下面是完整步骤。
 
@@ -53,7 +75,7 @@
 powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1
 # ① 用真进程 + 真 HTTP 请求跑 douyin-cloud\svr\smoke.mjs（41 项断言：3 个真实例 127.0.0.1:8099/8101/8102
 #    + 一个**假 code2session** 在 8100 —— 登录链路也在这里整条跑通，不连抖音云、不花一分钱）
-# ② 绿的才打包 → douyin-cloud\dist\svr-code-<时间戳>.zip（里面只有 index.js + package.json）
+# ② 绿的才打包 → douyin-cloud\dist\svr-code-<时间戳>.zip（里面是 index.js + package.json + run.sh）
 # ③ 打印控制台剩下要做的事
 ```
 
@@ -62,8 +84,17 @@ powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1
 `node --check` **通过**（语法合法），进程启动后**静默退出、根本不监听任何端口**（curl 只会得到
 `ECONNREFUSED`）。这种错要是先传上去，现象只是"控制台冷启动超时"，极难定位。
 
+容器约定那一半（`run.sh` / Dockerfile / 端口）是另一条关卡，两条互不替代，见 §2.8：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\cloud-deploy-check.ps1
+# 查：两份 run.sh 是否在、是否逐字节相同、是否 LF 无 BOM、shebang 是不是 #!/bin/sh；
+#     两个 Dockerfile 是否把 run.sh 放进 /opt/application/、有没有把端口写死；
+#     端口各处是否一致（run.sh 的兜底、index.js 的默认、Dockerfile 的 EXPOSE 都必须是 8000）
+```
+
 - 单跑冒烟（不打包）：`tools\minigame-node.ps1 douyin-cloud\svr\smoke.mjs`（有 node 时 `npm run smoke`）
-- 换端口：`$env:SMOKE_PORT='8123'` 后再跑（默认为 8099，特意避开 8080）
+- 换端口：`$env:SMOKE_PORT='8123'` 后再跑（默认为 8099，特意避开 8000 —— 那是线上默认端口）
 - 只想打包、跳过冒烟：`tools\cloud-pack.ps1 -SkipSmoke`
 
 ## 1. 前置条件
@@ -91,7 +122,8 @@ powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1
    - （历史记录：上一版文档写的「在线编辑 / 上传代码包」在现在的服务设置里**没有对应入口**。
      `tools\cloud-pack.ps1` 产出 zip 的那条路仍然保留：它是本地冒烟关卡的副产物，也留作离线备份。）
 
-> 三种方式都要求同一件事：代码**零依赖**，启动命令 `node index.js`、端口 `8080`，构建里没有 `npm install`。
+> 三种方式都要求同一件事：代码**零依赖**、构建里没有 `npm install`，容器里有平台的启动文件
+> `/opt/application/run.sh`（就是仓库根那个 `run.sh`），服务监听 **8000**（见 §2.8）。
 
 ## 2.5 把仓库推上 GitHub（git部署 的前置，2026-09-30 状态）
 
@@ -174,9 +206,97 @@ Host github.com
 → 换成另一个组合，一次就能对。（本机没有 docker，这两个文件**没法先在本地构建一遍**验证，所以才用
 "两种组合都备好"这个办法。）
 
+**2026-09-30 起，这两个 Dockerfile 里还多了一件事：`run.sh`。** 平台固定执行
+`/opt/application/run.sh`（不看镜像的 `CMD`，见 §2.8），所以镜像里必须有它；仓库里两份 `run.sh`
+（仓库根 + `douyin-cloud\`）与两个 Dockerfile 的 COPY 是配对的，**两份必须逐字节相同**，
+改一份就得同步另一份。`tools\cloud-deploy-check.ps1` 会把这条约定一起验掉。
+
 > 接上之后**每次 `git push` 就是一次新版本来源**：页面上若有"推送后自动部署"，push 就够了；没有的话
 > 每次去控制台点一次「部署」。这也是为什么现在非要推 GitHub：现在的服务设置里**没有代码包上传入口**，
 > 镜像部署要本机 docker（这台机器没有），**git部署 是唯一能走通的那条路**。
+
+## 2.7 2026-09-30 决定：复用现有服务 `demo-svr`（不新建服务）
+
+**为什么**：`demo-svr` 已经存在（dev 环境、服务正常），访问控制里那条 `/api/*` 也已经放行 ——
+省掉"新建服务 + 加授权路径"两步，域名也是现成的。
+
+**四个字段照 §2.6 填**（代码源 GitHub / 代码仓库 `chenjian301/1` / 分支 `main` / Dockerfile 二选一），
+启动文件 `/opt/application/run.sh`（= 仓库根 `run.sh`，平台自己会执行它）、端口 `8000`（见 §2.8）。
+
+**这条路唯一要多做的一件事**：`demo-svr` 原来是**模板部署（Docker 镜像）**，
+「服务设置 → 部署方式」要切到 **git部署**。若该服务上 git部署 页签被模板锁住/不可选 →
+**退回新建服务 `svr`**（那时才需要按 §3 加一条 `/api/*`）。
+
+**不用做的事**：
+
+- 不用加授权路径：该服务的「授权访问路径」总开关**未开启** = 所有路径都可被外网访问（页面原文）；
+  表里那条路径名称 `auto_deploy_add` 的 `/api/*` 是"打开总开关之后"的保险，现在只是备着。
+- 不用改 `cloudBase` 的**格式**，但**要换值**：域名必须从「服务详情 → 域名」现抄（旧域名已回 13005，见开头复核第 5 条）。
+
+**代价**：模板自带的 `GET /api/get_open_id`、`POST /api/text/antidirt` 会被我们的代码顶掉（我们不用它们）；
+平台里的服务名 `demo-svr` 与 `/api/health` 返回的 `service: "phaser-game-svr"` 不同名，这是正常的
+（前者是平台里的名字，后者是进程自报的名字，见 §6 的端点表）。
+
+## 2.8 2026-09-30 发布失败复盘：`/opt/application/run.sh: not found`（**已修**）
+
+控制台发布状态是**失败**，日志里同样的三行出现三次：
+
+```text
+[FaaS System] run user command: ulimit -n ${BYTEFAAS_FUNC_ULIMIT:-2048} && /opt/application/run.sh
+sh: /opt/application/run.sh: not found
+[FaaS System] function process failed to start: function exited unexpectedly(exit status 127)
+```
+
+**原因**：抖音云的容器运行时**固定执行 `/opt/application/run.sh`**，它不看镜像里的 `CMD`。
+我们当时的镜像只有 `WORKDIR /app` + `CMD ["node","index.js"]`，仓库里**一个 run.sh 都没有** ——
+那个路径在容器里根本不存在，于是 exit 127。官方模板
+`bytedance/douyincloud-nodejs-koa-demo` 的 README 目录结构里早就写着这件事：
+
+```text
+├── run.sh                  容器运行时启动文件      （内容只有一行：npm run serve）
+├── Dockerfile              Dockerfile文件
+├── src                     源码目录（入口 src/server.ts）
+```
+
+它的 Dockerfile 也正是配套这么写的：`WORKDIR /opt/application/` → `COPY run.sh ./` →
+`RUN chmod -R 777 /opt/application/run.sh` → `CMD /opt/application/run.sh` → `EXPOSE 8000`。
+
+**同一次复盘发现的第二个坑：端口。** 官方模板 `src/server.ts` 里是 `const PORT = 8000;`（硬编码，
+不读环境变量），平台监管进程的日志也写 `restarting user function at port 8000` —— **平台认的是 8000**。
+文档里之前那句"端口 8080"没有任何依据，是猜的；如果只补 run.sh 不改端口，下一次会变成
+"run.sh 起来了、但平台找不到服务"。
+
+**改了什么**（都在仓库里，可复查）：
+
+| 文件 | 改动 |
+|---|---|
+| `run.sh`（**仓库根，新增**） | 容器运行时启动文件：站到自身所在目录 → 优先用平台注入的 `PORT`、否则 8000 → 依次找 `./index.js` / `./svr/index.js` / `./douyin-cloud/svr/index.js` → `exec node`。找不到入口会打印目录现场再退 127（省得下次又靠猜） |
+| `douyin-cloud\run.sh`（新增） | 与上面**逐字节相同**。Docker 的 COPY 不能跨构建上下文取文件，两个上下文各需一份 |
+| `Dockerfile`（仓库根） | `WORKDIR /opt/application/`、COPY 进 `run.sh`、`RUN chmod -R 777`、`CMD /opt/application/run.sh`、`EXPOSE 8000`；**删掉了 `ENV PORT=8080`** |
+| `douyin-cloud\Dockerfile` | 同上（COPY 前缀是 `svr/`） |
+| `svr\index.js` | 默认端口 `8080` → `8000`（平台注入 `PORT` 时仍以平台为准） |
+| `.gitattributes`（新增） | 把两个 `run.sh` 与两个 Dockerfile 钉成 `eol=lf` |
+| `tools\cloud-deploy-check.ps1`（新增） | 部署前的本地关卡：run.sh 是否存在 / 两份是否逐字节相同 / 是否 LF 无 BOM / shebang 是否 `#!/bin/sh`；两个 Dockerfile 是否把 run.sh 放进 `/opt/application/`、是否写死端口；各处端口是否一致 |
+| `tools\cloud-pack.ps1` | 离线 zip 里补上 `run.sh`（少了它，那个包上传上去照样是这个 127） |
+
+**为什么连换行都要查**：shebang 行尾多一个 `\r`，内核就会拿 `#!/bin/sh\r` 去找解释器，现象同样是
+`not found` / `bad interpreter`，和"文件不存在"几乎分不出来。而 Windows 上的编辑器默认就把新文件
+写成 CRLF（2026-09-30 写这两个 run.sh 时**真的**又发生了一次），所以既要 `.gitattributes` 的 `eol=lf`，
+也要关卡脚本逐字节验一遍。
+
+**部署前怎么自检**（两条互相独立，都本地、不花钱）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\cloud-deploy-check.ps1   # 容器约定：run.sh / Dockerfile / 端口
+powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1           # 服务本身：41 项冒烟，顺带打离线 zip
+```
+
+**发布成功后，日志里应该能看到这两行**（第一行就是 run.sh 打的 —— 它出现即证明平台真的执行到了它）：
+
+```text
+[run.sh] cwd=/opt/application  entry=./index.js  port=8000  node=/usr/local/bin/node
+[phaser-game-svr] listening on :8000  v0.2.0
+```
 
 ## 3. 授权外网访问路径（关键，漏了会 404）
 
@@ -185,6 +305,10 @@ Host github.com
 1. 进 **服务详情 → 访问控制**
 2. 新增一条授权路径：**`/api/*`**（`GET` + `POST`）
 3. 保存后**重新部署一次**（有的环境要求改动后重新发布才生效）
+
+> **2026-09-30 复用 `demo-svr` 的路线下，这一节已经满足**：该服务已有一条 `/api/*`（路径名称 `auto_deploy_add`，
+> 域名访问=开启），而且**总开关未开启 → 所有路径本来就可被外网访问**。先别动它；等部署完成、链路验通之后
+> 再决定要不要打开总开关收紧（打开后根路径 `/` 会被挡住，想保留"浏览器打开根路径看到一行字"就再补一条 `/`）。
 
 ## 3.5 配凭据与令牌密钥（登录要用，2026-09-30 新增）
 
@@ -305,7 +429,9 @@ curl.exe "https://你的默认域名/api/save?openid=test-openid"
 |---|---|
 | `curl` 通、游戏里不通 | `cloudBase` 没填 / 没重跑 `tools\minigame-now.cmd`（`game.js` 是生成物） |
 | 404 `not_found` | 「访问控制」里没把 `/api/*` 加进去，或改完没重新发布 |
-| 网关 502 / 服务启动失败 | 启动命令不是 `node index.js`，或端口不是 8080 |
+| 网关 502 / 服务启动失败 | 端口不是 8000，或容器里没有平台固定要执行的那个启动文件（见 §2.8）。**先跑 `tools\cloud-deploy-check.ps1`** |
+| 发布失败，日志是 `ulimit ... && /opt/application/run.sh` + `sh: /opt/application/run.sh: not found`（exit status 127，重试三次） | 平台的容器运行时**固定执行 `/opt/application/run.sh`**，它不看镜像的 `CMD`：要么仓库里没有 `run.sh`，要么 Dockerfile 没把它 COPY 到 `/opt/application/`。2026-09-30 真踩过，复盘见 §2.8 |
+| `run.sh` 明明在仓库里，平台仍报 `not found` / `bad interpreter` | 那个文件的换行被改成了 CRLF：shebang 变成 `#!/bin/sh\r`，内核照着这个路径去找解释器。`tools\cloud-deploy-check.ps1` 逐字节验（连 BOM 一起查），`.gitattributes` 已把两个 run.sh 钉成 `eol=lf` |
 | 返回 `response_too_large` | 触到 1MB 上限（服务端会主动拒绝而不是被截断） |
 | 想换服务名/环境 | `dev` 与 `prod` 各有域名，改完记得同步 `cloudBase` |
 | 想回滚 | 控制台有版本历史，可回滚到上一个线上版本 |
@@ -321,10 +447,14 @@ curl.exe "https://你的默认域名/api/save?openid=test-openid"
 | `git push` 回 `Permission denied (publickey)` | ssh 没把那把钥匙递出去：密钥是非默认名 `id_ed25519_git`，而 `~\.ssh\config` 的 `Host *` 段开着 `IdentitiesOnly yes`（`ssh -v` 里只有默认名）→ 补 `Host github.com` + `IdentityFile`（§2.5）。补完仍是这个错，那才是公钥没加到 GitHub |
 | git部署 构建报 `COPY failed: file not found` | Dockerfile 与构建上下文配错：仓库根 Dockerfile 配"上下文 = 仓库根"，`douyin-cloud\Dockerfile` 配"上下文 = `douyin-cloud\`"（§2.6） |
 | git部署 里选不到仓库 / 拉不到代码 | 抖音云还没被授权读这个仓库（§2.5 第 ② 套凭据），或代码还没 push 上去（`git ls-remote origin HEAD` 为空） |
+| 控制台开了「本地调试」，是不是就不用部署了 | **不是。** 它是 dev 环境里一个**转发请求的函数服务实例**（按函数服务用量计费、要有本机进程可转发），不是我们的容器服务版本、也没有可用域名；开着它时外网域名依旧回 `13005`（2026-09-30 07:59 实测）。小游戏 `tt.request` 要打到一个**已发布**的后端，只有"发布"这一条路 |
+| 服务列表显示"上次发布在 X 小时前"，但域名回 `13005` | 那条时间只是"服务/配置最后一次变更"，**不代表有一个跑着我们代码的版本**。以 `X-Status-Code` 为准：`13005` = 该环境没有活着的服务 → 回到 git部署 把 §2.6 那三步走完 |
 
 ## 9. 阶段 B 的下一步（按顺序）
 
-0. **先把我们自己的代码部署上去**（§2.5 → §2.6 → §3 → §3.5）：先把仓库推上 GitHub（§2.5）
+0. **先把我们自己的代码部署上去**（§2.5 → §2.6 → §3 → §3.5）——**容器约定已在 §2.8 补齐**
+   （仓库根 `run.sh` + 两个 Dockerfile 都把它 COPY 到 `/opt/application/`、端口统一 8000），
+   推之前先跑一遍 `tools\cloud-deploy-check.ps1`：先把仓库推上 GitHub（§2.5）
    → 控制台用 **git部署**（§2.6）把服务拉起来 → 授权 `/api/*` → 配
    `DOUYIN_APPID` / `DOUYIN_SECRET` / `SESSION_SECRET` → 抄**当前**域名
    → `curl.exe "<域名>/api/health"` 应回 `{"ok":true,"service":"phaser-game-svr","version":"0.2.0",...}`，

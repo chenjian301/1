@@ -300,8 +300,13 @@ powershell -ExecutionPolicy Bypass -File tools\check-minigame.ps1       # 静态
 | 部署方式 | **Docker 镜像**（自动分配资源，未手工调规格） |
 | 模板仓库 | `https://github.com/bytedance/douyincloud-nodejs-koa-demo/tree/template` → **Node + koa**，与决策 #2 里"前后端共用 `shared/protocol.ts` / `shared/balance.json`"的前提一致（同一门语言，不用跨语言对齐哈希） |
 | 默认域名 | `https://1mfj3tamsd9m-env-XHvhMYJ9qm.service.douyincloud.run` |
-| 外网访问路径 | 已在「服务详情 → 访问控制」把 `auto_deploy_add` 的 **`/api/*`** 加为授权访问路径 |
+| 外网访问路径 | 「服务详情 → 访问控制」里有一条 **`/api/*`**（**路径名称** `auto_deploy_add` —— 它是规则名、**不是服务名**），域名访问=开启；**「授权访问路径」总开关当时未开启**（页面原文：未启用状态则所有路径都可被外网访问） |
 | 调用方式 | ① 小程序 / **小游戏** / 小玩法 / 抖音云内 → **`callContainer`**（抖音云 SDK）；② 外网 → 域名调用 |
+
+> **2026-09-30 15:44 本机复测**：上表那个默认域名**仍然失效** —— `GET /` 与 `GET /api/health` 都回
+> `404 + X-Status-Code: 13005 not found server`（`Server: volcalb`，响应体 0 字节）。也就是说这个
+> "服务 ID + 环境 ID"组合现在在网关上查不到（极可能是服务被重建、ID 变了，或换了环境）
+> → **域名一律以控制台现值抄，别用表里的**。
 
 ### 9.2 三条限制（**上线前必须处理**，控制台原文）
 

@@ -4,9 +4,10 @@
 
 ```
 douyin-cloud\
-├─ svr\index.js      服务本体（5 个端点 + 登录/令牌，无第三方依赖，启动命令 node index.js）
+├─ svr\index.js      服务本体（5 个端点 + 登录/令牌，无第三方依赖，默认端口 8000）
 ├─ svr\package.json  只有元信息（没有 dependencies，所以部署时不需要 npm install）
 ├─ svr\smoke.mjs     本地冒烟：起 3 个真进程 + 一个**假 code2session**，打 41 项断言（**不属于部署包**）
+├─ run.sh            容器运行时启动文件（平台固定执行 /opt/application/run.sh，不看镜像 CMD）——与仓库根那份逐字节相同
 ├─ Dockerfile        选「Docker 镜像」方式部署时用（构建上下文 = 本目录）
 ├─ dist\             tools\cloud-pack.ps1 产出的上传包（svr-code-<时间戳>.zip，生成物，已被 .gitignore 忽略）
 └─ README.md         本文件
@@ -16,6 +17,11 @@ douyin-cloud\
 > 一栏的默认值就是 `Dockerfile`、按「与代码目标目录同级」取文件，**构建上下文可能是仓库根**（官方模板
 > 就是 Dockerfile 在仓库根 + `COPY . .`）。两个文件只差 COPY 的前缀，所以两种上下文都能构建；
 > 映射与为什么要两个见 `docs\douyin-cloud-deploy.md` §2.6。
+>
+> 同理，**`run.sh` 也是两份**（仓库根 + 本目录）：平台固定执行 `/opt/application/run.sh`（不看镜像的
+> `CMD`），而 docker 的 COPY 取不到构建上下文以外的文件，所以每个上下文各放一份、**两份必须逐字节
+> 相同**。2026-09-30 就是因为缺这个文件发布失败（exit status 127），复盘见
+> `docs\douyin-cloud-deploy.md` §2.8；判断标准是 `tools\cloud-deploy-check.ps1`。
 
 ## 端点
 
@@ -59,7 +65,9 @@ powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1
 # ① 真进程 + 真 HTTP 请求跑 svr\smoke.mjs（41 项断言，127.0.0.1:8099/8101/8102 + 假抖音端 8100）：
 #    端口真的在听吗 / 健康检查 / 数值表是否漂移 / code→openid / 签令牌 / 越权写 / 伪造与过期令牌 /
 #    严格模式(REQUIRE_TOKEN=1) / 没配凭据时是否明确 503 / 坏 JSON / 404 / OPTIONS 预检
-# ② 绿的才打包 → douyin-cloud\dist\svr-code-<时间戳>.zip（只有 index.js + package.json）
+# ② 绿的才打包 → douyin-cloud\dist\svr-code-<时间戳>.zip（index.js + package.json + run.sh）
+# ③ 容器约定（run.sh 在不在 / LF / 两个 Dockerfile / 端口）另有一条关卡：
+#    powershell -ExecutionPolicy Bypass -File tools\cloud-deploy-check.ps1
 ```
 
 冒烟测试里那个**假 code2session** 是关键设计：它模仿 `developer.toutiao.com`，只在 appid/secret 都对
@@ -76,7 +84,7 @@ powershell -ExecutionPolicy Bypass -File tools\cloud-pack.ps1
 ```powershell
 # 本机没有独立 node 时，用抖音开发者工具自带的 Electron 当 node：
 tools\minigame-node.ps1 douyin-cloud\svr\index.js
-# 另开一个窗口：curl.exe http://127.0.0.1:8080/api/health
+# 另开一个窗口：curl.exe http://127.0.0.1:8000/api/health
 ```
 
 ## 部署
@@ -88,7 +96,7 @@ tools\minigame-node.ps1 douyin-cloud\svr\index.js
 ⚠️ **把代码送上去这一步只能在控制台点**：抖音云只支持控制台里的「Git 代码 / Docker 镜像」两种部署方式，
 **没有官方 CLI**（官方模板仓库 README 原文）。2026-09-30 在「服务设置 → 部署方式」上只看到三个页签：
 **模板部署 / git部署 / 镜像部署** —— 代码包上传没有入口了，所以**首选 git部署**（从 GitHub 拉代码构建；
-仓库已就绪，卡在"SSH 公钥还没加到 GitHub"，见 `docs\douyin-cloud-deploy.md` §2.5 / §2.6），
+仓库已就绪，**2026-09-30 已推上 GitHub**（`chenjian301/1` 的 `main` HEAD = `b49a472`；用 https 克隆到本地 `d:\douy\1` 与本地 `HEAD` 对比一致），见 `docs\douyin-cloud-deploy.md` §2.5 / §2.6），
 本地产出的 zip 留作离线备份。
 另外：文档里出现的具体域名都是历史痕迹 —— 2026-09-30 复核时旧域名已返回
 `404 + X-Status-Code: 13005 not found server`，一律以控制台现值（并重新填入 `cloudBase`）为准。

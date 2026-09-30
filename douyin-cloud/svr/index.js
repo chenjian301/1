@@ -3,7 +3,8 @@
  *
  * 为什么零依赖：
  *   抖音云的部署方式（2026-09-30 在「服务设置 → 部署方式」看到的是 模板部署 / git部署 / 镜像部署）
- *   最后都是跑一个 `node index.js`；零依赖就**不需要 npm install**，构建步骤最少、失败面最小。
+ *   容器里真正的入口是仓库根的 run.sh（平台固定执行 /opt/application/run.sh，不在镜像 CMD 上 ——
+ *   2026-09-30 就因为仓库里没有这个文件而发布失败，见 run.sh 头部与 docs\douyin-cloud-deploy.md §2.8）。
  *   上一版工程验证过的组合是 Node + koa；这里只用 Node 自带的 http / https / crypto，
  *   将来要换 koa/express 也只是换个路由写法。
  *
@@ -53,7 +54,14 @@ const BALANCE_VERSION = 1;
 const SEASON = { name: 'S1', worldSeed: 20260930 };
 const PROTOCOL = 1;
 
-const PORT = process.env.PORT || 8080;
+/**
+ * 监听端口：平台注入了 PORT 就听平台的，否则 8000 —— 8000 是抖音云的约定
+ * （官方 Node 模板 src/server.ts 硬编码 `const PORT = 8000;`，平台监管进程的日志也写着
+ *  "restarting user function at port 8000"）。容器里这个默认值通常由 run.sh 补，两处都是 8000。
+ * **别再改回 8080**：2026-09-30 之前的"端口 8080"没有任何依据，配合缺失的 run.sh 让发布失败了一次
+ * （复盘见 docs\douyin-cloud-deploy.md §2.8）。
+ */
+const PORT = process.env.PORT || 8000;
 const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_RESPONSE_BYTES = 900 * 1024;
 
