@@ -506,7 +506,7 @@ G.GAME = (function () {
     return null;
   }
 
-  /** 一帧画面：地表 → 装饰 → 地标 → 弹道 → 怪 → 目标环 → 玩家 → 飘字 → 摇杆 → HUD → 面板 */
+  /** 一帧画面：地表/营地 → 装饰 → 路网 → 地标 → 营地道具 → 弹道 → 怪 → 目标环 → 玩家 → 飘字 → 摇杆 → HUD → 面板 */
   function render() {
     var ctx = PLAT.ctx();
     var canvas = PLAT.canvas();
@@ -527,11 +527,13 @@ G.GAME = (function () {
 
     RENDER.drawGround(ctx, state.camera);
     RENDER.drawDecor(ctx, state.camera, WORLD.decorInView());
+    RENDER.drawRoads(ctx, state.camera);
     RENDER.drawLandmarks(ctx, state.camera, WORLD.landmarksInView());
+    RENDER.drawCamp(ctx, state.camera);
     RENDER.drawProjectiles(ctx, state.camera, WORLD.projectiles());
-    RENDER.drawMonsters(ctx, state.camera, WORLD.monstersInView(), state.player.targetId);
+    RENDER.drawMonsters(ctx, state.camera, WORLD.monstersInView(), state.player.targetId, view.now);
     RENDER.drawTargetRing(ctx, state.camera, view.target);
-    RENDER.drawPlayer(ctx, state.camera, state.player, state.stats);
+    RENDER.drawPlayer(ctx, state.camera, state.player, state.stats, view.now);
     RENDER.drawDamageNumbers(ctx, state.camera, WORLD.damageNumbers(), WORLD.now());
 
     INPUT.setButtons(view.buttons);

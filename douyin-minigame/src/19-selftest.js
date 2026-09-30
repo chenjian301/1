@@ -562,7 +562,119 @@ G.SELFTEST = (function () {
     eq('清档后回到 1 级新号', SAVE_.load(seed, 2).level, 1);
   }
 
-  /* ---------------------------------------- 11. 冒烟：假 canvas 跑真帧 */
+  /* ---------------------------------------- 11. 地图设计：营地与小径路网 */
+
+  function checkMap() {
+    section('地图设计：营地与小径路网（04-terrain.js）');
+    var seed = BAL.season.worldSeed;
+    var T = G.TERRAIN;
+
+    var camp = T.campCenter();
+    eq('营地中心在原点', camp.x + ',' + camp.y, '0,0');
+    eq('营地半径来自 balance', camp.radius, BAL.world.camp.radius);
+    eq('原点在营地内', T.isInCamp(0, 0), true);
+    eq('砖地边界内一点仍在营地内', T.isInCamp(camp.radius - 1, 0), true);
+    eq('砖地外一点不在营地内', T.isInCamp(camp.radius + 1, 0), false);
+    eq('负方向同样成立', T.isInCamp(-(camp.radius - 1), 0), true);
+    ok('围栏半径 < 砖地半径（围栏立在砖地上）', BAL.world.camp.fenceRadius < camp.radius, BAL.world.camp.fenceRadius + ' / ' + camp.radius);
+
+    var propsA = T.campProps();
+    var propsB = T.campProps();
+    ok('营地道具每次完全一致（手工摆位，无随机）', JSON.stringify(propsA) === JSON.stringify(propsB));
+    ok(
+      '营地道具都在砖地内、且比例合法',
+      propsA.every(function (p) {
+        return isFinite(p.x) && isFinite(p.y) && p.scale > 0 && T.isInCamp(p.x, p.y);
+      }),
+      propsA.length + ' 件'
+    );
+    ok(
+      '营地道具含篝火与帐篷（一眼认得出这是营地）',
+      propsA.some(function (p) { return p.kind === 'fire'; }) && propsA.some(function (p) { return p.kind === 'tent'; })
+    );
+    propsB.push({ kind: 'hacked' });
+    eq('campProps 返回的是副本（改它不会污染地图形状）', T.campProps().length, propsA.length);
+
+    eq('路网节点间距 = balance', T.roadSpanChunks(), BAL.world.road.spanChunks);
+
+    var node = T.roadNodeFor(seed, 2, -3);
+    same('同一个路网节点永远算在同一个位置', T.roadNodeFor(seed, 2, -3), node);
+    var nodeSpan = T.roadSpanChunks() * G.CHUNK.CHUNK_SIZE;
+    var jitter = BAL.world.road.jitterChunks * G.CHUNK.CHUNK_SIZE;
+    ok(
+      '节点落在网格交叉点 ± 抖动（所以原点附近就有路）',
+      Math.abs(node.x - 2 * nodeSpan) <= jitter + 1e-6 && Math.abs(node.y + 3 * nodeSpan) <= jitter + 1e-6,
+      node.x.toFixed(1) + ',' + node.y.toFixed(1)
+    );
+    ok('相邻两组的节点不重合', T.roadNodeFor(seed, 2, -3).x !== T.roadNodeFor(seed, 3, -3).x);
+
+    var roads = T.roadsInRect(seed, -1000, -1000, 1000, 1000);
+    ok('出生点附近确实有路（地图不是空的）', roads.length > 0, 'segments=' + roads.length);
+    same('同一个矩形两次取路完全一致（确定性）', T.roadsInRect(seed, -1000, -1000, 1000, 1000), roads);
+    ok(
+      '每段都是有限的横/竖直线段（无 NaN、无零长）',
+      roads.every(function (s) {
+        return (
+          isFinite(s.x1) && isFinite(s.y1) && isFinite(s.x2) && isFinite(s.y2) && (s.y1 === s.y2) !== (s.x1 === s.x2)
+        );
+      })
+    );
+    ok('每段宽度 = balance.world.road.width', roads.every(function (s) { return s.width === BAL.world.road.width; }));
+    ok(
+      '粗筛生效：远处的路不会被带回来',
+      T.roadsInRect(seed, 100000, 100000, 101000, 101000).every(function (s) {
+        return Math.min(s.x1, s.x2) <= 101000 + BAL.world.road.width * 4;
+      })
+    );
+    ok('退化矩形不抛异常（返回数组即可）', Array.isArray(T.roadsInRect(seed, 0, 0, 0, 0)));
+  }
+
+  /* ---------------------------------------- 12. 角色外观与地图绘制 */
+
+  function checkLook() {
+    section('角色外观与地图绘制（16-render.js / 17-hud.js）');
+    var R = G.RENDER;
+
+    // 朝向：0=下 1=左下 2=左 3=左上 4=上 5=右上 6=右 7=右下
+    eq('朝下 → 0', R.facingIndex({ x: 0, y: 1 }), 0);
+    eq('朝左下 → 1', R.facingIndex({ x: -1, y: 1 }), 1);
+    eq('朝左 → 2', R.facingIndex({ x: -1, y: 0 }), 2);
+    eq('朝左上 → 3', R.facingIndex({ x: -1, y: -1 }), 3);
+    eq('朝上 → 4', R.facingIndex({ x: 0, y: -1 }), 4);
+    eq('朝右上 → 5', R.facingIndex({ x: 1, y: -1 }), 5);
+    eq('朝右 → 6', R.facingIndex({ x: 1, y: 0 }), 6);
+    eq('朝右下 → 7', R.facingIndex({ x: 1, y: 1 }), 7);
+    eq('零向量退回朝下（不产生 NaN）', R.facingIndex({ x: 0, y: 0 }), 0);
+    eq('坏输入也退回朝下', R.facingIndex(null), 0);
+    ok('朝左三向要镜像画', R.facesLeft(1) && R.facesLeft(2) && R.facesLeft(3) && !R.facesLeft(6));
+    ok('朝上三向不画脸（背对镜头）', R.facesAway(3) && R.facesAway(4) && R.facesAway(5) && !R.facesAway(0));
+
+    // 走路 / 挥砍相位只由逻辑时间推出来（不用 Date.now，逻辑可重放）
+    eq('站着不动时走路相位为 0', R.walkPhase(1234, false), 0);
+    between('走路相位落在 [0,1)', R.walkPhase(777, true), 0, 0.999999);
+    ok('相位随时间推进', R.walkPhase(500, true, 260) !== R.walkPhase(800, true, 260));
+    eq('出手那一刻 = 相位 0（正在劈）', R.swingPhase(1000, 1000, 600), 0);
+    eq('出手间隔走完 = 相位 1（收招）', R.swingPhase(1600, 1000, 600), 1);
+    eq('很久没出手 = 相位 1（静止姿势）', R.swingPhase(9999, 1000, 600), 1);
+    eq('从没出手过 = 相位 1', R.swingPhase(1000, 0, 600), 1);
+
+    // 真画一遍新加的东西：营地 / 路网 / 小地图都必须在假 canvas 上画得出来
+    var ctx = fakeContext();
+    R.drawRoads(ctx, { x: 0, y: 0 });
+    R.drawCamp(ctx, { x: 0, y: 0 });
+    ok('营地 + 路网能画出来（不是空转）', ctx.calls.count > 0, 'calls=' + ctx.calls.count);
+
+    // 走到很远的地方：营地不该再画任何东西（视野粗判必须生效，否则每帧白画十几个图元）
+    var far = fakeContext();
+    R.drawCamp(far, { x: 200000, y: 200000 });
+    eq('离营地很远时营地的绘制调用为 0', far.calls.count, 0);
+
+    var hud = fakeContext();
+    G.HUD.drawMinimap(hud, { player: { x: 0, y: 0, facing: { x: 1, y: 0 } }, save: { guild: null } });
+    ok('小地图能画出来', hud.calls.count > 0, 'calls=' + hud.calls.count);
+  }
+
+  /* ---------------------------------------- 13. 冒烟：假 canvas 跑真帧 */
 
   /**
    * 假 canvas 上下文：只数调用次数，其余全是 no-op。
@@ -710,7 +822,9 @@ G.SELFTEST = (function () {
       checkLoot,
       checkEquipment,
       checkPlayer,
-      checkSave
+      checkSave,
+      checkMap,
+      checkLook
     ];
     for (var i = 0; i < groups.length; i += 1) {
       try {
@@ -759,6 +873,8 @@ G.SELFTEST = (function () {
     checkEquipment: checkEquipment,
     checkPlayer: checkPlayer,
     checkSave: checkSave,
+    checkMap: checkMap,
+    checkLook: checkLook,
     runSmoke: runSmoke,
     runAll: runAll
   };

@@ -7,9 +7,10 @@
  * 画的东西：
  *   吸顶：等级 + 经验条（Lv.12 ▓▓▓░░ 1.2k/2.4k）、金币、战力、当前难度带
  *   其下：玩家血条（战斗反馈的第一优先级）
- *   吸底右侧：四个圆形功能键「箱 / 包 / 会 / 设」（带角标，符合"先用圆形代替外观"）
+ *   右上：**小地图**（chunk 网格 + 小径 + 营地 + 地标 + 怪 + 公会锚点 + 玩家朝向）
+ *   吸底右侧：四个圆形功能键「箱 / 包 / 会 / 设」（带角标）
  *   左下：摇杆由 15-input 自己画
- *   调试面板（可选）：FPS / chunk 数 / 活跃怪数 / 当前目标 / 世界种子
+ *   调试面板（可选）：FPS / chunk 数 / 活跃怪数 / 当前目标 / 世界种子 / 世界指纹
  */
 
 G.HUD = (function () {
@@ -109,12 +110,149 @@ G.HUD = (function () {
       '世界种子 ' + BAL.season.worldSeed + '  指纹 ' + (view.fingerprint || '—'),
       '触摸 ' + (G.PLAT.hasTt() ? 'tt' : '桩') + '  存档 ' + (view.saveOk ? '正常' : '未写入')
     ];
-    var top = SCREEN.safeTop() + 150;
+    var top = SCREEN.safeTop() + 128 + BAL.view.minimap.size + 26;
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.fillRect(12, top - 12, SCREEN.width() - 24, lines.length * 30 + 24);
     for (var i = 0; i < lines.length; i += 1) {
       text(ctx, lines[i], 24, top + i * 30, 20, '#bfe0ff');
     }
+  }
+
+  /**
+   * 小地图（右上角）：附近 chunk 网格 + 小径路网 + 营地 + 地标 + 怪点 + 公会锚点 + 玩家朝向。
+   * 它是"地图设计"的呈现层 —— 玩家要能一眼看出"我在哪、路往哪边走、还有什么没去过"。
+   * 路网用的是**和小地图外面同一份数据**（G.TERRAIN.roadsInRect），不另画一套。
+   */
+  function drawMinimap(ctx, view) {
+    var config = BAL.view.minimap;
+    var size = config.size;
+    var left = SCREEN.width() - size - config.margin;
+    var top = SCREEN.safeTop() + 128;
+    var player = view.player;
+    var halfWorld = config.chunkRadius * G.CHUNK.CHUNK_SIZE;
+    var scale = size / (halfWorld * 2);
+    var centerX = left + size / 2;
+    var centerY = top + size / 2;
+    var i;
+    var point;
+
+    function toMap(x, y) {
+      return { x: centerX + (x - player.x) * scale, y: centerY + (y - player.y) * scale };
+    }
+    function insideMap(p) {
+      return p.x >= left && p.x <= left + size && p.y >= top && p.y <= top + size;
+    }
+
+    ctx.save();
+    ctx.globalAlpha = 0.62;
+    ctx.fillStyle = '#101828';
+    ctx.fillRect(left, top, size, size);
+    ctx.globalAlpha = 1;
+
+    // chunk 网格：按世界坐标对齐，跨 chunk 时格子不会"跟着玩家漂"
+    ctx.strokeStyle = '#2c3a55';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    var firstX = Math.ceil((player.x - halfWorld) / G.CHUNK.CHUNK_SIZE) * G.CHUNK.CHUNK_SIZE;
+    for (var gx = firstX; gx <= player.x + halfWorld; gx += G.CHUNK.CHUNK_SIZE) {
+      var lineX = toMap(gx, player.y).x;
+      ctx.moveTo(lineX, top);
+      ctx.lineTo(lineX, top + size);
+    }
+    var firstY = Math.ceil((player.y - halfWorld) / G.CHUNK.CHUNK_SIZE) * G.CHUNK.CHUNK_SIZE;
+    for (var gy = firstY; gy <= player.y + halfWorld; gy += G.CHUNK.CHUNK_SIZE) {
+      var lineY = toMap(player.x, gy).y;
+      ctx.moveTo(left, lineY);
+      ctx.lineTo(left + size, lineY);
+    }
+    ctx.stroke();
+
+    // 小径
+    var segments = G.TERRAIN.roadsInRect(
+      BAL.season.worldSeed,
+      player.x - halfWorld,
+      player.y - halfWorld,
+      player.x + halfWorld,
+      player.y + halfWorld
+    );
+    ctx.strokeStyle = '#8a7457';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (i = 0; i < segments.length; i += 1) {
+      var a = toMap(segments[i].x1, segments[i].y1);
+      var b = toMap(segments[i].x2, segments[i].y2);
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+    }
+    ctx.stroke();
+
+    // 营地（原点）
+    point = toMap(0, 0);
+    if (insideMap(point)) {
+      ctx.fillStyle = '#c9b08a';
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 地标
+    var landmarks = G.WORLD.landmarksInView();
+    ctx.fillStyle = '#9ad4ff';
+    for (i = 0; i < landmarks.length; i += 1) {
+      point = toMap(landmarks[i].x, landmarks[i].y);
+      if (!insideMap(point)) continue;
+      ctx.fillRect(point.x - 2.5, point.y - 2.5, 5, 5);
+    }
+
+    // 怪（精英画大一点、金色）
+    var monsters = G.WORLD.monstersInView();
+    for (i = 0; i < monsters.length; i += 1) {
+      point = toMap(monsters[i].x, monsters[i].y);
+      if (!insideMap(point)) continue;
+      ctx.fillStyle = monsters[i].elite ? '#ffd479' : '#ff8a8a';
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, monsters[i].elite ? 3.4 : 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 公会锚点（有公会才有）
+    if (view.save && view.save.guild && view.save.guild.anchor) {
+      point = toMap(view.save.guild.anchor.x, view.save.guild.anchor.y);
+      if (insideMap(point)) {
+        ctx.fillStyle = '#a9d5ff';
+        ctx.beginPath();
+        ctx.moveTo(point.x, point.y - 5);
+        ctx.lineTo(point.x + 5, point.y);
+        ctx.lineTo(point.x, point.y + 5);
+        ctx.lineTo(point.x - 5, point.y);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    // 玩家：一个朝向三角（朝向直接取 player.facing，不另算一套）
+    var fx = player.facing.x;
+    var fy = player.facing.y;
+    var length = Math.sqrt(fx * fx + fy * fy);
+    if (!(length > 0.0001)) {
+      fx = 0;
+      fy = 1;
+      length = 1;
+    }
+    fx /= length;
+    fy /= length;
+    ctx.fillStyle = '#ffd479';
+    ctx.beginPath();
+    ctx.moveTo(centerX + fx * 9, centerY + fy * 9);
+    ctx.lineTo(centerX - fx * 5 - fy * 5, centerY - fy * 5 + fx * 5);
+    ctx.lineTo(centerX - fx * 5 + fy * 5, centerY - fy * 5 - fx * 5);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = '#4d5f86';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(left, top, size, size);
+    ctx.restore();
   }
 
   /** 主绘制：view 由 20-main 组装（玩家、属性、存档、FPS、目标…） */
@@ -164,6 +302,7 @@ G.HUD = (function () {
       text(ctx, view.flash.text, width / 2, top + 176, 40, '#ffe08a', 'center');
     }
 
+    drawMinimap(ctx, view);
     drawButtons(ctx, view.buttons, view.now);
     if (view.debug) drawDebug(ctx, view);
   }
@@ -171,6 +310,7 @@ G.HUD = (function () {
   return {
     buttons: buttons,
     draw: draw,
+    drawMinimap: drawMinimap,
     bar: bar,
     text: text
   };

@@ -117,6 +117,9 @@ G.WORLD = (function () {
         wanderAt: 0,
         wanderX: 0,
         wanderY: 0,
+        /** 朝向（表现用；由 moveToward / 攻击分支更新） */
+        dirX: 0,
+        dirY: 1,
         knockX: 0,
         knockY: 0,
         hurtUntil: 0,
@@ -203,8 +206,13 @@ G.WORLD = (function () {
     var dy = ty - entity.y;
     var length = Math.sqrt(dx * dx + dy * dy);
     if (length < 1 || step <= 0) return;
-    entity.x += (dx / length) * step;
-    entity.y += (dy / length) * step;
+    var nx = dx / length;
+    var ny = dy / length;
+    entity.x += nx * step;
+    entity.y += ny * step;
+    // 朝向只服务表现（16-render 按它决定怪的脸朝哪边）；不参与任何生成与结算
+    entity.dirX = nx;
+    entity.dirY = ny;
   }
 
   /** 怪打到玩家：结算伤害 → 扣血 → 击退 → 飘红字（数字用 COMBAT 的同一份公式） */
@@ -282,6 +290,11 @@ G.WORLD = (function () {
 
     if (dist <= monster.attackRange) {
       monster.state = 'attack';
+      // 站桩开打时朝向仍要对着玩家（否则怪会"背着脸"挥爪）
+      if (dist > 0.0001) {
+        monster.dirX = dx / dist;
+        monster.dirY = dy / dist;
+      }
       if (nowMs >= monster.attackAt) {
         monster.attackAt = nowMs + monster.attackIntervalMs;
         if (monster.ranged) {
