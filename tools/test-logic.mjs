@@ -132,7 +132,23 @@ section('数值表（shared/balance.json）');
   eq('保底：50 箱无史诗', balance.chests.pity.epic, 50);
   eq('保底：500 箱无神话', balance.chests.pity.mythic, 500);
   eq('宝箱背包上限 200', balance.chests.bagCap, 200);
-  eq('装备六部位', balance.equipment.slots.length, 6);
+  eq('装备四部位（武器 / 衣服 / 鞋子 / 饰品）', balance.equipment.slots.length, 4);
+  eq(
+    '部位顺序 = 武器 / 衣服 / 鞋子 / 饰品',
+    balance.equipment.slots.map((s) => s.id).join(','),
+    'weapon,armor,boots,trinket',
+  );
+  eq('装备目录 60 件（六阶 × 10 件）', balance.equipment.catalog.length, 60);
+  ok(
+    '营地不刷怪的半径 = 石砖地半径',
+    balance.world.camp.monsterFreeRadius === balance.world.camp.radius,
+    `${balance.world.camp.monsterFreeRadius} / ${balance.world.camp.radius}`,
+  );
+  ok(
+    '视角倍率 0.5~1（拉远看得更多，又不会小到看不清）',
+    balance.view.cameraZoom >= 0.5 && balance.view.cameraZoom <= 1,
+    String(balance.view.cameraZoom),
+  );
   eq('装备词条数曲线 1/2/3/4/5/5', balance.equipment.tiers.map((t) => t.affixes).join(','), '1,2,3,4,5,5');
   eq('装备数值倍率末档 5.3', balance.equipment.tiers[5].multiplier, 5.3);
   eq('公会人数上限 20', balance.guild.memberCap, 20);
