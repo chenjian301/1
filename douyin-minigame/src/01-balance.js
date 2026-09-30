@@ -7,8 +7,8 @@
  *   powershell -ExecutionPolicy Bypass -File tools\build-minigame.ps1
  * (or simply run tools\minigame-now.cmd, which does both plus the checks)
  *
- * balance.json sha256, raw file format                  = 7b4c349c8c287334f4c6e777f5c75aa22ca43a088bbdebe79a9429995cfdbfd3
- * balance.json sha256, normalised (BOM stripped, CRLF -> LF) = 25816f76b394aa01d360c448508bb9fc5b848532c96dc70789ea4f91636b6e98
+ * balance.json sha256, raw file format                  = b1382118064c6d2999aeb67a25bc00eb9ee263e37d2be33c4a9ffa2dba544661
+ * balance.json sha256, normalised (BOM stripped, CRLF -> LF) = 34ae06dc4f051092afe6eab0f09cf714fb3ff3ed327ff933af6ab7a09c032afa
  * tools\check-minigame.ps1 fails if the normalised hash no longer matches balance.json.
  *
  * NOTE: this header is ASCII on purpose -- see tools\gen-minigame-balance.ps1.
@@ -16,7 +16,7 @@
  * the _readme line) is exactly what shared\balance.json contains.
  */
 
-G.BAL_SOURCE_SHA256 = '25816f76b394aa01d360c448508bb9fc5b848532c96dc70789ea4f91636b6e98';
+G.BAL_SOURCE_SHA256 = '34ae06dc4f051092afe6eab0f09cf714fb3ff3ed327ff933af6ab7a09c032afa';
 G.BAL ={
   "_readme": "唯一真相：玩法数值与掉落表（决策 #4）。客户端与服务端共读这一份，谁都不许在代码里另写一套数字。改完必须重跑 tools/test-logic.mjs。",
   "version": 1,
@@ -260,6 +260,13 @@ G.BAL ={
     "nameRegistryCap": 200
   },
 
+  "audio": {
+    "_readme": "音频（A4）：声音文件由 tools\\gen-minigame-sfx.mjs 生成到 douyin-minigame\\audio\\（hit/crit/kill/hurt/levelup/chest/ui/camp/bgm）；这里是总开关与音量",
+    "enabled": true,
+    "sfxVolume": 0.6,
+    "bgmVolume": 0.32
+  },
+
   "input": {
     "stickRadius": 72,
     "knobDiameter": 34,
@@ -290,6 +297,7 @@ G.BAL ={
     "damageNumberMs": 700,
     "_feel": "打击感（A4）：斩击特效时长 / 受击顿帧 / 暴击震屏 —— 都是表现层，不进任何随机流",
     "slashMs": 220,
+    "slashCap": 24,
     "hitStopMs": { "normal": 45, "crit": 110, "hurt": 30 },
     "shake": { "critMs": 240, "critPower": 26, "hurtMs": 150, "hurtPower": 12 },
 "cameraLerpPerTick": 0.22,

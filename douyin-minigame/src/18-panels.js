@@ -345,12 +345,14 @@ G.PANELS = (function () {
     }
 
     if (current === 'menu') {
+      var settings = view.save.settings || { autoBattle: false, sfx: true, bgm: true, vibrate: true };
+      var audio = view.audio || null;
       list.push({
         id: 'menu:selftest',
         y: top,
         h: rowH,
         text: '立即跑自检',
-        sub: '地图确定性 / 伤害 / 掉箱 / 装备 / 升级曲线，几十项断言当场出结果',
+        sub: '地图确定性 / 伤害 / 掉箱 / 装备 / 升级曲线 / 账号与界面，三百多项断言当场出结果',
         color: '#8ce99a',
         action: { type: 'selftest' }
       });
@@ -373,11 +375,38 @@ G.PANELS = (function () {
         action: { type: 'toggleDebug' }
       });
       list.push({
-        id: 'menu:reset',
+        id: 'menu:sfx',
         y: top + rowH * 3,
         h: rowH,
+        text: '音效：' + (settings.sfx ? '开' : '关'),
+        sub: '命中 / 暴击 / 击杀 / 受伤 / 升级 / 开箱（音量在 balance.audio，声音文件由工具生成）',
+        color: settings.sfx ? '#8ce99a' : '#8d8d8d',
+        action: { type: 'toggleSfx' }
+      });
+      list.push({
+        id: 'menu:bgm',
+        y: top + rowH * 4,
+        h: rowH,
+        text: '背景音乐：' + (settings.bgm ? '开' : '关'),
+        sub: audio && audio.supported ? '首次触摸后才会响（平台要求）' : '当前环境没有音频接口（模拟器里可能如此）',
+        color: settings.bgm ? '#8ce99a' : '#8d8d8d',
+        action: { type: 'toggleBgm' }
+      });
+      list.push({
+        id: 'menu:vibrate',
+        y: top + rowH * 5,
+        h: rowH,
+        text: '震动：' + (settings.vibrate ? '开' : '关'),
+        sub: '暴击与挨打时短震一下（暴击的手感一半在手上）',
+        color: settings.vibrate ? '#8ce99a' : '#8d8d8d',
+        action: { type: 'toggleVibrate' }
+      });
+      list.push({
+        id: 'menu:reset',
+        y: top + rowH * 6,
+        h: rowH,
         text: '重置本地存档',
-        sub: view.resetArmed ? '再点一次真的删（等级 / 装备 / 宝箱全清）' : '点一下先确认',
+        sub: view.resetArmed ? '再点一次真的删（等级 / 装备 / 宝箱全清，角色名保留）' : '点一下先确认',
         color: view.resetArmed ? '#ff8a8a' : '#c7c7c7',
         action: { type: 'resetSave' }
       });

@@ -2,7 +2,7 @@
  *
  * Assembled from douyin-minigame\src\*.js by tools\build-minigame.ps1.
  * Parts (in order): 00-config.js, 01-balance.js, 02-rng.js, 03-chunk.js, 04-terrain.js, 05-spawn.js, 06-progression.js, 07-combat.js, 08-loot.js, 09-equipment.js, 10-player.js, 11-save.js, 12-platform.js, 13-screen.js, 14-world.js, 15-input.js, 16-render.js, 17-hud.js, 18-panels.js, 19-selftest.js, 20-main.js
- * parts sha256 = a63597fb57a5d44112be1422d3890d52f75f35680d9ebb3c2b9390642034c331
+ * parts sha256 = b3c45440d8c0eeb45a073392254e620b37d972eac0b6b9e04f92ef0cda65d903
  *
  * Edit files under douyin-minigame\src\ and rebuild:
  *   powershell -ExecutionPolicy Bypass -File tools\build-minigame.ps1
@@ -73,8 +73,8 @@ G.CONFIG = {
  *   powershell -ExecutionPolicy Bypass -File tools\build-minigame.ps1
  * (or simply run tools\minigame-now.cmd, which does both plus the checks)
  *
- * balance.json sha256, raw file format                  = 7b4c349c8c287334f4c6e777f5c75aa22ca43a088bbdebe79a9429995cfdbfd3
- * balance.json sha256, normalised (BOM stripped, CRLF -> LF) = 25816f76b394aa01d360c448508bb9fc5b848532c96dc70789ea4f91636b6e98
+ * balance.json sha256, raw file format                  = b1382118064c6d2999aeb67a25bc00eb9ee263e37d2be33c4a9ffa2dba544661
+ * balance.json sha256, normalised (BOM stripped, CRLF -> LF) = 34ae06dc4f051092afe6eab0f09cf714fb3ff3ed327ff933af6ab7a09c032afa
  * tools\check-minigame.ps1 fails if the normalised hash no longer matches balance.json.
  *
  * NOTE: this header is ASCII on purpose -- see tools\gen-minigame-balance.ps1.
@@ -82,7 +82,7 @@ G.CONFIG = {
  * the _readme line) is exactly what shared\balance.json contains.
  */
 
-G.BAL_SOURCE_SHA256 = '25816f76b394aa01d360c448508bb9fc5b848532c96dc70789ea4f91636b6e98';
+G.BAL_SOURCE_SHA256 = '34ae06dc4f051092afe6eab0f09cf714fb3ff3ed327ff933af6ab7a09c032afa';
 G.BAL ={
   "_readme": "唯一真相：玩法数值与掉落表（决策 #4）。客户端与服务端共读这一份，谁都不许在代码里另写一套数字。改完必须重跑 tools/test-logic.mjs。",
   "version": 1,
@@ -326,6 +326,13 @@ G.BAL ={
     "nameRegistryCap": 200
   },
 
+  "audio": {
+    "_readme": "音频（A4）：声音文件由 tools\\gen-minigame-sfx.mjs 生成到 douyin-minigame\\audio\\（hit/crit/kill/hurt/levelup/chest/ui/camp/bgm）；这里是总开关与音量",
+    "enabled": true,
+    "sfxVolume": 0.6,
+    "bgmVolume": 0.32
+  },
+
   "input": {
     "stickRadius": 72,
     "knobDiameter": 34,
@@ -356,6 +363,7 @@ G.BAL ={
     "damageNumberMs": 700,
     "_feel": "打击感（A4）：斩击特效时长 / 受击顿帧 / 暴击震屏 —— 都是表现层，不进任何随机流",
     "slashMs": 220,
+    "slashCap": 24,
     "hitStopMs": { "normal": 45, "crit": 110, "hurt": 30 },
     "shake": { "critMs": 240, "critPower": 26, "hurtMs": 150, "hurtPower": 12 },
 "cameraLerpPerTick": 0.22,
@@ -2503,6 +2511,11 @@ G.ACCOUNT = (function () {
  *   PLAT.onShow(fn)       前后台切换（用来暂停 + 存档）
  *   PLAT.frame(fn)        每帧回调（requestAnimationFrame，带 setTimeout 兜底）
  *   PLAT.cloud(path, opt) 抖音云 HTTP（未配置 cloudBase 时直接 reject，**不发包**）
+ *   PLAT.login()          tt.login 的 code（失败 resolve(null)，降级成本机账号）
+ *   PLAT.editText(opt)    平台键盘输入（昵称用；没有这个 API 时 resolve(null)）
+ *   PLAT.sfx(name)        音效（audio\*.wav，由 tools\gen-minigame-sfx.mjs 生成）
+ *   PLAT.bgm(play)        背景音乐（首次触摸解锁后才会真的响）
+ *   PLAT.setAudio(opt)    音量与开关（由 20-main 从 balance + 存档设置推过来）
  */
 
 G.PLAT = (function () {
@@ -2811,6 +2824,141 @@ G.PLAT = (function () {
     });
   }
 
+  /* ---------------------------------------------------------------- 音频（A4） */
+
+  /**
+   * 音效文件（相对包根的路径）：由 `tools\gen-minigame-sfx.mjs` **生成**，不是下载来的素材
+   * （决策 #10：不引入来源说不清的文件）。键名 = 代码里 PLAT.sfx('键名') 的名字。
+   */
+  var AUDIO_FILES = {
+    hit: 'audio/hit.wav',
+    crit: 'audio/crit.wav',
+    kill: 'audio/kill.wav',
+    hurt: 'audio/hurt.wav',
+    levelup: 'audio/levelup.wav',
+    chest: 'audio/chest.wav',
+    ui: 'audio/ui.wav',
+    camp: 'audio/camp.wav'
+  };
+  var BGM_FILE = 'audio/bgm.wav';
+
+  /** 音频设置（由 20-main 从 balance + 存档设置推过来；平台层不认识"存档"这个东西） */
+  var audio = { enabled: true, sfxEnabled: true, bgmEnabled: true, sfxVolume: 0.6, bgmVolume: 0.32 };
+  var audioContexts = {};
+  var bgmContext = null;
+  var bgmPlaying = false;
+  /** 小游戏要求"首次交互之后才能播"：解锁前不碰 BGM，音效照试（失败就算了） */
+  var audioUnlocked = false;
+
+  function audioSupported() {
+    return hasTt && typeof tt.createInnerAudioContext === 'function';
+  }
+
+  function makeContext(file, volume, loop) {
+    if (!audioSupported()) return null;
+    try {
+      var instance = tt.createInnerAudioContext();
+      instance.src = file;
+      instance.volume = volume;
+      if (loop === true) instance.loop = true;
+      return instance;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function contextFor(name) {
+    if (audioContexts[name]) return audioContexts[name];
+    if (!AUDIO_FILES[name]) return null;
+    var instance = makeContext(AUDIO_FILES[name], audio.sfxVolume, false);
+    if (instance) audioContexts[name] = instance;
+    return instance;
+  }
+
+  function stopBgm() {
+    if (!bgmContext) return false;
+    try {
+      bgmContext.stop();
+    } catch (error) {
+      /* 停不掉不值得报错 */
+    }
+    bgmPlaying = false;
+    return true;
+  }
+
+  /** 推设置：开关与音量（改设置后调一次即可；已经建好的上下文会同步音量） */
+  function setAudio(options) {
+    var source = options || {};
+    if (source.enabled !== undefined) audio.enabled = source.enabled === true;
+    if (source.sfxEnabled !== undefined) audio.sfxEnabled = source.sfxEnabled === true;
+    if (source.bgmEnabled !== undefined) audio.bgmEnabled = source.bgmEnabled === true;
+    if (typeof source.sfxVolume === 'number') audio.sfxVolume = source.sfxVolume;
+    if (typeof source.bgmVolume === 'number') audio.bgmVolume = source.bgmVolume;
+    for (var name in audioContexts) {
+      if (Object.prototype.hasOwnProperty.call(audioContexts, name)) audioContexts[name].volume = audio.sfxVolume;
+    }
+    if (bgmContext) bgmContext.volume = audio.bgmVolume;
+    // 关掉 BGM 开关时立刻停：否则玩家会以为"设置没生效"
+    if (!audio.enabled || !audio.bgmEnabled) stopBgm();
+    return audio;
+  }
+
+  /** 播一次音效（没有 tt / 文件缺失 / 关掉音效 → 静默返回 false，绝不抛） */
+  function sfx(name) {
+    if (!audio.enabled || !audio.sfxEnabled) return false;
+    var instance = contextFor(name);
+    if (!instance) return false;
+    try {
+      if (typeof instance.stop === 'function') instance.stop();
+      if (typeof instance.seek === 'function') instance.seek(0);
+      instance.play();
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /** 背景音乐：play=true 循环播；play=false 停 */
+  function bgm(play) {
+    if (play !== true) return stopBgm();
+    if (!audio.enabled || !audio.bgmEnabled || !audioUnlocked) return false;
+    if (!bgmContext) bgmContext = makeContext(BGM_FILE, audio.bgmVolume, true);
+    if (!bgmContext) return false;
+    try {
+      bgmContext.play();
+      bgmPlaying = true;
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /** 首次触摸时调一次（之后音效 / BGM 才算"解锁"，这是平台的硬要求） */
+  function unlockAudio() {
+    if (audioUnlocked) return false;
+    audioUnlocked = true;
+    return true;
+  }
+
+  function audioState() {
+    var ready = [];
+    for (var name in audioContexts) {
+      if (Object.prototype.hasOwnProperty.call(audioContexts, name)) ready.push(name);
+    }
+    return {
+      supported: audioSupported(),
+      unlocked: audioUnlocked,
+      bgmPlaying: bgmPlaying,
+      enabled: audio.enabled,
+      sfxEnabled: audio.sfxEnabled,
+      bgmEnabled: audio.bgmEnabled,
+      sfxVolume: audio.sfxVolume,
+      bgmVolume: audio.bgmVolume,
+      files: Object.keys(AUDIO_FILES).concat(['bgm']),
+      loaded: ready
+    };
+  }
+
   return {
     hasTt: function () {
       return hasTt;
@@ -2833,7 +2981,14 @@ G.PLAT = (function () {
     frame: frame,
     cloud: cloud,
     login: login,
-    editText: editText
+    editText: editText,
+    setAudio: setAudio,
+    sfx: sfx,
+    bgm: bgm,
+    stopBgm: stopBgm,
+    unlockAudio: unlockAudio,
+    audioSupported: audioSupported,
+    audioState: audioState
   };
 })();
 
@@ -2997,6 +3152,9 @@ G.WORLD = (function () {
   var damageNumbers = [];
   var projectiles = [];
 
+  /** 斩击特效（A4 打击感）：同样是与结算同帧产生的表现层数据，不参与任何随机流 */
+  var effects = [];
+
   /** 当前逻辑时间（毫秒，由 update 累加）—— 不用 Date.now，逻辑才可重放 */
   var nowMs = 0;
 
@@ -3010,6 +3168,7 @@ G.WORLD = (function () {
     order = [];
     damageNumbers = [];
     projectiles = [];
+    effects = [];
     nowMs = 0;
   }
 
@@ -3153,6 +3312,38 @@ G.WORLD = (function () {
       crit: crit === true,
       until: nowMs + BAL.view.damageNumberMs
     });
+  }
+
+  /**
+   * 斩击特效（A4 打击感）：在玩家与目标之间溅出一道弧线。
+   * 表现层数据 —— 不参与任何随机流，也不影响世界指纹；数量有上限（balance.view.slashCap），
+   * 挂机时不会因为"一秒挥三次刀"把特效堆到卡帧。
+   */
+  function spawnSlash(player, target, crit) {
+    var dx = target.x - player.x;
+    var dy = target.y - player.y;
+    var length = Math.sqrt(dx * dx + dy * dy);
+    var dirX = length > 0.0001 ? dx / length : player.facing.x;
+    var dirY = length > 0.0001 ? dy / length : player.facing.y;
+    if (effects.length >= BAL.view.slashCap) effects.shift();
+    effects.push({
+      kind: 'slash',
+      x: player.x + dirX * BAL.player.radius * 1.2,
+      y: player.y + dirY * BAL.player.radius * 1.2,
+      dirX: dirX,
+      dirY: dirY,
+      radius: BAL.player.radius + BAL.player.attackRange * 0.72,
+      crit: crit === true,
+      startAt: nowMs,
+      until: nowMs + BAL.view.slashMs
+    });
+  }
+
+  /** 清掉过期的特效（每帧一次，和飘字同一个套路） */
+  function cullEffects() {
+    for (var i = effects.length - 1; i >= 0; i -= 1) {
+      if (effects[i].until <= nowMs) effects.splice(i, 1);
+    }
   }
 
   /** 朝目标点走一步（不转向、不寻路 —— 无限地图没有地形阻挡，见 01-game-design §4） */
@@ -3422,6 +3613,9 @@ G.WORLD = (function () {
     target.hurtUntil = nowMs + BAL.combat.hurtMs;
     COMBAT.creditHit(target, player.id, hit.damage, nowMs);
     spawnDamageNumber(target.x, target.y - target.radius - 18, String(hit.damage), hit.crit ? '#ffd479' : '#ffffff', hit.crit);
+    // 打击感的数据那一半：斩击特效 + 把"谁被打了一下"记进 events（20-main 据此做顿帧 / 震屏 / 音效）
+    spawnSlash(player, target, hit.crit);
+    events.hits.push({ damage: hit.damage, crit: hit.crit === true, x: target.x, y: target.y });
 
     if (dist > 0.0001) {
       // 击退：从玩家往外推（数值见 combat.monsterKnockback，秒为单位、在 updateMonster 里衰减）
@@ -3457,7 +3651,7 @@ G.WORLD = (function () {
     setView(camera, screenW, screenH);
     ensureChunks(player.x, player.y);
 
-    var events = { kills: [], playerHits: [], playerDown: false, target: null };
+    var events = { kills: [], playerHits: [], playerDown: false, target: null, hits: [] };
     var rect = activeRect();
     var dtSec = dtMs / 1000;
     var monsters = allMonsters();
@@ -3483,6 +3677,7 @@ G.WORLD = (function () {
     }
 
     updateProjectiles(player, stats, events);
+    cullEffects();
 
     for (i = damageNumbers.length - 1; i >= 0; i -= 1) {
       if (damageNumbers[i].until <= nowMs) damageNumbers.splice(i, 1);
@@ -3538,6 +3733,9 @@ G.WORLD = (function () {
     },
     projectiles: function () {
       return projectiles;
+    },
+    effects: function () {
+      return effects;
     }
   };
 })();
@@ -5116,6 +5314,59 @@ G.RENDER = (function () {
     ctx.fillRect(point.x - barW / 2, barY, barW * ratio, barH);
   }
 
+  /**
+   * 斩击特效（A4 打击感）：一道随时间扫过去的弧，暴击再加四道向外飞的光刺。
+   * 只用 moveTo/arc/lineTo/stroke —— 冒烟的假 canvas 认这些图元，所以"特效画不出来"也能被抓到。
+   * 角度由效果自带的 dirX/dirY 现算（atan2 只在这里出现，生成层依旧没有任何三角函数）。
+   */
+  function drawEffects(ctx, camera, effects, nowMs) {
+    var now = typeof nowMs === 'number' ? nowMs : G.WORLD.now();
+    var list = effects || [];
+    for (var i = 0; i < list.length; i += 1) {
+      var effect = list[i];
+      var life = (effect.until - now) / BAL.view.slashMs;
+      if (!(life >= 0)) life = 0;
+      if (life > 1) life = 1;
+      if (life <= 0) continue;
+
+      var point = toScreen(camera, effect.x, effect.y);
+      var played = 1 - life;
+      var angle = Math.atan2(effect.dirY, effect.dirX);
+      var radius = effect.radius * (0.85 + 0.4 * played);
+      var from = angle - 1.15 + played * 1.35;
+
+      ctx.globalAlpha = life * (effect.crit ? 0.95 : 0.7);
+      ctx.strokeStyle = effect.crit ? '#ffd479' : '#ffffff';
+      ctx.lineWidth = effect.crit ? 10 : 6;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, radius, from, from + 1.5);
+      ctx.stroke();
+
+      // 内圈细刃：让弧看起来是"一把刀扫过去"，而不是一个圆圈
+      ctx.globalAlpha = ctx.globalAlpha * 0.55;
+      ctx.lineWidth = effect.crit ? 5 : 3;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, radius * 0.74, from + 0.18, from + 1.24);
+      ctx.stroke();
+
+      if (effect.crit) {
+        // 暴击：四道向外飞的光刺（角度是固定偏置，纯几何 —— 不占任何随机流）
+        ctx.globalAlpha = life * 0.9;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        for (var k = 0; k < 4; k += 1) {
+          var ray = angle - 0.6 + k * 0.42;
+          var inner = radius * 0.9;
+          var outer = inner + 26 * (0.5 + played);
+          ctx.moveTo(point.x + Math.cos(ray) * inner, point.y + Math.sin(ray) * inner);
+          ctx.lineTo(point.x + Math.cos(ray) * outer, point.y + Math.sin(ray) * outer);
+        }
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+
   /** 远程弹道：一个小亮点沿直线飞 */
   function drawProjectiles(ctx, camera, shots) {
     ctx.fillStyle = '#9ad4ff';
@@ -5169,6 +5420,7 @@ G.RENDER = (function () {
     drawPlayer: drawPlayer,
     drawAvatar: drawAvatar,
     drawNameplate: drawNameplate,
+    drawEffects: drawEffects,
     drawProjectiles: drawProjectiles,
     drawDamageNumbers: drawDamageNumbers
   };
@@ -5913,12 +6165,14 @@ G.PANELS = (function () {
     }
 
     if (current === 'menu') {
+      var settings = view.save.settings || { autoBattle: false, sfx: true, bgm: true, vibrate: true };
+      var audio = view.audio || null;
       list.push({
         id: 'menu:selftest',
         y: top,
         h: rowH,
         text: '立即跑自检',
-        sub: '地图确定性 / 伤害 / 掉箱 / 装备 / 升级曲线，几十项断言当场出结果',
+        sub: '地图确定性 / 伤害 / 掉箱 / 装备 / 升级曲线 / 账号与界面，三百多项断言当场出结果',
         color: '#8ce99a',
         action: { type: 'selftest' }
       });
@@ -5941,11 +6195,38 @@ G.PANELS = (function () {
         action: { type: 'toggleDebug' }
       });
       list.push({
-        id: 'menu:reset',
+        id: 'menu:sfx',
         y: top + rowH * 3,
         h: rowH,
+        text: '音效：' + (settings.sfx ? '开' : '关'),
+        sub: '命中 / 暴击 / 击杀 / 受伤 / 升级 / 开箱（音量在 balance.audio，声音文件由工具生成）',
+        color: settings.sfx ? '#8ce99a' : '#8d8d8d',
+        action: { type: 'toggleSfx' }
+      });
+      list.push({
+        id: 'menu:bgm',
+        y: top + rowH * 4,
+        h: rowH,
+        text: '背景音乐：' + (settings.bgm ? '开' : '关'),
+        sub: audio && audio.supported ? '首次触摸后才会响（平台要求）' : '当前环境没有音频接口（模拟器里可能如此）',
+        color: settings.bgm ? '#8ce99a' : '#8d8d8d',
+        action: { type: 'toggleBgm' }
+      });
+      list.push({
+        id: 'menu:vibrate',
+        y: top + rowH * 5,
+        h: rowH,
+        text: '震动：' + (settings.vibrate ? '开' : '关'),
+        sub: '暴击与挨打时短震一下（暴击的手感一半在手上）',
+        color: settings.vibrate ? '#8ce99a' : '#8d8d8d',
+        action: { type: 'toggleVibrate' }
+      });
+      list.push({
+        id: 'menu:reset',
+        y: top + rowH * 6,
+        h: rowH,
         text: '重置本地存档',
-        sub: view.resetArmed ? '再点一次真的删（等级 / 装备 / 宝箱全清）' : '点一下先确认',
+        sub: view.resetArmed ? '再点一次真的删（等级 / 装备 / 宝箱全清，角色名保留）' : '点一下先确认',
         color: view.resetArmed ? '#ff8a8a' : '#c7c7c7',
         action: { type: 'resetSave' }
       });
@@ -7434,6 +7715,158 @@ G.SELFTEST = (function () {
     GAME.state.save.settings.autoBattle = false;
   }
 
+  /**
+   * 打击感（用户要求"斩击特效 / 受击顿帧 / 暴击震屏"）。
+   * 三件事都能在 node 里断言：特效到期会消失、顿帧按时长分档、震屏是纯函数；
+   * 顿帧是否真的"冻住世界"也可以直接跑两步看世界时间。
+   */
+  function checkFeel() {
+    section('打击感：斩击特效 / 受击顿帧 / 暴击震屏（A4）');
+    var GAME = G.GAME;
+    var WORLD = G.WORLD;
+    between('斩击特效时长在 0.1~0.5 秒', BAL.view.slashMs, 100, 500);
+    between('特效数量有上限（挂机不会堆爆）', BAL.view.slashCap, 4, 64);
+    ok(
+      '顿帧分档：普通 < 暴击，且都在 20~150ms',
+      BAL.view.hitStopMs.normal < BAL.view.hitStopMs.crit && BAL.view.hitStopMs.normal >= 20 && BAL.view.hitStopMs.crit <= 150,
+      BAL.view.hitStopMs.normal + ' / ' + BAL.view.hitStopMs.crit
+    );
+    ok('暴击震屏幅度 > 挨打震屏幅度', BAL.view.shake.critPower > BAL.view.shake.hurtPower);
+    ok('挨打顿帧不长于普通命中（挨打只要一顿，不要卡）', BAL.view.hitStopMs.hurt <= BAL.view.hitStopMs.normal);
+
+    if (!GAME || typeof GAME.applyHitFeedback !== 'function') {
+      ok('G.GAME 可用（20-main.js 已拼入）', false, '拿不到 GAME');
+      return;
+    }
+    G.SAVE.clear();
+    GAME.boot();
+    GAME.beginPlaying('打击感测试者');
+    GAME.state.hitStopMs = 0;
+    GAME.state.shake.power = 0;
+
+    // 顿帧 + 震屏：直接喂 events，不用真去打一只怪（这就是把反馈做成函数的原因）
+    var plain = GAME.applyHitFeedback({ hits: [{ damage: 10, crit: false }], playerHits: [] });
+    eq('普通命中顿帧 = balance 值', plain.stop, BAL.view.hitStopMs.normal);
+    eq('普通命中不震屏', GAME.state.shake.power, 0);
+
+    GAME.state.hitStopMs = 0;
+    var crit = GAME.applyHitFeedback({ hits: [{ damage: 99, crit: true }], playerHits: [] });
+    eq('暴击顿帧 = balance 值且更长', crit.stop, BAL.view.hitStopMs.crit);
+    ok('暴击比普通更"咬手"', crit.stop > plain.stop, crit.stop + ' > ' + plain.stop);
+    eq('暴击开启震屏（幅度取 balance）', GAME.state.shake.power, BAL.view.shake.critPower);
+    var mid = GAME.state.shake.until - GAME.state.shake.ms / 2;
+    var offset = GAME.shakeOffset(mid);
+    ok('震屏期间有位移', Math.abs(offset.x) + Math.abs(offset.y) > 0, JSON.stringify(offset));
+    ok('震屏幅度不超过设定值', Math.abs(offset.x) <= BAL.view.shake.critPower + 0.001);
+    var gone = GAME.shakeOffset(GAME.state.shake.until + 1);
+    eq('震屏到点归零（x）', gone.x, 0);
+    eq('震屏到点归零（y）', gone.y, 0);
+
+    GAME.state.hitStopMs = 0;
+    var hurt = GAME.applyHitFeedback({ hits: [], playerHits: [{ damage: 5 }] });
+    eq('挨打也有顿帧', hurt.stop, BAL.view.hitStopMs.hurt);
+    eq('挨打震一下（幅度更小）', GAME.state.shake.power, BAL.view.shake.hurtPower);
+
+    // 顿帧真的会冻住世界
+    GAME.state.hitStopMs = 100;
+    var beforeStop = WORLD.now();
+    GAME.step(1000 / 60);
+    eq('顿帧期间世界时间不推进', WORLD.now(), beforeStop);
+    GAME.state.hitStopMs = 0;
+    GAME.step(1000 / 60);
+    ok('顿帧结束后世界继续跑', WORLD.now() > beforeStop);
+
+    // 斩击特效：开着自动战斗打一会儿，必然会看到刀光
+    GAME.state.save.settings.autoBattle = true;
+    var sawEffect = false;
+    var i;
+    for (i = 0; i < 1800 && !sawEffect; i += 1) {
+      GAME.step(1000 / 60);
+      if (WORLD.effects().length > 0) sawEffect = true;
+    }
+    ok('打架时会生成斩击特效', sawEffect, '特效数 ' + WORLD.effects().length);
+    ok('特效数量不超上限', WORLD.effects().length <= BAL.view.slashCap, String(WORLD.effects().length));
+    GAME.state.save.settings.autoBattle = false;
+
+    // 画得出来 / 到期不画（假 canvas 能验"特效没白画，也不会画过期的东西"）
+    var live = fakeContext();
+    G.RENDER.drawEffects(
+      live,
+      { x: 0, y: 0 },
+      [{ kind: 'slash', x: 0, y: 0, dirX: 1, dirY: 0, radius: 80, crit: true, startAt: WORLD.now(), until: WORLD.now() + 200 }],
+      WORLD.now()
+    );
+    ok('斩击特效（含暴击光刺）画得出来', live.calls.count > 0, 'calls=' + live.calls.count);
+    var dead = fakeContext();
+    G.RENDER.drawEffects(
+      dead,
+      { x: 0, y: 0 },
+      [{ kind: 'slash', x: 0, y: 0, dirX: 1, dirY: 0, radius: 80, crit: false, startAt: 0, until: 1 }],
+      WORLD.now()
+    );
+    eq('过期特效不画任何东西（省落笔）', dead.calls.count, 0);
+    for (i = 0; i < 90; i += 1) GAME.step(1000 / 60);
+    ok('旧特效会被清掉（数组不会一直涨）', WORLD.effects().length <= 6, String(WORLD.effects().length));
+  }
+
+  /**
+   * 音效与 BGM（用户要求"音效与 BGM"）。
+   * 声音文件由 tools\gen-minigame-sfx.mjs 生成，路径写在 12-platform.js；这里验清单、开关与"没 tt 不炸"。
+   * 真机上"响不响"只能靠耳朵，所以这一组保证的是**代码路径与开关逻辑**是对的。
+   */
+  function checkAudio() {
+    section('音效与 BGM（12-platform.js 的 PLAT.sfx / PLAT.bgm）');
+    between('音效音量在 0..1', BAL.audio.sfxVolume, 0, 1);
+    ok(
+      'BGM 音量不高于音效（别盖过打击反馈）',
+      BAL.audio.bgmVolume <= BAL.audio.sfxVolume,
+      BAL.audio.bgmVolume + ' vs ' + BAL.audio.sfxVolume
+    );
+    ok('音频总开关是显式布尔', BAL.audio.enabled === true || BAL.audio.enabled === false);
+
+    var state = G.PLAT.audioState();
+    eq('音频清单 = 8 个音效 + BGM', state.files.length, 9);
+    var allKeys = true;
+    var i;
+    for (i = 0; i < state.files.length; i += 1) {
+      if (!/^[a-z]+$/.test(state.files[i])) allKeys = false;
+    }
+    ok('清单里都是纯小写键名（路径由平台层拼）', allKeys, state.files.join(','));
+    ok('没配 tt 时报告"不支持音频"', state.supported === false, String(state.supported));
+    eq('没配 tt 时播音效静默返回 false（不抛）', G.PLAT.sfx('hit'), false);
+    eq('没配 tt 时播 BGM 也静默返回 false', G.PLAT.bgm(true), false);
+    eq('没配 tt 时停 BGM 静默返回 false', G.PLAT.stopBgm(), false);
+
+    // 设置推下去：关掉音效 → 连平台层都不进
+    G.PLAT.setAudio({ enabled: true, sfxEnabled: false, sfxVolume: 0.5, bgmVolume: 0.2 });
+    var muted = G.PLAT.audioState();
+    eq('关掉音效后 sfx 直接返回 false', G.PLAT.sfx('hit'), false);
+    eq('音效音量被记下来（0.5）', muted.sfxVolume, 0.5);
+    eq('BGM 音量被记下来（0.2）', muted.bgmVolume, 0.2);
+    G.PLAT.setAudio({ sfxEnabled: true, sfxVolume: BAL.audio.sfxVolume, bgmVolume: BAL.audio.bgmVolume });
+
+    // 设置面板的三个开关：写进存档 + 读得回来
+    G.SAVE.clear();
+    G.GAME.boot();
+    G.GAME.beginPlaying('音频测试者');
+    ok('音效默认开（老存档也当开）', G.GAME.state.save.settings.sfx === true);
+    G.GAME.toggleSetting('sfx');
+    eq('点一下关掉音效', G.GAME.state.save.settings.sfx, false);
+    eq('关掉后写进了存档', G.SAVE.load(BAL.season.worldSeed, 1).settings.sfx, false);
+    G.GAME.toggleSetting('sfx');
+    eq('再点一下开回来', G.GAME.state.save.settings.sfx, true);
+    G.GAME.toggleSetting('bgm');
+    eq('BGM 能关', G.GAME.state.save.settings.bgm, false);
+    G.GAME.toggleSetting('bgm');
+    eq('BGM 能开回来', G.GAME.state.save.settings.bgm, true);
+    G.GAME.toggleSetting('vibrate');
+    eq('震动能关', G.GAME.state.save.settings.vibrate, false);
+    G.GAME.toggleSetting('vibrate');
+    eq('未知键返回 null（不会误改设置）', G.GAME.toggleSetting('nope'), null);
+    var view = G.GAME.uiView();
+    ok('uiView 带音频状态（设置面板要显示当前开关）', !!view.audio && view.audio.files.length === 9);
+  }
+
   /* ---------------------------------------- 13. 冒烟：假 canvas 跑真帧 */
 
   /**
@@ -7598,7 +8031,9 @@ G.SELFTEST = (function () {
       checkUi,
       checkMap,
       checkLook,
-      checkAuto
+      checkAuto,
+      checkFeel,
+      checkAudio
     ];
     for (var i = 0; i < groups.length; i += 1) {
       try {
@@ -7650,6 +8085,8 @@ G.SELFTEST = (function () {
     checkAccount: checkAccount,
     checkUi: checkUi,
     checkAuto: checkAuto,
+    checkFeel: checkFeel,
+    checkAudio: checkAudio,
     checkMap: checkMap,
     checkLook: checkLook,
     runSmoke: runSmoke,
@@ -7727,7 +8164,13 @@ G.GAME = (function () {
     /** 本机账号（G.ACCOUNT.load() 的结果；没登录时是 null）—— A4 */
     account: null,
     /** 这一次触摸落在面板卡片里（卡片外照旧给摇杆 / 功能键）—— A4 */
-    panelTouch: false
+    panelTouch: false,
+    /** 受击顿帧剩余时长（毫秒）：>0 时世界冻住 —— 打击感全靠它 —— A4 */
+    hitStopMs: 0,
+    /** 震屏状态：{ until, power, ms }（power=0 表示没在震）—— A4 */
+    shake: { until: 0, power: 0, ms: 1 },
+    /** 音频是否可用（平台层回报；调试面板与设置面板都看它）—— A4 */
+    audioReady: false
   };
 
   /** 屏幕中央的一条提示（小游戏没有原生 toast，自绘最省事） */
@@ -7735,6 +8178,97 @@ G.GAME = (function () {
     if (!message) return;
     state.flash.text = message;
     state.flash.until = state.now + (ms || 1600);
+  }
+
+  /* ------------------------------------------------- 打击感与音频（A4 新增） */
+
+  /** 音量 / 开关推给平台层（boot、改设置、读档后各调一次；平台层不认识"存档"） */
+  function syncAudio() {
+    var settings = state.save && state.save.settings ? state.save.settings : SAVE.defaultSettings();
+    PLAT.setAudio({
+      enabled: BAL.audio.enabled === true,
+      sfxEnabled: settings.sfx !== false,
+      bgmEnabled: settings.bgm !== false,
+      sfxVolume: BAL.audio.sfxVolume,
+      bgmVolume: BAL.audio.bgmVolume
+    });
+    state.audioReady = PLAT.audioSupported();
+    return state.audioReady;
+  }
+
+  /** 播一次音效（玩家关掉了音效就什么都不做；没有 tt 时平台层自己会静默） */
+  function playSfx(name) {
+    var settings = state.save && state.save.settings ? state.save.settings : null;
+    if (settings && settings.sfx === false) return false;
+    return PLAT.sfx(name);
+  }
+
+  /**
+   * 命中反馈：**受击顿帧 + 震屏 + 音效 + 震动**四件事一起做（用户要的"打击感"就是这个）。
+   * 做成一个独立函数的原因：自检可以直接喂一份假的 events 断言数值，不用真去打一只怪。
+   *   - 普通命中 45ms / 暴击 110ms（balance.view.hitStopMs）——顿帧太短没感觉，太长会"卡"；
+   *   - 挨打也有 30ms：让"我被打了"这件事在画面上一顿，比飘字更快被感知；
+   *   - 暴击震屏 26px/240ms，挨打 12px/150ms（balance.view.shake）。
+   */
+  function applyHitFeedback(events) {
+    var hits = events && events.hits ? events.hits : [];
+    var hurt = events && events.playerHits ? events.playerHits : [];
+    var stop = 0;
+    var crit = false;
+    for (var i = 0; i < hits.length; i += 1) {
+      if (hits[i].crit) {
+        crit = true;
+        if (BAL.view.hitStopMs.crit > stop) stop = BAL.view.hitStopMs.crit;
+      } else if (BAL.view.hitStopMs.normal > stop) {
+        stop = BAL.view.hitStopMs.normal;
+      }
+    }
+    if (crit) {
+      playSfx('crit');
+      setShake(BAL.view.shake.critMs, BAL.view.shake.critPower);
+      if (state.save.settings.vibrate !== false) PLAT.vibrate(30);
+    } else if (hits.length > 0) {
+      playSfx('hit');
+    }
+    if (hurt.length > 0) {
+      playSfx('hurt');
+      if (BAL.view.hitStopMs.hurt > stop) stop = BAL.view.hitStopMs.hurt;
+      setShake(BAL.view.shake.hurtMs, BAL.view.shake.hurtPower);
+      if (state.save.settings.vibrate !== false) PLAT.vibrate(20);
+    }
+    if (stop > state.hitStopMs) state.hitStopMs = stop;
+    return { stop: state.hitStopMs, crit: crit, hits: hits.length, hurt: hurt.length };
+  }
+
+  /** 开一次震屏（power=0 或 ms<=0 就等于没开） */
+  function setShake(ms, power) {
+    if (!(ms > 0) || !(power > 0)) return state.shake;
+    state.shake.until = state.now + ms;
+    state.shake.power = power;
+    state.shake.ms = ms;
+    return state.shake;
+  }
+
+  /**
+   * 震屏偏移（纯函数，只吃时间）：正弦衰减，时间到就归零。
+   * 直接偏相机而不是偏每个绘制调用 —— 世界层完全不用知道"屏幕在抖"。
+   */
+  function shakeOffset(nowMs) {
+    if (!(state.shake.power > 0) || nowMs >= state.shake.until) return { x: 0, y: 0 };
+    var remain = (state.shake.until - nowMs) / state.shake.ms;
+    var damp = remain > 0 ? remain : 0;
+    if (damp > 1) damp = 1;
+    return {
+      x: Math.sin(nowMs * 0.09) * state.shake.power * damp,
+      y: Math.cos(nowMs * 0.13) * state.shake.power * damp
+    };
+  }
+
+  /** 渲染用的相机（= 真实相机 + 震屏偏移）。逻辑层永远读 state.camera，读到的是干净坐标 */
+  function shakeCamera(nowMs) {
+    var offset = shakeOffset(nowMs);
+    if (offset.x === 0 && offset.y === 0) return state.camera;
+    return { x: state.camera.x + offset.x, y: state.camera.y + offset.y };
   }
 
   /* ---------------------------------------------------------------- 启动 */
@@ -7781,6 +8315,8 @@ G.GAME = (function () {
     state.now = WORLD.now();
     state.lastTickAt = Date.now();
     state.autosaveAt = state.lastTickAt;
+    // 音频设置推给平台层（音量 / 开关都来自 balance + 存档设置；BGM 等首次触摸解锁后才响）
+    syncAudio();
     // 没有画布（node 里的自检 / 冒烟）就不挂主循环：同一份 boot() 既能上手机也能进测试
     if (PLAT.available()) PLAT.frame(frame);
     flash('点右下「设」→ 自检，可以当场验证全部逻辑', 3200);
@@ -8027,6 +8563,13 @@ G.GAME = (function () {
   function step(dtMs) {
     if (state.screen !== 'playing') return;
 
+    // 受击顿帧（A4）：命中那一瞬间把世界冻住几十毫秒 —— 打击感的一半在这个数字上。
+    // 顿帧期间连相机缓动都不推进，画面"咬"住一下才像真打到了东西。
+    if (state.hitStopMs > 0) {
+      state.hitStopMs -= dtMs;
+      return;
+    }
+
     var player = state.player;
     var stats = state.stats;
 
@@ -8051,6 +8594,7 @@ G.GAME = (function () {
     PLAYER.decayKnockback(player);
 
     var events = WORLD.update(dtMs, player, stats, state.camera, SCREEN.width(), SCREEN.height());
+    applyHitFeedback(events);
     for (var i = 0; i < events.kills.length; i += 1) applyKill(events.kills[i]);
     if (events.playerDown) flash('被打倒了，3 秒后原地复活', 1600);
 
@@ -8068,6 +8612,7 @@ G.GAME = (function () {
   function applyKill(kill) {
     var save = state.save;
     var monster = kill.monster;
+    playSfx('kill');
     save.stats.kills += 1;
     if (monster.elite) save.stats.eliteKills += 1;
 
@@ -8105,6 +8650,7 @@ G.GAME = (function () {
     if (PROG.shopUnlocked(state.save.level) && state.save.level - levels < BAL.guild.shopUnlockLevel) {
       text += ' · 商城与公会解锁';
     }
+    playSfx('levelup');
     flash(text, 2200);
   }
 
@@ -8161,6 +8707,7 @@ G.GAME = (function () {
 
   /** 开 N 箱：只报"最好的一件"，免得刷屏（每箱的结果都进背包/身上） */
   function openChests(count) {
+    playSfx('chest');
     var results = [];
     for (var i = 0; i < count; i += 1) {
       var result = openOneChest();
@@ -8363,6 +8910,7 @@ G.GAME = (function () {
 
   /** 右下功能键 → 打开 / 收起面板；「自动」是开关（用户要求"自动战斗设置为按钮，点击开启"） */
   function onHudButton(id) {
+    playSfx('ui');
     if (id === 'auto') {
       toggleAutoBattle();
       return;
@@ -8379,12 +8927,45 @@ G.GAME = (function () {
     else PANELS.open(panel);
   }
 
+  /**
+   * 设置开关（音效 / 背景音乐 / 震动）：写存档 + 立刻生效 + 给一句提示。
+   * "立刻生效"是重点：关掉 BGM 必须马上静下来，否则玩家会以为设置没生效（04-decisions #10）。
+   */
+  function toggleSetting(key) {
+    var settings = state.save.settings;
+    if (key === 'sfx') {
+      settings.sfx = settings.sfx === false;
+      syncAudio();
+      playSfx('ui');
+      flash('音效已' + (settings.sfx ? '开启' : '关闭'), 1400);
+    } else if (key === 'bgm') {
+      settings.bgm = settings.bgm === false;
+      syncAudio();
+      if (settings.bgm) PLAT.bgm(true);
+      else PLAT.stopBgm();
+      flash('背景音乐已' + (settings.bgm ? '开启' : '关闭'), 1400);
+    } else if (key === 'vibrate') {
+      settings.vibrate = settings.vibrate === false;
+      if (settings.vibrate) PLAT.vibrate(20);
+      flash('震动已' + (settings.vibrate ? '开启' : '关闭'), 1400);
+    } else {
+      return null;
+    }
+    writeSave();
+    return settings;
+  }
+
   /** 面板 action → 具体操作（**唯一改存档的入口**，阶段 B 会被服务端接口替换） */
   function handleAction(action) {
     if (!action) return;
     var type = action.type;
+    // 点一下界面就该有"咔"的一声（开箱那条有自己的声音，所以跳过）
+    if (type !== 'openChest') playSfx('ui');
     if (type === 'close') PANELS.close();
     else if (type === 'open') PANELS.open(action.panel);
+    else if (type === 'toggleSfx') toggleSetting('sfx');
+    else if (type === 'toggleBgm') toggleSetting('bgm');
+    else if (type === 'toggleVibrate') toggleSetting('vibrate');
     else if (type === 'openChest') openChests(action.count || 1);
     else if (type === 'equip') equipFromBag(action.itemId);
     else if (type === 'salvageAll') salvageAll();
@@ -8426,7 +9007,9 @@ G.GAME = (function () {
       /** A4：界面与账号（登录 / 创建角色屏要读；HUD 只读名字与等级） */
       screen: state.screen,
       account: state.account,
-      autoBattle: !!(state.save.settings && state.save.settings.autoBattle === true)
+      autoBattle: !!(state.save.settings && state.save.settings.autoBattle === true),
+      /** A4：音频状态（设置面板要显示开关的当前值与平台是否支持） */
+      audio: PLAT.audioState()
     };
   }
 
@@ -8468,17 +9051,19 @@ G.GAME = (function () {
     ctx.fillStyle = '#0b1020';
     ctx.fillRect(0, 0, SCREEN.width(), SCREEN.height());
 
-    RENDER.drawGround(ctx, state.camera);
-    RENDER.drawDecor(ctx, state.camera, WORLD.decorInView());
-    RENDER.drawRoads(ctx, state.camera);
-    RENDER.drawLandmarks(ctx, state.camera, WORLD.landmarksInView());
-    RENDER.drawCamp(ctx, state.camera);
-    RENDER.drawProjectiles(ctx, state.camera, WORLD.projectiles());
-    RENDER.drawMonsters(ctx, state.camera, WORLD.monstersInView(), state.player.targetId, view.now);
-    RENDER.drawTargetRing(ctx, state.camera, view.target);
-    RENDER.drawPlayer(ctx, state.camera, state.player, state.stats, view.now);
+    // 震屏：只偏渲染用的相机（state.camera 本身不动 → 逻辑层拿到的永远是干净坐标）
+    var camera = shakeCamera(view.now);
+    RENDER.drawGround(ctx, camera);
+    RENDER.drawDecor(ctx, camera, WORLD.decorInView());
+    RENDER.drawRoads(ctx, camera);
+    RENDER.drawLandmarks(ctx, camera, WORLD.landmarksInView());
+    RENDER.drawCamp(ctx, camera);
+    RENDER.drawProjectiles(ctx, camera, WORLD.projectiles());
+    RENDER.drawMonsters(ctx, camera, WORLD.monstersInView(), state.player.targetId, view.now);
+    RENDER.drawTargetRing(ctx, camera, view.target);
+    RENDER.drawPlayer(ctx, camera, state.player, state.stats, view.now);
     // 头顶名牌：角色名 + 血条（用户要求；玩家和精英怪共用同一份画法）
-    RENDER.drawNameplate(ctx, state.camera, {
+    RENDER.drawNameplate(ctx, camera, {
       x: state.player.x,
       y: state.player.y,
       radius: BAL.player.radius,
@@ -8489,7 +9074,9 @@ G.GAME = (function () {
       dead: state.player.dead === true,
       color: '#ffeaa7'
     });
-    RENDER.drawDamageNumbers(ctx, state.camera, WORLD.damageNumbers(), WORLD.now());
+    // 斩击特效画在实体之上、飘字之下：刀光要盖住怪，伤害数字又要最清楚
+    RENDER.drawEffects(ctx, camera, WORLD.effects(), view.now);
+    RENDER.drawDamageNumbers(ctx, camera, WORLD.damageNumbers(), WORLD.now());
 
     INPUT.setButtons(view.buttons);
     INPUT.draw(ctx);
@@ -8521,6 +9108,8 @@ G.GAME = (function () {
   function onTouchStart(event) {
     var point = touchPoint(event);
     if (!point) return;
+    // 首次触摸：解锁音频（平台硬要求"用户交互后才能播"），然后把 BGM 起起来
+    if (PLAT.unlockAudio()) PLAT.bgm(true);
     if (state.screen !== 'playing') {
       G.LOGIN.press(point);
       return;
@@ -8623,6 +9212,12 @@ G.GAME = (function () {
     handleLoginAction: handleLoginAction,
     autoStep: autoStep,
     toggleAutoBattle: toggleAutoBattle,
+    toggleSetting: toggleSetting,
+    syncAudio: syncAudio,
+    playSfx: playSfx,
+    applyHitFeedback: applyHitFeedback,
+    setShake: setShake,
+    shakeOffset: shakeOffset,
     step: step,
     applyKill: applyKill,
     onLevelUp: onLevelUp,

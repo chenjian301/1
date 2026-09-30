@@ -960,6 +960,158 @@ G.SELFTEST = (function () {
     GAME.state.save.settings.autoBattle = false;
   }
 
+  /**
+   * 打击感（用户要求"斩击特效 / 受击顿帧 / 暴击震屏"）。
+   * 三件事都能在 node 里断言：特效到期会消失、顿帧按时长分档、震屏是纯函数；
+   * 顿帧是否真的"冻住世界"也可以直接跑两步看世界时间。
+   */
+  function checkFeel() {
+    section('打击感：斩击特效 / 受击顿帧 / 暴击震屏（A4）');
+    var GAME = G.GAME;
+    var WORLD = G.WORLD;
+    between('斩击特效时长在 0.1~0.5 秒', BAL.view.slashMs, 100, 500);
+    between('特效数量有上限（挂机不会堆爆）', BAL.view.slashCap, 4, 64);
+    ok(
+      '顿帧分档：普通 < 暴击，且都在 20~150ms',
+      BAL.view.hitStopMs.normal < BAL.view.hitStopMs.crit && BAL.view.hitStopMs.normal >= 20 && BAL.view.hitStopMs.crit <= 150,
+      BAL.view.hitStopMs.normal + ' / ' + BAL.view.hitStopMs.crit
+    );
+    ok('暴击震屏幅度 > 挨打震屏幅度', BAL.view.shake.critPower > BAL.view.shake.hurtPower);
+    ok('挨打顿帧不长于普通命中（挨打只要一顿，不要卡）', BAL.view.hitStopMs.hurt <= BAL.view.hitStopMs.normal);
+
+    if (!GAME || typeof GAME.applyHitFeedback !== 'function') {
+      ok('G.GAME 可用（20-main.js 已拼入）', false, '拿不到 GAME');
+      return;
+    }
+    G.SAVE.clear();
+    GAME.boot();
+    GAME.beginPlaying('打击感测试者');
+    GAME.state.hitStopMs = 0;
+    GAME.state.shake.power = 0;
+
+    // 顿帧 + 震屏：直接喂 events，不用真去打一只怪（这就是把反馈做成函数的原因）
+    var plain = GAME.applyHitFeedback({ hits: [{ damage: 10, crit: false }], playerHits: [] });
+    eq('普通命中顿帧 = balance 值', plain.stop, BAL.view.hitStopMs.normal);
+    eq('普通命中不震屏', GAME.state.shake.power, 0);
+
+    GAME.state.hitStopMs = 0;
+    var crit = GAME.applyHitFeedback({ hits: [{ damage: 99, crit: true }], playerHits: [] });
+    eq('暴击顿帧 = balance 值且更长', crit.stop, BAL.view.hitStopMs.crit);
+    ok('暴击比普通更"咬手"', crit.stop > plain.stop, crit.stop + ' > ' + plain.stop);
+    eq('暴击开启震屏（幅度取 balance）', GAME.state.shake.power, BAL.view.shake.critPower);
+    var mid = GAME.state.shake.until - GAME.state.shake.ms / 2;
+    var offset = GAME.shakeOffset(mid);
+    ok('震屏期间有位移', Math.abs(offset.x) + Math.abs(offset.y) > 0, JSON.stringify(offset));
+    ok('震屏幅度不超过设定值', Math.abs(offset.x) <= BAL.view.shake.critPower + 0.001);
+    var gone = GAME.shakeOffset(GAME.state.shake.until + 1);
+    eq('震屏到点归零（x）', gone.x, 0);
+    eq('震屏到点归零（y）', gone.y, 0);
+
+    GAME.state.hitStopMs = 0;
+    var hurt = GAME.applyHitFeedback({ hits: [], playerHits: [{ damage: 5 }] });
+    eq('挨打也有顿帧', hurt.stop, BAL.view.hitStopMs.hurt);
+    eq('挨打震一下（幅度更小）', GAME.state.shake.power, BAL.view.shake.hurtPower);
+
+    // 顿帧真的会冻住世界
+    GAME.state.hitStopMs = 100;
+    var beforeStop = WORLD.now();
+    GAME.step(1000 / 60);
+    eq('顿帧期间世界时间不推进', WORLD.now(), beforeStop);
+    GAME.state.hitStopMs = 0;
+    GAME.step(1000 / 60);
+    ok('顿帧结束后世界继续跑', WORLD.now() > beforeStop);
+
+    // 斩击特效：开着自动战斗打一会儿，必然会看到刀光
+    GAME.state.save.settings.autoBattle = true;
+    var sawEffect = false;
+    var i;
+    for (i = 0; i < 1800 && !sawEffect; i += 1) {
+      GAME.step(1000 / 60);
+      if (WORLD.effects().length > 0) sawEffect = true;
+    }
+    ok('打架时会生成斩击特效', sawEffect, '特效数 ' + WORLD.effects().length);
+    ok('特效数量不超上限', WORLD.effects().length <= BAL.view.slashCap, String(WORLD.effects().length));
+    GAME.state.save.settings.autoBattle = false;
+
+    // 画得出来 / 到期不画（假 canvas 能验"特效没白画，也不会画过期的东西"）
+    var live = fakeContext();
+    G.RENDER.drawEffects(
+      live,
+      { x: 0, y: 0 },
+      [{ kind: 'slash', x: 0, y: 0, dirX: 1, dirY: 0, radius: 80, crit: true, startAt: WORLD.now(), until: WORLD.now() + 200 }],
+      WORLD.now()
+    );
+    ok('斩击特效（含暴击光刺）画得出来', live.calls.count > 0, 'calls=' + live.calls.count);
+    var dead = fakeContext();
+    G.RENDER.drawEffects(
+      dead,
+      { x: 0, y: 0 },
+      [{ kind: 'slash', x: 0, y: 0, dirX: 1, dirY: 0, radius: 80, crit: false, startAt: 0, until: 1 }],
+      WORLD.now()
+    );
+    eq('过期特效不画任何东西（省落笔）', dead.calls.count, 0);
+    for (i = 0; i < 90; i += 1) GAME.step(1000 / 60);
+    ok('旧特效会被清掉（数组不会一直涨）', WORLD.effects().length <= 6, String(WORLD.effects().length));
+  }
+
+  /**
+   * 音效与 BGM（用户要求"音效与 BGM"）。
+   * 声音文件由 tools\gen-minigame-sfx.mjs 生成，路径写在 12-platform.js；这里验清单、开关与"没 tt 不炸"。
+   * 真机上"响不响"只能靠耳朵，所以这一组保证的是**代码路径与开关逻辑**是对的。
+   */
+  function checkAudio() {
+    section('音效与 BGM（12-platform.js 的 PLAT.sfx / PLAT.bgm）');
+    between('音效音量在 0..1', BAL.audio.sfxVolume, 0, 1);
+    ok(
+      'BGM 音量不高于音效（别盖过打击反馈）',
+      BAL.audio.bgmVolume <= BAL.audio.sfxVolume,
+      BAL.audio.bgmVolume + ' vs ' + BAL.audio.sfxVolume
+    );
+    ok('音频总开关是显式布尔', BAL.audio.enabled === true || BAL.audio.enabled === false);
+
+    var state = G.PLAT.audioState();
+    eq('音频清单 = 8 个音效 + BGM', state.files.length, 9);
+    var allKeys = true;
+    var i;
+    for (i = 0; i < state.files.length; i += 1) {
+      if (!/^[a-z]+$/.test(state.files[i])) allKeys = false;
+    }
+    ok('清单里都是纯小写键名（路径由平台层拼）', allKeys, state.files.join(','));
+    ok('没配 tt 时报告"不支持音频"', state.supported === false, String(state.supported));
+    eq('没配 tt 时播音效静默返回 false（不抛）', G.PLAT.sfx('hit'), false);
+    eq('没配 tt 时播 BGM 也静默返回 false', G.PLAT.bgm(true), false);
+    eq('没配 tt 时停 BGM 静默返回 false', G.PLAT.stopBgm(), false);
+
+    // 设置推下去：关掉音效 → 连平台层都不进
+    G.PLAT.setAudio({ enabled: true, sfxEnabled: false, sfxVolume: 0.5, bgmVolume: 0.2 });
+    var muted = G.PLAT.audioState();
+    eq('关掉音效后 sfx 直接返回 false', G.PLAT.sfx('hit'), false);
+    eq('音效音量被记下来（0.5）', muted.sfxVolume, 0.5);
+    eq('BGM 音量被记下来（0.2）', muted.bgmVolume, 0.2);
+    G.PLAT.setAudio({ sfxEnabled: true, sfxVolume: BAL.audio.sfxVolume, bgmVolume: BAL.audio.bgmVolume });
+
+    // 设置面板的三个开关：写进存档 + 读得回来
+    G.SAVE.clear();
+    G.GAME.boot();
+    G.GAME.beginPlaying('音频测试者');
+    ok('音效默认开（老存档也当开）', G.GAME.state.save.settings.sfx === true);
+    G.GAME.toggleSetting('sfx');
+    eq('点一下关掉音效', G.GAME.state.save.settings.sfx, false);
+    eq('关掉后写进了存档', G.SAVE.load(BAL.season.worldSeed, 1).settings.sfx, false);
+    G.GAME.toggleSetting('sfx');
+    eq('再点一下开回来', G.GAME.state.save.settings.sfx, true);
+    G.GAME.toggleSetting('bgm');
+    eq('BGM 能关', G.GAME.state.save.settings.bgm, false);
+    G.GAME.toggleSetting('bgm');
+    eq('BGM 能开回来', G.GAME.state.save.settings.bgm, true);
+    G.GAME.toggleSetting('vibrate');
+    eq('震动能关', G.GAME.state.save.settings.vibrate, false);
+    G.GAME.toggleSetting('vibrate');
+    eq('未知键返回 null（不会误改设置）', G.GAME.toggleSetting('nope'), null);
+    var view = G.GAME.uiView();
+    ok('uiView 带音频状态（设置面板要显示当前开关）', !!view.audio && view.audio.files.length === 9);
+  }
+
   /* ---------------------------------------- 13. 冒烟：假 canvas 跑真帧 */
 
   /**
@@ -1124,7 +1276,9 @@ G.SELFTEST = (function () {
       checkUi,
       checkMap,
       checkLook,
-      checkAuto
+      checkAuto,
+      checkFeel,
+      checkAudio
     ];
     for (var i = 0; i < groups.length; i += 1) {
       try {
@@ -1176,6 +1330,8 @@ G.SELFTEST = (function () {
     checkAccount: checkAccount,
     checkUi: checkUi,
     checkAuto: checkAuto,
+    checkFeel: checkFeel,
+    checkAudio: checkAudio,
     checkMap: checkMap,
     checkLook: checkLook,
     runSmoke: runSmoke,

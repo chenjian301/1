@@ -42,6 +42,9 @@ G.WORLD = (function () {
   var damageNumbers = [];
   var projectiles = [];
 
+  /** 斩击特效（A4 打击感）：同样是与结算同帧产生的表现层数据，不参与任何随机流 */
+  var effects = [];
+
   /** 当前逻辑时间（毫秒，由 update 累加）—— 不用 Date.now，逻辑才可重放 */
   var nowMs = 0;
 
@@ -55,6 +58,7 @@ G.WORLD = (function () {
     order = [];
     damageNumbers = [];
     projectiles = [];
+    effects = [];
     nowMs = 0;
   }
 
@@ -198,6 +202,38 @@ G.WORLD = (function () {
       crit: crit === true,
       until: nowMs + BAL.view.damageNumberMs
     });
+  }
+
+  /**
+   * 斩击特效（A4 打击感）：在玩家与目标之间溅出一道弧线。
+   * 表现层数据 —— 不参与任何随机流，也不影响世界指纹；数量有上限（balance.view.slashCap），
+   * 挂机时不会因为"一秒挥三次刀"把特效堆到卡帧。
+   */
+  function spawnSlash(player, target, crit) {
+    var dx = target.x - player.x;
+    var dy = target.y - player.y;
+    var length = Math.sqrt(dx * dx + dy * dy);
+    var dirX = length > 0.0001 ? dx / length : player.facing.x;
+    var dirY = length > 0.0001 ? dy / length : player.facing.y;
+    if (effects.length >= BAL.view.slashCap) effects.shift();
+    effects.push({
+      kind: 'slash',
+      x: player.x + dirX * BAL.player.radius * 1.2,
+      y: player.y + dirY * BAL.player.radius * 1.2,
+      dirX: dirX,
+      dirY: dirY,
+      radius: BAL.player.radius + BAL.player.attackRange * 0.72,
+      crit: crit === true,
+      startAt: nowMs,
+      until: nowMs + BAL.view.slashMs
+    });
+  }
+
+  /** 清掉过期的特效（每帧一次，和飘字同一个套路） */
+  function cullEffects() {
+    for (var i = effects.length - 1; i >= 0; i -= 1) {
+      if (effects[i].until <= nowMs) effects.splice(i, 1);
+    }
   }
 
   /** 朝目标点走一步（不转向、不寻路 —— 无限地图没有地形阻挡，见 01-game-design §4） */
@@ -467,6 +503,9 @@ G.WORLD = (function () {
     target.hurtUntil = nowMs + BAL.combat.hurtMs;
     COMBAT.creditHit(target, player.id, hit.damage, nowMs);
     spawnDamageNumber(target.x, target.y - target.radius - 18, String(hit.damage), hit.crit ? '#ffd479' : '#ffffff', hit.crit);
+    // 打击感的数据那一半：斩击特效 + 把"谁被打了一下"记进 events（20-main 据此做顿帧 / 震屏 / 音效）
+    spawnSlash(player, target, hit.crit);
+    events.hits.push({ damage: hit.damage, crit: hit.crit === true, x: target.x, y: target.y });
 
     if (dist > 0.0001) {
       // 击退：从玩家往外推（数值见 combat.monsterKnockback，秒为单位、在 updateMonster 里衰减）
@@ -502,7 +541,7 @@ G.WORLD = (function () {
     setView(camera, screenW, screenH);
     ensureChunks(player.x, player.y);
 
-    var events = { kills: [], playerHits: [], playerDown: false, target: null };
+    var events = { kills: [], playerHits: [], playerDown: false, target: null, hits: [] };
     var rect = activeRect();
     var dtSec = dtMs / 1000;
     var monsters = allMonsters();
@@ -528,6 +567,7 @@ G.WORLD = (function () {
     }
 
     updateProjectiles(player, stats, events);
+    cullEffects();
 
     for (i = damageNumbers.length - 1; i >= 0; i -= 1) {
       if (damageNumbers[i].until <= nowMs) damageNumbers.splice(i, 1);
@@ -583,6 +623,9 @@ G.WORLD = (function () {
     },
     projectiles: function () {
       return projectiles;
+    },
+    effects: function () {
+      return effects;
     }
   };
 })();

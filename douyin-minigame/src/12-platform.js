@@ -15,6 +15,11 @@
  *   PLAT.onShow(fn)       前后台切换（用来暂停 + 存档）
  *   PLAT.frame(fn)        每帧回调（requestAnimationFrame，带 setTimeout 兜底）
  *   PLAT.cloud(path, opt) 抖音云 HTTP（未配置 cloudBase 时直接 reject，**不发包**）
+ *   PLAT.login()          tt.login 的 code（失败 resolve(null)，降级成本机账号）
+ *   PLAT.editText(opt)    平台键盘输入（昵称用；没有这个 API 时 resolve(null)）
+ *   PLAT.sfx(name)        音效（audio\*.wav，由 tools\gen-minigame-sfx.mjs 生成）
+ *   PLAT.bgm(play)        背景音乐（首次触摸解锁后才会真的响）
+ *   PLAT.setAudio(opt)    音量与开关（由 20-main 从 balance + 存档设置推过来）
  */
 
 G.PLAT = (function () {
@@ -323,6 +328,141 @@ G.PLAT = (function () {
     });
   }
 
+  /* ---------------------------------------------------------------- 音频（A4） */
+
+  /**
+   * 音效文件（相对包根的路径）：由 `tools\gen-minigame-sfx.mjs` **生成**，不是下载来的素材
+   * （决策 #10：不引入来源说不清的文件）。键名 = 代码里 PLAT.sfx('键名') 的名字。
+   */
+  var AUDIO_FILES = {
+    hit: 'audio/hit.wav',
+    crit: 'audio/crit.wav',
+    kill: 'audio/kill.wav',
+    hurt: 'audio/hurt.wav',
+    levelup: 'audio/levelup.wav',
+    chest: 'audio/chest.wav',
+    ui: 'audio/ui.wav',
+    camp: 'audio/camp.wav'
+  };
+  var BGM_FILE = 'audio/bgm.wav';
+
+  /** 音频设置（由 20-main 从 balance + 存档设置推过来；平台层不认识"存档"这个东西） */
+  var audio = { enabled: true, sfxEnabled: true, bgmEnabled: true, sfxVolume: 0.6, bgmVolume: 0.32 };
+  var audioContexts = {};
+  var bgmContext = null;
+  var bgmPlaying = false;
+  /** 小游戏要求"首次交互之后才能播"：解锁前不碰 BGM，音效照试（失败就算了） */
+  var audioUnlocked = false;
+
+  function audioSupported() {
+    return hasTt && typeof tt.createInnerAudioContext === 'function';
+  }
+
+  function makeContext(file, volume, loop) {
+    if (!audioSupported()) return null;
+    try {
+      var instance = tt.createInnerAudioContext();
+      instance.src = file;
+      instance.volume = volume;
+      if (loop === true) instance.loop = true;
+      return instance;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function contextFor(name) {
+    if (audioContexts[name]) return audioContexts[name];
+    if (!AUDIO_FILES[name]) return null;
+    var instance = makeContext(AUDIO_FILES[name], audio.sfxVolume, false);
+    if (instance) audioContexts[name] = instance;
+    return instance;
+  }
+
+  function stopBgm() {
+    if (!bgmContext) return false;
+    try {
+      bgmContext.stop();
+    } catch (error) {
+      /* 停不掉不值得报错 */
+    }
+    bgmPlaying = false;
+    return true;
+  }
+
+  /** 推设置：开关与音量（改设置后调一次即可；已经建好的上下文会同步音量） */
+  function setAudio(options) {
+    var source = options || {};
+    if (source.enabled !== undefined) audio.enabled = source.enabled === true;
+    if (source.sfxEnabled !== undefined) audio.sfxEnabled = source.sfxEnabled === true;
+    if (source.bgmEnabled !== undefined) audio.bgmEnabled = source.bgmEnabled === true;
+    if (typeof source.sfxVolume === 'number') audio.sfxVolume = source.sfxVolume;
+    if (typeof source.bgmVolume === 'number') audio.bgmVolume = source.bgmVolume;
+    for (var name in audioContexts) {
+      if (Object.prototype.hasOwnProperty.call(audioContexts, name)) audioContexts[name].volume = audio.sfxVolume;
+    }
+    if (bgmContext) bgmContext.volume = audio.bgmVolume;
+    // 关掉 BGM 开关时立刻停：否则玩家会以为"设置没生效"
+    if (!audio.enabled || !audio.bgmEnabled) stopBgm();
+    return audio;
+  }
+
+  /** 播一次音效（没有 tt / 文件缺失 / 关掉音效 → 静默返回 false，绝不抛） */
+  function sfx(name) {
+    if (!audio.enabled || !audio.sfxEnabled) return false;
+    var instance = contextFor(name);
+    if (!instance) return false;
+    try {
+      if (typeof instance.stop === 'function') instance.stop();
+      if (typeof instance.seek === 'function') instance.seek(0);
+      instance.play();
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /** 背景音乐：play=true 循环播；play=false 停 */
+  function bgm(play) {
+    if (play !== true) return stopBgm();
+    if (!audio.enabled || !audio.bgmEnabled || !audioUnlocked) return false;
+    if (!bgmContext) bgmContext = makeContext(BGM_FILE, audio.bgmVolume, true);
+    if (!bgmContext) return false;
+    try {
+      bgmContext.play();
+      bgmPlaying = true;
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /** 首次触摸时调一次（之后音效 / BGM 才算"解锁"，这是平台的硬要求） */
+  function unlockAudio() {
+    if (audioUnlocked) return false;
+    audioUnlocked = true;
+    return true;
+  }
+
+  function audioState() {
+    var ready = [];
+    for (var name in audioContexts) {
+      if (Object.prototype.hasOwnProperty.call(audioContexts, name)) ready.push(name);
+    }
+    return {
+      supported: audioSupported(),
+      unlocked: audioUnlocked,
+      bgmPlaying: bgmPlaying,
+      enabled: audio.enabled,
+      sfxEnabled: audio.sfxEnabled,
+      bgmEnabled: audio.bgmEnabled,
+      sfxVolume: audio.sfxVolume,
+      bgmVolume: audio.bgmVolume,
+      files: Object.keys(AUDIO_FILES).concat(['bgm']),
+      loaded: ready
+    };
+  }
+
   return {
     hasTt: function () {
       return hasTt;
@@ -345,6 +485,13 @@ G.PLAT = (function () {
     frame: frame,
     cloud: cloud,
     login: login,
-    editText: editText
+    editText: editText,
+    setAudio: setAudio,
+    sfx: sfx,
+    bgm: bgm,
+    stopBgm: stopBgm,
+    unlockAudio: unlockAudio,
+    audioSupported: audioSupported,
+    audioState: audioState
   };
 })();

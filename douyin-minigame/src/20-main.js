@@ -68,7 +68,13 @@ G.GAME = (function () {
     /** 本机账号（G.ACCOUNT.load() 的结果；没登录时是 null）—— A4 */
     account: null,
     /** 这一次触摸落在面板卡片里（卡片外照旧给摇杆 / 功能键）—— A4 */
-    panelTouch: false
+    panelTouch: false,
+    /** 受击顿帧剩余时长（毫秒）：>0 时世界冻住 —— 打击感全靠它 —— A4 */
+    hitStopMs: 0,
+    /** 震屏状态：{ until, power, ms }（power=0 表示没在震）—— A4 */
+    shake: { until: 0, power: 0, ms: 1 },
+    /** 音频是否可用（平台层回报；调试面板与设置面板都看它）—— A4 */
+    audioReady: false
   };
 
   /** 屏幕中央的一条提示（小游戏没有原生 toast，自绘最省事） */
@@ -76,6 +82,97 @@ G.GAME = (function () {
     if (!message) return;
     state.flash.text = message;
     state.flash.until = state.now + (ms || 1600);
+  }
+
+  /* ------------------------------------------------- 打击感与音频（A4 新增） */
+
+  /** 音量 / 开关推给平台层（boot、改设置、读档后各调一次；平台层不认识"存档"） */
+  function syncAudio() {
+    var settings = state.save && state.save.settings ? state.save.settings : SAVE.defaultSettings();
+    PLAT.setAudio({
+      enabled: BAL.audio.enabled === true,
+      sfxEnabled: settings.sfx !== false,
+      bgmEnabled: settings.bgm !== false,
+      sfxVolume: BAL.audio.sfxVolume,
+      bgmVolume: BAL.audio.bgmVolume
+    });
+    state.audioReady = PLAT.audioSupported();
+    return state.audioReady;
+  }
+
+  /** 播一次音效（玩家关掉了音效就什么都不做；没有 tt 时平台层自己会静默） */
+  function playSfx(name) {
+    var settings = state.save && state.save.settings ? state.save.settings : null;
+    if (settings && settings.sfx === false) return false;
+    return PLAT.sfx(name);
+  }
+
+  /**
+   * 命中反馈：**受击顿帧 + 震屏 + 音效 + 震动**四件事一起做（用户要的"打击感"就是这个）。
+   * 做成一个独立函数的原因：自检可以直接喂一份假的 events 断言数值，不用真去打一只怪。
+   *   - 普通命中 45ms / 暴击 110ms（balance.view.hitStopMs）——顿帧太短没感觉，太长会"卡"；
+   *   - 挨打也有 30ms：让"我被打了"这件事在画面上一顿，比飘字更快被感知；
+   *   - 暴击震屏 26px/240ms，挨打 12px/150ms（balance.view.shake）。
+   */
+  function applyHitFeedback(events) {
+    var hits = events && events.hits ? events.hits : [];
+    var hurt = events && events.playerHits ? events.playerHits : [];
+    var stop = 0;
+    var crit = false;
+    for (var i = 0; i < hits.length; i += 1) {
+      if (hits[i].crit) {
+        crit = true;
+        if (BAL.view.hitStopMs.crit > stop) stop = BAL.view.hitStopMs.crit;
+      } else if (BAL.view.hitStopMs.normal > stop) {
+        stop = BAL.view.hitStopMs.normal;
+      }
+    }
+    if (crit) {
+      playSfx('crit');
+      setShake(BAL.view.shake.critMs, BAL.view.shake.critPower);
+      if (state.save.settings.vibrate !== false) PLAT.vibrate(30);
+    } else if (hits.length > 0) {
+      playSfx('hit');
+    }
+    if (hurt.length > 0) {
+      playSfx('hurt');
+      if (BAL.view.hitStopMs.hurt > stop) stop = BAL.view.hitStopMs.hurt;
+      setShake(BAL.view.shake.hurtMs, BAL.view.shake.hurtPower);
+      if (state.save.settings.vibrate !== false) PLAT.vibrate(20);
+    }
+    if (stop > state.hitStopMs) state.hitStopMs = stop;
+    return { stop: state.hitStopMs, crit: crit, hits: hits.length, hurt: hurt.length };
+  }
+
+  /** 开一次震屏（power=0 或 ms<=0 就等于没开） */
+  function setShake(ms, power) {
+    if (!(ms > 0) || !(power > 0)) return state.shake;
+    state.shake.until = state.now + ms;
+    state.shake.power = power;
+    state.shake.ms = ms;
+    return state.shake;
+  }
+
+  /**
+   * 震屏偏移（纯函数，只吃时间）：正弦衰减，时间到就归零。
+   * 直接偏相机而不是偏每个绘制调用 —— 世界层完全不用知道"屏幕在抖"。
+   */
+  function shakeOffset(nowMs) {
+    if (!(state.shake.power > 0) || nowMs >= state.shake.until) return { x: 0, y: 0 };
+    var remain = (state.shake.until - nowMs) / state.shake.ms;
+    var damp = remain > 0 ? remain : 0;
+    if (damp > 1) damp = 1;
+    return {
+      x: Math.sin(nowMs * 0.09) * state.shake.power * damp,
+      y: Math.cos(nowMs * 0.13) * state.shake.power * damp
+    };
+  }
+
+  /** 渲染用的相机（= 真实相机 + 震屏偏移）。逻辑层永远读 state.camera，读到的是干净坐标 */
+  function shakeCamera(nowMs) {
+    var offset = shakeOffset(nowMs);
+    if (offset.x === 0 && offset.y === 0) return state.camera;
+    return { x: state.camera.x + offset.x, y: state.camera.y + offset.y };
   }
 
   /* ---------------------------------------------------------------- 启动 */
@@ -122,6 +219,8 @@ G.GAME = (function () {
     state.now = WORLD.now();
     state.lastTickAt = Date.now();
     state.autosaveAt = state.lastTickAt;
+    // 音频设置推给平台层（音量 / 开关都来自 balance + 存档设置；BGM 等首次触摸解锁后才响）
+    syncAudio();
     // 没有画布（node 里的自检 / 冒烟）就不挂主循环：同一份 boot() 既能上手机也能进测试
     if (PLAT.available()) PLAT.frame(frame);
     flash('点右下「设」→ 自检，可以当场验证全部逻辑', 3200);
@@ -368,6 +467,13 @@ G.GAME = (function () {
   function step(dtMs) {
     if (state.screen !== 'playing') return;
 
+    // 受击顿帧（A4）：命中那一瞬间把世界冻住几十毫秒 —— 打击感的一半在这个数字上。
+    // 顿帧期间连相机缓动都不推进，画面"咬"住一下才像真打到了东西。
+    if (state.hitStopMs > 0) {
+      state.hitStopMs -= dtMs;
+      return;
+    }
+
     var player = state.player;
     var stats = state.stats;
 
@@ -392,6 +498,7 @@ G.GAME = (function () {
     PLAYER.decayKnockback(player);
 
     var events = WORLD.update(dtMs, player, stats, state.camera, SCREEN.width(), SCREEN.height());
+    applyHitFeedback(events);
     for (var i = 0; i < events.kills.length; i += 1) applyKill(events.kills[i]);
     if (events.playerDown) flash('被打倒了，3 秒后原地复活', 1600);
 
@@ -409,6 +516,7 @@ G.GAME = (function () {
   function applyKill(kill) {
     var save = state.save;
     var monster = kill.monster;
+    playSfx('kill');
     save.stats.kills += 1;
     if (monster.elite) save.stats.eliteKills += 1;
 
@@ -446,6 +554,7 @@ G.GAME = (function () {
     if (PROG.shopUnlocked(state.save.level) && state.save.level - levels < BAL.guild.shopUnlockLevel) {
       text += ' · 商城与公会解锁';
     }
+    playSfx('levelup');
     flash(text, 2200);
   }
 
@@ -502,6 +611,7 @@ G.GAME = (function () {
 
   /** 开 N 箱：只报"最好的一件"，免得刷屏（每箱的结果都进背包/身上） */
   function openChests(count) {
+    playSfx('chest');
     var results = [];
     for (var i = 0; i < count; i += 1) {
       var result = openOneChest();
@@ -704,6 +814,7 @@ G.GAME = (function () {
 
   /** 右下功能键 → 打开 / 收起面板；「自动」是开关（用户要求"自动战斗设置为按钮，点击开启"） */
   function onHudButton(id) {
+    playSfx('ui');
     if (id === 'auto') {
       toggleAutoBattle();
       return;
@@ -720,12 +831,45 @@ G.GAME = (function () {
     else PANELS.open(panel);
   }
 
+  /**
+   * 设置开关（音效 / 背景音乐 / 震动）：写存档 + 立刻生效 + 给一句提示。
+   * "立刻生效"是重点：关掉 BGM 必须马上静下来，否则玩家会以为设置没生效（04-decisions #10）。
+   */
+  function toggleSetting(key) {
+    var settings = state.save.settings;
+    if (key === 'sfx') {
+      settings.sfx = settings.sfx === false;
+      syncAudio();
+      playSfx('ui');
+      flash('音效已' + (settings.sfx ? '开启' : '关闭'), 1400);
+    } else if (key === 'bgm') {
+      settings.bgm = settings.bgm === false;
+      syncAudio();
+      if (settings.bgm) PLAT.bgm(true);
+      else PLAT.stopBgm();
+      flash('背景音乐已' + (settings.bgm ? '开启' : '关闭'), 1400);
+    } else if (key === 'vibrate') {
+      settings.vibrate = settings.vibrate === false;
+      if (settings.vibrate) PLAT.vibrate(20);
+      flash('震动已' + (settings.vibrate ? '开启' : '关闭'), 1400);
+    } else {
+      return null;
+    }
+    writeSave();
+    return settings;
+  }
+
   /** 面板 action → 具体操作（**唯一改存档的入口**，阶段 B 会被服务端接口替换） */
   function handleAction(action) {
     if (!action) return;
     var type = action.type;
+    // 点一下界面就该有"咔"的一声（开箱那条有自己的声音，所以跳过）
+    if (type !== 'openChest') playSfx('ui');
     if (type === 'close') PANELS.close();
     else if (type === 'open') PANELS.open(action.panel);
+    else if (type === 'toggleSfx') toggleSetting('sfx');
+    else if (type === 'toggleBgm') toggleSetting('bgm');
+    else if (type === 'toggleVibrate') toggleSetting('vibrate');
     else if (type === 'openChest') openChests(action.count || 1);
     else if (type === 'equip') equipFromBag(action.itemId);
     else if (type === 'salvageAll') salvageAll();
@@ -767,7 +911,9 @@ G.GAME = (function () {
       /** A4：界面与账号（登录 / 创建角色屏要读；HUD 只读名字与等级） */
       screen: state.screen,
       account: state.account,
-      autoBattle: !!(state.save.settings && state.save.settings.autoBattle === true)
+      autoBattle: !!(state.save.settings && state.save.settings.autoBattle === true),
+      /** A4：音频状态（设置面板要显示开关的当前值与平台是否支持） */
+      audio: PLAT.audioState()
     };
   }
 
@@ -809,17 +955,19 @@ G.GAME = (function () {
     ctx.fillStyle = '#0b1020';
     ctx.fillRect(0, 0, SCREEN.width(), SCREEN.height());
 
-    RENDER.drawGround(ctx, state.camera);
-    RENDER.drawDecor(ctx, state.camera, WORLD.decorInView());
-    RENDER.drawRoads(ctx, state.camera);
-    RENDER.drawLandmarks(ctx, state.camera, WORLD.landmarksInView());
-    RENDER.drawCamp(ctx, state.camera);
-    RENDER.drawProjectiles(ctx, state.camera, WORLD.projectiles());
-    RENDER.drawMonsters(ctx, state.camera, WORLD.monstersInView(), state.player.targetId, view.now);
-    RENDER.drawTargetRing(ctx, state.camera, view.target);
-    RENDER.drawPlayer(ctx, state.camera, state.player, state.stats, view.now);
+    // 震屏：只偏渲染用的相机（state.camera 本身不动 → 逻辑层拿到的永远是干净坐标）
+    var camera = shakeCamera(view.now);
+    RENDER.drawGround(ctx, camera);
+    RENDER.drawDecor(ctx, camera, WORLD.decorInView());
+    RENDER.drawRoads(ctx, camera);
+    RENDER.drawLandmarks(ctx, camera, WORLD.landmarksInView());
+    RENDER.drawCamp(ctx, camera);
+    RENDER.drawProjectiles(ctx, camera, WORLD.projectiles());
+    RENDER.drawMonsters(ctx, camera, WORLD.monstersInView(), state.player.targetId, view.now);
+    RENDER.drawTargetRing(ctx, camera, view.target);
+    RENDER.drawPlayer(ctx, camera, state.player, state.stats, view.now);
     // 头顶名牌：角色名 + 血条（用户要求；玩家和精英怪共用同一份画法）
-    RENDER.drawNameplate(ctx, state.camera, {
+    RENDER.drawNameplate(ctx, camera, {
       x: state.player.x,
       y: state.player.y,
       radius: BAL.player.radius,
@@ -830,7 +978,9 @@ G.GAME = (function () {
       dead: state.player.dead === true,
       color: '#ffeaa7'
     });
-    RENDER.drawDamageNumbers(ctx, state.camera, WORLD.damageNumbers(), WORLD.now());
+    // 斩击特效画在实体之上、飘字之下：刀光要盖住怪，伤害数字又要最清楚
+    RENDER.drawEffects(ctx, camera, WORLD.effects(), view.now);
+    RENDER.drawDamageNumbers(ctx, camera, WORLD.damageNumbers(), WORLD.now());
 
     INPUT.setButtons(view.buttons);
     INPUT.draw(ctx);
@@ -862,6 +1012,8 @@ G.GAME = (function () {
   function onTouchStart(event) {
     var point = touchPoint(event);
     if (!point) return;
+    // 首次触摸：解锁音频（平台硬要求"用户交互后才能播"），然后把 BGM 起起来
+    if (PLAT.unlockAudio()) PLAT.bgm(true);
     if (state.screen !== 'playing') {
       G.LOGIN.press(point);
       return;
@@ -964,6 +1116,12 @@ G.GAME = (function () {
     handleLoginAction: handleLoginAction,
     autoStep: autoStep,
     toggleAutoBattle: toggleAutoBattle,
+    toggleSetting: toggleSetting,
+    syncAudio: syncAudio,
+    playSfx: playSfx,
+    applyHitFeedback: applyHitFeedback,
+    setShake: setShake,
+    shakeOffset: shakeOffset,
     step: step,
     applyKill: applyKill,
     onLevelUp: onLevelUp,

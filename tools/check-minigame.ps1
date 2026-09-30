@@ -241,6 +241,39 @@ if (Test-Path $bundlePath) {
   else { Bad ("game.js is $sizeKb KB -- check the main package budget") }
 }
 
+Write-Output "== audio assets =="
+# The platform layer is the only place that may name audio files, so the manifest there is the
+# source of truth: every path it declares must exist on disk. A typo here means permanent silence
+# that no logic test can see (the game would still run and every assertion would still pass).
+$audioRefs = @()
+$platformText = ReadText (Join-Path $srcDir '12-platform.js')
+foreach ($match in [Text.RegularExpressions.Regex]::Matches($platformText, "'(audio/[a-z]+\.wav)'")) {
+  $audioRefs += $match.Groups[1].Value
+}
+if ($audioRefs.Count -eq 0) {
+  Bad "12-platform.js declares no audio files -- did the AUDIO_FILES / BGM_FILE manifest get deleted?"
+} else {
+  $missing = @()
+  $audioBytes = 0
+  foreach ($ref in $audioRefs) {
+    $audioPath = Join-Path $proj $ref
+    if (Test-Path $audioPath) { $audioBytes += (Get-Item $audioPath).Length }
+    else { $missing += $ref }
+  }
+  if ($missing.Count -gt 0) {
+    Bad ("missing audio files: " + ($missing -join ', ') + " -- regenerate with tools\gen-minigame-sfx.mjs")
+  } else {
+    Ok ("audio manifest resolves (" + $audioRefs.Count + " files, " + [Math]::Round($audioBytes / 1024) + " KB)")
+    # Main package budget is 4 MB. Sound is generated, so it can always be made cheaper
+    # (shorter loop / lower sample rate) -- this catches "someone dropped in a long track".
+    if ($audioBytes -gt 1500000) {
+      Bad ("audio assets are " + [Math]::Round($audioBytes / 1024) + " KB -- revisit tools\gen-minigame-sfx.mjs")
+    } else {
+      Ok ("audio assets are " + [Math]::Round($audioBytes / 1024) + " KB (4 MB budget)")
+    }
+  }
+}
+
 if ($problems.Count -eq 0) {
   Write-Output "ALL CHECKS PASSED"
   exit 0

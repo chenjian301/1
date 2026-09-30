@@ -241,6 +241,13 @@
     "nameRegistryCap": 200
   },
 
+  "audio": {
+    "_readme": "音频（A4）：声音文件由 tools\\gen-minigame-sfx.mjs 生成到 douyin-minigame\\audio\\（hit/crit/kill/hurt/levelup/chest/ui/camp/bgm）；这里是总开关与音量",
+    "enabled": true,
+    "sfxVolume": 0.6,
+    "bgmVolume": 0.32
+  },
+
   "input": {
     "stickRadius": 72,
     "knobDiameter": 34,
@@ -271,6 +278,7 @@
     "damageNumberMs": 700,
     "_feel": "打击感（A4）：斩击特效时长 / 受击顿帧 / 暴击震屏 —— 都是表现层，不进任何随机流",
     "slashMs": 220,
+    "slashCap": 24,
     "hitStopMs": { "normal": 45, "crit": 110, "hurt": 30 },
     "shake": { "critMs": 240, "critPower": 26, "hurtMs": 150, "hurtPower": 12 },
 "cameraLerpPerTick": 0.22,

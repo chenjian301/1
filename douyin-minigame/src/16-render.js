@@ -1355,6 +1355,59 @@ G.RENDER = (function () {
     ctx.fillRect(point.x - barW / 2, barY, barW * ratio, barH);
   }
 
+  /**
+   * 斩击特效（A4 打击感）：一道随时间扫过去的弧，暴击再加四道向外飞的光刺。
+   * 只用 moveTo/arc/lineTo/stroke —— 冒烟的假 canvas 认这些图元，所以"特效画不出来"也能被抓到。
+   * 角度由效果自带的 dirX/dirY 现算（atan2 只在这里出现，生成层依旧没有任何三角函数）。
+   */
+  function drawEffects(ctx, camera, effects, nowMs) {
+    var now = typeof nowMs === 'number' ? nowMs : G.WORLD.now();
+    var list = effects || [];
+    for (var i = 0; i < list.length; i += 1) {
+      var effect = list[i];
+      var life = (effect.until - now) / BAL.view.slashMs;
+      if (!(life >= 0)) life = 0;
+      if (life > 1) life = 1;
+      if (life <= 0) continue;
+
+      var point = toScreen(camera, effect.x, effect.y);
+      var played = 1 - life;
+      var angle = Math.atan2(effect.dirY, effect.dirX);
+      var radius = effect.radius * (0.85 + 0.4 * played);
+      var from = angle - 1.15 + played * 1.35;
+
+      ctx.globalAlpha = life * (effect.crit ? 0.95 : 0.7);
+      ctx.strokeStyle = effect.crit ? '#ffd479' : '#ffffff';
+      ctx.lineWidth = effect.crit ? 10 : 6;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, radius, from, from + 1.5);
+      ctx.stroke();
+
+      // 内圈细刃：让弧看起来是"一把刀扫过去"，而不是一个圆圈
+      ctx.globalAlpha = ctx.globalAlpha * 0.55;
+      ctx.lineWidth = effect.crit ? 5 : 3;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, radius * 0.74, from + 0.18, from + 1.24);
+      ctx.stroke();
+
+      if (effect.crit) {
+        // 暴击：四道向外飞的光刺（角度是固定偏置，纯几何 —— 不占任何随机流）
+        ctx.globalAlpha = life * 0.9;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        for (var k = 0; k < 4; k += 1) {
+          var ray = angle - 0.6 + k * 0.42;
+          var inner = radius * 0.9;
+          var outer = inner + 26 * (0.5 + played);
+          ctx.moveTo(point.x + Math.cos(ray) * inner, point.y + Math.sin(ray) * inner);
+          ctx.lineTo(point.x + Math.cos(ray) * outer, point.y + Math.sin(ray) * outer);
+        }
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+
   /** 远程弹道：一个小亮点沿直线飞 */
   function drawProjectiles(ctx, camera, shots) {
     ctx.fillStyle = '#9ad4ff';
@@ -1408,6 +1461,7 @@ G.RENDER = (function () {
     drawPlayer: drawPlayer,
     drawAvatar: drawAvatar,
     drawNameplate: drawNameplate,
+    drawEffects: drawEffects,
     drawProjectiles: drawProjectiles,
     drawDamageNumbers: drawDamageNumbers
   };
