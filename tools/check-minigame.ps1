@@ -220,7 +220,7 @@ else { Ok "generated file headers are ASCII" }
 Write-Output "== structure =="
 $expected = @(
   '00-config.js', '01-balance.js', '02-rng.js', '03-chunk.js', '04-terrain.js', '05-spawn.js',
-  '06-progression.js', '07-combat.js', '08-loot.js', '09-equipment.js', '10-player.js',
+  '06-progression.js', '07-combat.js', '07-skills.js', '08-loot.js', '09-equipment.js', '10-player.js',
   '11-save.js', '12-platform.js', '13-screen.js', '14-world.js', '15-input.js',
   '16-render.js', '17-hud.js', '18-panels.js', '19-selftest.js', '20-main.js'
 )

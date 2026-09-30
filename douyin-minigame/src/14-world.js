@@ -209,14 +209,20 @@ G.WORLD = (function () {
    * 表现层数据 —— 不参与任何随机流，也不影响世界指纹；数量有上限（balance.view.slashCap），
    * 挂机时不会因为"一秒挥三次刀"把特效堆到卡帧。
    */
+  /** 把一条表现层特效推进数组（超过上限就丢最老的 —— 挂机时特效数量不会把帧率拖下去） */
+  function pushEffect(effect) {
+    if (effects.length >= BAL.view.slashCap) effects.shift();
+    effects.push(effect);
+    return effect;
+  }
+
   function spawnSlash(player, target, crit) {
     var dx = target.x - player.x;
     var dy = target.y - player.y;
     var length = Math.sqrt(dx * dx + dy * dy);
     var dirX = length > 0.0001 ? dx / length : player.facing.x;
     var dirY = length > 0.0001 ? dy / length : player.facing.y;
-    if (effects.length >= BAL.view.slashCap) effects.shift();
-    effects.push({
+    pushEffect({
       kind: 'slash',
       x: player.x + dirX * BAL.player.radius * 1.2,
       y: player.y + dirY * BAL.player.radius * 1.2,
@@ -515,6 +521,121 @@ G.WORLD = (function () {
     if (target.hp <= 0) killMonster(target, player.id, events);
   }
 
+  /**
+   * 放一个技能（A5）：技能只是 shared\balance.json 里的一行数据，这里负责"落到世界上"：
+   *   1. 按类型选目标（G.SKILLS.pickTargets：范围技一圈 / 穿刺一只 / 治疗不选目标）；
+   *   2. 每个目标走 07-combat 的**同一份伤害公式**（攻击 × damageMul）→ 扣血、击退、飘字、记伤害归属；
+   *   3. 命中与击杀都写进 `events`，于是 20-main 的打击感（顿帧 / 震屏 / 音效）与奖励归属
+   *      （决策 #1：累计伤害最高者拿走经验与箱子）**自动对技能生效**，不用另写一份；
+   *   4. 治疗不走怪：只回血（不超过生命上限）+ 一圈特效。
+   * 返回一份"这一下打出了什么"的账：20-main 用它做提示，自检用它做断言。
+   */
+  function castSkill(player, stats, slotIndex, events) {
+    var slot = G.SKILLS.slotAt(slotIndex);
+    if (!slot) return null;
+    var out = {
+      slot: slotIndex,
+      id: slot.id,
+      name: slot.name,
+      type: slot.type,
+      targets: 0,
+      hits: [],
+      kills: 0,
+      healed: 0,
+      crit: false
+    };
+
+    if (slot.type === 'heal') {
+      var amount = G.SKILLS.healAmount(slot, stats);
+      var before = player.hp;
+      var after = before + amount;
+      if (after > stats.hpMax) after = stats.hpMax;
+      player.hp = after;
+      out.healed = Math.round(after - before);
+      pushEffect({
+        kind: 'mend',
+        x: player.x,
+        y: player.y,
+        dirX: player.facing.x,
+        dirY: player.facing.y,
+        radius: BAL.skills.healEffectRadius,
+        crit: false,
+        slot: slotIndex,
+        startAt: nowMs,
+        until: nowMs + BAL.skills.castEffectMs
+      });
+      return out;
+    }
+
+    var targets = G.SKILLS.pickTargets(slot, player.x, player.y, allMonsters());
+    out.targets = targets.length;
+    if (targets.length === 0) return out;
+    // 记一笔"这一帧放过技能"：20-main 据此不重复播命中音（技能自己有一声 cast）
+    events.skillCast = (events.skillCast || 0) + 1;
+
+    // 表现层：范围技是一圈扩散的环，穿刺是从玩家指向目标的亮线（纯几何，不占任何随机流）
+    var dirX = player.facing.x;
+    var dirY = player.facing.y;
+    var reach = slot.type === 'strike' ? slot.range : slot.radius;
+    var first = targets[0];
+    if (first) {
+      var tdx = first.x - player.x;
+      var tdy = first.y - player.y;
+      var tlen = Math.sqrt(tdx * tdx + tdy * tdy);
+      if (tlen > 0.0001) {
+        dirX = tdx / tlen;
+        dirY = tdy / tlen;
+        if (slot.type === 'strike') reach = tlen;
+        // 打完这一下人是看着目标的（朝向只服务表现，不参与结算）
+        else {
+          player.facing.x = dirX;
+          player.facing.y = dirY;
+        }
+      }
+    }
+    pushEffect({
+      kind: slot.type === 'strike' ? 'bolt' : 'ring',
+      x: player.x,
+      y: player.y,
+      dirX: dirX,
+      dirY: dirY,
+      radius: reach,
+      crit: false,
+      slot: slotIndex,
+      startAt: nowMs,
+      until: nowMs + BAL.skills.castEffectMs
+    });
+
+    // 击退：突刺推得更远（"穿刺"要有一脚踹开的感觉），范围技轻一点（免得把怪全推散）
+    var push = BAL.combat.monsterKnockback * (slot.type === 'strike' ? 1.4 : 0.7);
+    for (var i = 0; i < targets.length; i += 1) {
+      var target = targets[i];
+      if (target.state === 'dead') continue;
+      var hit = G.SKILLS.rollDamage(slot, stats, target, rng);
+      target.hp -= hit.damage;
+      target.hurtUntil = nowMs + BAL.combat.hurtMs;
+      // 伤害归属：技能伤害照样算"我打的"（否则用技能抢不到奖励，玩家会觉得莫名其妙）
+      COMBAT.creditHit(target, player.id, hit.damage, nowMs);
+      spawnDamageNumber(target.x, target.y - target.radius - 18, String(hit.damage), hit.crit ? '#ffd479' : '#c9f0ff', hit.crit);
+      events.hits.push({ damage: hit.damage, crit: hit.crit === true, x: target.x, y: target.y, skill: true });
+      out.hits.push({ id: target.id, damage: hit.damage, crit: hit.crit === true });
+      if (hit.crit) out.crit = true;
+
+      var kdx = target.x - player.x;
+      var kdy = target.y - player.y;
+      var klen = Math.sqrt(kdx * kdx + kdy * kdy);
+      if (klen > 0.0001) {
+        target.knockX = (kdx / klen) * push;
+        target.knockY = (kdy / klen) * push;
+      }
+      if (target.hp <= 0) {
+        killMonster(target, player.id, events);
+        out.kills += 1;
+      }
+    }
+    return out;
+  }
+
   /** 远程弹道：飞到期就结算一次伤害（阶段 A 简化为"到点必中"，命中判定不做落点校验） */
   function updateProjectiles(player, stats, events) {
     for (var i = projectiles.length - 1; i >= 0; i -= 1) {
@@ -600,6 +721,7 @@ G.WORLD = (function () {
     reset: reset,
     setView: setView,
     ensureChunks: ensureChunks,
+    castSkill: castSkill,
     allMonsters: allMonsters,
     monstersInView: monstersInView,
     pickTarget: pickTarget,

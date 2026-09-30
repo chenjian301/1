@@ -342,7 +342,9 @@ G.PLAT = (function () {
     levelup: 'audio/levelup.wav',
     chest: 'audio/chest.wav',
     ui: 'audio/ui.wav',
-    camp: 'audio/camp.wav'
+    camp: 'audio/camp.wav',
+    cast: 'audio/cast.wav',
+    mend: 'audio/mend.wav'
   };
   var BGM_FILE = 'audio/bgm.wav';
 

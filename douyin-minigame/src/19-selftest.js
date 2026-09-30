@@ -1070,7 +1070,8 @@ G.SELFTEST = (function () {
     ok('音频总开关是显式布尔', BAL.audio.enabled === true || BAL.audio.enabled === false);
 
     var state = G.PLAT.audioState();
-    eq('音频清单 = 8 个音效 + BGM', state.files.length, 9);
+    eq('音频清单 = 10 个音效 + BGM（A5 多了 cast / mend）', state.files.length, 11);
+    ok('技能音效在清单里（cast / mend）', state.files.indexOf('cast') >= 0 && state.files.indexOf('mend') >= 0, state.files.join(','));
     var allKeys = true;
     var i;
     for (i = 0; i < state.files.length; i += 1) {
@@ -1109,7 +1110,7 @@ G.SELFTEST = (function () {
     G.GAME.toggleSetting('vibrate');
     eq('未知键返回 null（不会误改设置）', G.GAME.toggleSetting('nope'), null);
     var view = G.GAME.uiView();
-    ok('uiView 带音频状态（设置面板要显示当前开关）', !!view.audio && view.audio.files.length === 9);
+    ok('uiView 带音频状态（设置面板要显示当前开关）', !!view.audio && view.audio.files.length === 11);
   }
 
   /**
@@ -1186,6 +1187,337 @@ G.SELFTEST = (function () {
     // 传送与治疗都会存档（重开游戏冷却不会被刷掉）
     var reloaded = G.SAVE.load(BAL.season.worldSeed, 1);
     ok('营地冷却标记写进了存档', reloaded.camp.used === true, JSON.stringify(reloaded.camp));
+  }
+
+  /**
+   * 技能栏的纯逻辑（用户要求"四个技能栏"，A5）：表结构 / 解锁 / 两道冷却闸门 /
+   * 选目标 / 伤害与治疗 / 自动释放的取舍。全部不碰世界，直接构造数据断言。
+   * 运行时那一半（真放一次、HUD、特效、存档计数）在 checkSkillsRuntime。
+   */
+  function checkSkills() {
+    section('技能栏：四个技能键 / 冷却 / 自动释放（A5）');
+    var SK = G.SKILLS;
+    if (!SK || typeof SK.autoChoice !== 'function') {
+      ok('G.SKILLS 可用（07-skills.js 已拼入）', false, '拿不到 SKILLS');
+      return;
+    }
+
+    // 1. 表结构（数字仍然只有 shared\balance.json 一处，决策 #4）
+    eq('技能栏 = 4 个（用户要求）', SK.count(), 4);
+    between('全局冷却 100~800ms', BAL.skills.globalCooldownMs, 100, 800);
+    between('治疗线在 30%~90% 血（自动释放的触发点）', BAL.skills.autoHealRatio, 0.3, 0.9);
+    between('技能特效时长 120~600ms', BAL.skills.castEffectMs, 120, 600);
+    var ids = [];
+    var keys = [];
+    var minCooldown = 0;
+    var unlockAscending = true;
+    var i;
+    for (i = 0; i < SK.count(); i += 1) {
+      var info = SK.slotAt(i);
+      ids.push(info.id);
+      keys.push(info.key);
+      if (minCooldown === 0 || info.cooldownMs < minCooldown) minCooldown = info.cooldownMs;
+      if (i > 0 && info.unlockLevel < SK.slotAt(i - 1).unlockLevel) unlockAscending = false;
+      ok('第 ' + (i + 1) + ' 个技能有名 / 有键面字 / 有类型', !!info.name && !!info.key && !!info.type, JSON.stringify(info));
+    }
+    eq('技能 id 固定（改表要同步改这条）', ids.join(','), 'cleave,mend,pierce,whirl');
+    eq('键面字是四个大字（斩 / 疗 / 刺 / 旋）', keys.join(','), '斩,疗,刺,旋');
+    ok('冷却都 ≥ 1 秒', minCooldown >= 1000, String(minCooldown));
+    ok(
+      '全局冷却短于最短的技能冷却（否则小技能会被自己卡住）',
+      BAL.skills.globalCooldownMs < minCooldown,
+      BAL.skills.globalCooldownMs + ' vs ' + minCooldown
+    );
+    ok('解锁等级递增（从左到右解锁，正好也是自动释放的顺序）', unlockAscending);
+    between('最后一个技能的解锁等级不超过目标等级', SK.slotAt(3).unlockLevel, 1, BAL.progression.targetLevel);
+    ok(
+      '伤害技倍率 ≥ 1，且穿刺比旋风更狠（单体定位靠数字说话）',
+      SK.slotAt(0).damageMul >= 1 && SK.slotAt(2).damageMul > SK.slotAt(3).damageMul && SK.slotAt(3).damageMul >= 1,
+      SK.slotAt(0).damageMul + ' / ' + SK.slotAt(2).damageMul + ' / ' + SK.slotAt(3).damageMul
+    );
+    between('治疗比例在 10%~60%（不能一口回满）', SK.slotAt(1).healRatio, 0.1, 0.6);
+    ok(
+      '范围技有半径、穿刺有更远的射程',
+      SK.reachOf(SK.slotAt(0)) > 0 && SK.reachOf(SK.slotAt(2)) > SK.reachOf(SK.slotAt(0)),
+      SK.reachOf(SK.slotAt(0)) + ' / ' + SK.reachOf(SK.slotAt(2))
+    );
+
+    // 2. 解锁
+    eq('Lv.1 解锁 1 个', SK.unlockedCount(1), 1);
+    ok('Lv.1 能放横扫、不能放旋风', SK.unlocked(0, 1) === true && SK.unlocked(3, 1) === false);
+    eq('Lv.20 四个全解锁（技能栏全亮）', SK.unlockedCount(20), 4);
+    ok(
+      '越界序号取不到技能（坏输入不炸）',
+      SK.slotAt(9) === null && SK.slotAt(-1) === null && SK.canCast([0], 0, 9, 0, 99).ok === false
+    );
+
+    // 3. 两道冷却闸门（自己的冷却 + 全局冷却）
+    var cds = [0, 0, 0, 0];
+    ok('初始四个技能都能放', SK.canCast(cds, 0, 0, 1000, 20).ok === true);
+    var stamped = SK.markCast(cds, 0, 0, 1000);
+    eq('放完记下"能再放的时刻" = 现在 + 该技能冷却', stamped.cooldowns[0], 1000 + SK.slotAt(0).cooldownMs);
+    eq('同时记下全局冷却', stamped.globalAt, 1000 + BAL.skills.globalCooldownMs);
+    eq('公共冷却内放别的技能 → global', SK.canCast(stamped.cooldowns, stamped.globalAt, 3, 1010, 20).reason, 'global');
+    eq(
+      '公共冷却过了、自己还在冷却 → cooldown',
+      SK.canCast(stamped.cooldowns, stamped.globalAt, 0, 1000 + BAL.skills.globalCooldownMs + 10, 20).reason,
+      'cooldown'
+    );
+    ok(
+      '公共冷却过了就能放别的技能',
+      SK.canCast(stamped.cooldowns, stamped.globalAt, 3, 1000 + BAL.skills.globalCooldownMs, 20).ok === true
+    );
+    ok('冷却到点就能再放', SK.canCast(stamped.cooldowns, 0, 0, 1000 + SK.slotAt(0).cooldownMs, 20).ok === true);
+    eq('等级不够时判定为 locked（提示优先说解锁而不是冷却）', SK.canCast(cds, 0, 3, 99999, 1).reason, 'locked');
+    ok('markCast 是纯函数：不动原数组', cds[0] === 0 && cds.length === 4);
+    eq('剩余冷却毫秒可读（HUD 要画扇形与读秒）', SK.remainMs(stamped.cooldowns, 0, 1500), 1000 + SK.slotAt(0).cooldownMs - 1500);
+
+    // 4. 选目标
+    var aoe = SK.slotAt(0);
+    var strike = SK.slotAt(2);
+    var close = { id: 1, x: 100, y: 0, radius: 20, state: 'idle' };
+    var edge = { id: 2, x: aoe.radius, y: 0, radius: 0, state: 'idle' };
+    var beyond = { id: 5, x: aoe.radius + 1, y: 0, radius: 0, state: 'idle' };
+    var dead = { id: 3, x: 60, y: 0, radius: 20, state: 'dead' };
+    var far = { id: 4, x: 6000, y: 0, radius: 20, state: 'idle' };
+    eq('范围技只圈半径内的活怪（边界算上、死的不算）', SK.pickTargets(aoe, 0, 0, [close, edge, beyond, dead, far]).length, 2);
+    eq('范围技保住传进来的顺序（确定性）', SK.pickTargets(aoe, 0, 0, [close, edge, dead])[0].id, 1);
+    eq('穿刺只打一只', SK.pickTargets(strike, 0, 0, [close, far]).length, 1);
+    eq('穿刺打最近的那只', SK.pickTargets(strike, 0, 0, [close, { id: 9, x: 60, y: 0, radius: 0, state: 'idle' }])[0].id, 9);
+    eq('射程外一个都不打', SK.pickTargets(strike, 0, 0, [far]).length, 0);
+    eq('治疗不选目标（它不走怪）', SK.pickTargets(SK.slotAt(1), 0, 0, [close]).length, 0);
+
+    // 5. 伤害与治疗（都走既有公式，不另写第二份）
+    var stats = { attack: 30, damageBonus: 0, critChance: 0, critDamage: 1.5, hpMax: 600 };
+    var dummy = { id: 1, defense: 4, radius: 24, state: 'idle' };
+    var plain = G.COMBAT.rollDamage(stats.attack, 0, dummy.defense, 0, 1.5, new G.RNG.Rng(1));
+    var skillHit = SK.rollDamage(aoe, stats, dummy, new G.RNG.Rng(1));
+    ok('技能伤害高于普攻（倍率真的生效）', skillHit.damage > plain.damage, skillHit.damage + ' vs ' + plain.damage);
+    eq('同一个随机流 → 同一份伤害（可重放）', SK.rollDamage(aoe, stats, dummy, new G.RNG.Rng(1)).damage, skillHit.damage);
+    eq(
+      '技能伤害也有"至少 1 点"的底线',
+      SK.rollDamage(strike, { attack: 0.1, damageBonus: 0, critChance: 0, critDamage: 1.5 }, { defense: 9999 }, new G.RNG.Rng(1)).damage,
+      1
+    );
+    eq('治疗量 = 生命上限 × healRatio', SK.healAmount(SK.slotAt(1), stats), Math.round(600 * SK.slotAt(1).healRatio));
+    ok('生命上限极小时治疗量也至少 1 点', SK.healAmount(SK.slotAt(1), { hpMax: 1 }) >= 1);
+
+    // 6. 自动释放的取舍（纯函数，直接构造视角数据断言）
+    eq(
+      '自动释放：从左到右挑第一个能用的（横扫）',
+      SK.autoChoice({ cooldowns: [0, 0, 0, 0], globalAt: 0, nowMs: 1000, level: 20, hpRatio: 1, x: 0, y: 0, monsters: [close] }),
+      0
+    );
+    eq(
+      '范围里没怪就不放伤害技（免得空放白等冷却）',
+      SK.autoChoice({ cooldowns: [0, 0, 0, 0], globalAt: 0, nowMs: 1000, level: 1, hpRatio: 1, x: 0, y: 0, monsters: [far] }),
+      -1
+    );
+    eq(
+      '满血不放治疗',
+      SK.autoChoice({ cooldowns: [99999, 0, 99999, 99999], globalAt: 0, nowMs: 1000, level: 20, hpRatio: 1, x: 0, y: 0, monsters: [] }),
+      -1
+    );
+    eq(
+      '掉到治疗线以下就放治疗',
+      SK.autoChoice({ cooldowns: [99999, 0, 99999, 99999], globalAt: 0, nowMs: 1000, level: 20, hpRatio: 0.5, x: 0, y: 0, monsters: [] }),
+      1
+    );
+    eq(
+      '公共冷却没好时一个都不放',
+      SK.autoChoice({ cooldowns: [0, 0, 0, 0], globalAt: 2000, nowMs: 1000, level: 20, hpRatio: 0.5, x: 0, y: 0, monsters: [close] }),
+      -1
+    );
+    eq(
+      '自己的冷却里就跳过它、用下一个可用的',
+      SK.autoChoice({ cooldowns: [99999, 99999, 0, 0], globalAt: 0, nowMs: 1000, level: 20, hpRatio: 1, x: 0, y: 0, monsters: [close] }),
+      2
+    );
+  }
+
+  /**
+   * 技能栏的运行时那一半（A5）：真放一次会怎么结算、自动释放怎么落地、HUD 画不画得出来。
+   * 断言点：扣血与账面一致、伤害归属记在我头上（决策 #1）、特效种类正确、两道冷却生效、
+   * 存档记次数、四个技能键在屏幕里且不压功能键。
+   */
+  function checkSkillsRuntime() {
+    section('技能栏：真放一次 + 自动释放 + HUD（A5）');
+    var GAME = G.GAME;
+    if (!GAME || typeof GAME.castSkillSlot !== 'function') {
+      ok('G.GAME 可用（20-main.js 已拼入）', false, '拿不到 GAME');
+      return;
+    }
+    G.SAVE.clear();
+    GAME.boot();
+    GAME.beginPlaying('技能测试者');
+    var player = GAME.state.player;
+    GAME.state.skillCooldowns = [];
+    GAME.state.skillGlobalAt = 0;
+
+    // 1. 视图：四个栏位，Lv.1 只有第一个亮
+    var view = GAME.skillView();
+    eq('技能栏视图 = 4 个栏位（HUD 要画四个键）', view.slots.length, 4);
+    eq('Lv.1 第一个栏位可用（亮着）', view.slots[0].state, 'ready');
+    eq('Lv.1 最后一个栏位是锁的', view.slots[3].state, 'lock');
+    eq('锁着的栏位没有冷却（画锁，不画读秒）', view.slots[3].cool, 0);
+
+    // 2. 等级不够：点锁着的技能被拒，而且不进冷却（按空不罚）
+    eq('等级不够时点锁着的技能 → locked', GAME.castSkillSlot(3).reason, 'locked');
+    eq('解锁前不进冷却', GAME.state.skillCooldowns[3] || 0, 0);
+
+    // 3. 真放一次横扫：把一只怪搬到脚边（血拉高，免得被打死影响断言）
+    G.WORLD.ensureChunks(player.x, player.y, 2);
+    var target = G.WORLD.pickTarget(player);
+    ok('附近有怪可以打（技能要有对象）', !!target);
+    if (target) {
+      target.x = player.x + 40;
+      target.y = player.y;
+      target.hpMax = 100000;
+      target.hp = 100000;
+      var damageBefore = target.damageBy[player.id] || 0;
+      var cast = GAME.castSkillSlot(0);
+      eq('横扫放出去了', cast.ok, true);
+      ok('打到至少 1 只（范围技圈到了脚边的怪）', cast.targets >= 1, String(cast.targets));
+      var hitDamage = -1;
+      var i;
+      for (i = 0; i < cast.hits.length; i += 1) {
+        if (cast.hits[i].id === target.id) hitDamage = cast.hits[i].damage;
+      }
+      eq('目标掉的血 = 技能账上的那一下（没有各算一套公式）', 100000 - target.hp, hitDamage);
+      ok('伤害归属记在我头上（技能也能拿奖励，决策 #1）', (target.damageBy[player.id] || 0) > damageBefore);
+      var effects = G.WORLD.effects();
+      var sawRing = false;
+      for (i = 0; i < effects.length; i += 1) {
+        if (effects[i].kind === 'ring') sawRing = true;
+      }
+      ok('范围技的特效是 ring（16-render 按 kind 分派）', sawRing, String(effects.length));
+      ok('特效数组不超上限（挂机不会堆爆）', effects.length <= BAL.view.slashCap, String(effects.length));
+      eq('放完立刻再点同一个 → cooldown', GAME.castSkillSlot(0).reason, 'cooldown');
+    }
+
+    // 4. 两道冷却 + 存档计数（与有没有怪无关：判定不过就不放，过了就一定记冷却）
+    GAME.state.save.level = 20;
+    GAME.state.stats = G.PLAYER.statsOf(20, GAME.state.save.loadout);
+    GAME.state.skillCooldowns = [];
+    GAME.state.skillGlobalAt = 0;
+    eq('20 级四个技能全解锁（技能栏全亮）', GAME.skillView().unlocked, 4);
+    eq('20 级放横扫成功', GAME.castSkillSlot(0).ok, true);
+    ok('横扫进了冷却（HUD 会画扇形）', GAME.state.skillCooldowns[0] > 0, String(GAME.state.skillCooldowns[0]));
+    eq('同一刻连点第二个技能 → global（公共冷却先拦一道）', GAME.castSkillSlot(2).reason, 'global');
+    ok('技能次数记在存档里', GAME.state.save.stats.skillCasts >= 1, String(GAME.state.save.stats.skillCasts));
+    GAME.writeSave();
+    eq(
+      '技能次数能读回来（新增字段不影响存档兼容）',
+      G.SAVE.load(BAL.season.worldSeed, 1).stats.skillCasts,
+      GAME.state.save.stats.skillCasts
+    );
+
+    // 5. 治疗：掉血后放疗愈会回血，快满血时不会溢出
+    GAME.state.player.hp = 10;
+    GAME.state.skillCooldowns = [];
+    GAME.state.skillGlobalAt = 0;
+    var healAmount = G.SKILLS.healAmount(G.SKILLS.slotAt(1), GAME.state.stats);
+    var healCast = GAME.castSkillSlot(1);
+    eq('疗愈放出去了', healCast.ok, true);
+    eq('回血量 = 生命上限 × 比例', healCast.healed, healAmount);
+    eq('血量真的加上去了', Math.round(GAME.state.player.hp), 10 + healAmount);
+    ok('治疗不走伤害循环（没有目标也不影响它）', healCast.targets === 0 && healCast.kills === 0);
+
+    GAME.state.player.hp = GAME.state.stats.hpMax - 1;
+    GAME.state.skillCooldowns = [];
+    GAME.state.skillGlobalAt = 0;
+    var capped = GAME.castSkillSlot(1);
+    eq('回血不会超过生命上限', Math.round(GAME.state.player.hp), GAME.state.stats.hpMax);
+    eq('只回了缺的那一点点（如实记账）', capped.healed, 1);
+
+    // 6. 自动战斗会顺带自动放技能（A4 的需求真正落地）
+    GAME.state.save.settings.autoBattle = true;
+    GAME.state.skillCooldowns = [];
+    GAME.state.skillGlobalAt = 0;
+    var castsBefore = GAME.state.save.stats.skillCasts;
+    var autoName = '';
+    var ticks;
+    for (ticks = 0; ticks < 1500 && !autoName; ticks += 1) {
+      GAME.step(1000 / 60);
+      if (GAME.state.save.stats.skillCasts > castsBefore) autoName = GAME.state.lastSkill;
+    }
+    ok('自动战斗时会自动放技能', !!autoName, String(autoName));
+    ok('自动释放也写冷却（不会每帧连放）', GAME.state.skillCooldowns.length === 4, JSON.stringify(GAME.state.skillCooldowns));
+    GAME.state.save.settings.autoBattle = false;
+
+    // 7. HUD：四个技能键、在屏幕里、不压功能键，画得出来
+    var hud = {
+      save: GAME.state.save,
+      skills: GAME.skillView(),
+      now: G.WORLD.now()
+    };
+    hud.buttons = G.HUD.skillButtons(hud);
+    eq('HUD 给出 4 个技能键', hud.buttons.length, 4);
+    eq(
+      '技能键 id = skill0..3（与 onHudButton 的分派一致）',
+      hud.buttons.map(function (button) { return button.id; }).join(','),
+      'skill0,skill1,skill2,skill3'
+    );
+    ok('技能键带键面字 / 技能名 / 半径', hud.buttons[0].label.length > 0 && !!hud.buttons[0].name && hud.buttons[0].r > 0);
+    ok('四个技能键排在同一行、从左到右', hud.buttons[0].y === hud.buttons[3].y && hud.buttons[0].x < hud.buttons[3].x);
+    ok(
+      '技能栏整排在屏幕内',
+      hud.buttons[0].x - hud.buttons[0].r >= 0 && hud.buttons[3].x + hud.buttons[3].r <= G.SCREEN.width(),
+      Math.round(hud.buttons[0].x - hud.buttons[0].r) + ' .. ' + Math.round(hud.buttons[3].x + hud.buttons[3].r)
+    );
+    ok(
+      '技能栏排在功能键左边（两排按钮不打架）',
+      hud.buttons[3].x + hud.buttons[3].r <= G.HUD.functionColumnLeft(),
+      Math.round(hud.buttons[3].x + hud.buttons[3].r) + ' <= ' + Math.round(G.HUD.functionColumnLeft())
+    );
+    ok(
+      '技能栏在经验条上方（没被吸底条压住）',
+      hud.buttons[0].y + hud.buttons[0].r < G.SCREEN.height() - G.SCREEN.safeBottom() - BAL.view.hud.expBarHeight
+    );
+    var uiButtons = GAME.uiView().buttons;
+    ok(
+      'uiView 把技能键并进同一份按钮表（输入层只认这一份）',
+      uiButtons.length === 4 + 5 + (GAME.inCamp() ? 1 : 0),
+      String(uiButtons.length)
+    );
+    eq(
+      '按钮表末尾四个就是技能栏',
+      uiButtons[uiButtons.length - 4].id + '..' + uiButtons[uiButtons.length - 1].id,
+      'skill0..skill3'
+    );
+    var skillCtx = fakeContext();
+    G.HUD.drawButtons(skillCtx, hud);
+    ok('技能栏画得出来（含冷却扇形 / 读秒 / 名字）', skillCtx.calls.count > 20, 'calls=' + skillCtx.calls.count);
+
+    // 8. 技能特效在假 canvas 上画得出来 / 过期不画
+    var now = G.WORLD.now();
+    var ringCtx = fakeContext();
+    G.RENDER.drawEffects(
+      ringCtx,
+      { x: 0, y: 0 },
+      [{ kind: 'ring', x: 0, y: 0, dirX: 1, dirY: 0, radius: 210, startAt: now, until: now + BAL.skills.castEffectMs }],
+      now
+    );
+    ok('范围技特效（ring）画得出来', ringCtx.calls.count > 0, 'calls=' + ringCtx.calls.count);
+    var boltCtx = fakeContext();
+    G.RENDER.drawEffects(
+      boltCtx,
+      { x: 0, y: 0 },
+      [{ kind: 'bolt', x: 0, y: 0, dirX: 1, dirY: 0, radius: 300, startAt: now, until: now + BAL.skills.castEffectMs }],
+      now
+    );
+    ok('穿刺特效（bolt）画得出来', boltCtx.calls.count > 0, 'calls=' + boltCtx.calls.count);
+    var mendCtx = fakeContext();
+    G.RENDER.drawEffects(
+      mendCtx,
+      { x: 0, y: 0 },
+      [{ kind: 'mend', x: 0, y: 0, dirX: 1, dirY: 0, radius: 96, startAt: now, until: now + BAL.skills.castEffectMs }],
+      now
+    );
+    ok('治疗特效（mend）画得出来', mendCtx.calls.count > 0, 'calls=' + mendCtx.calls.count);
+    var expiredCtx = fakeContext();
+    G.RENDER.drawEffects(expiredCtx, { x: 0, y: 0 }, [{ kind: 'ring', x: 0, y: 0, radius: 210, startAt: 0, until: 1 }], now);
+    eq('过期技能特效不画任何东西（省落笔）', expiredCtx.calls.count, 0);
   }
 
   /* ---------------------------------------- 13. 冒烟：假 canvas 跑真帧 */
@@ -1355,7 +1687,9 @@ G.SELFTEST = (function () {
       checkAuto,
       checkFeel,
       checkAudio,
-      checkCamp
+      checkCamp,
+      checkSkills,
+      checkSkillsRuntime
     ];
     for (var i = 0; i < groups.length; i += 1) {
       try {
@@ -1410,6 +1744,8 @@ G.SELFTEST = (function () {
     checkFeel: checkFeel,
     checkAudio: checkAudio,
     checkCamp: checkCamp,
+    checkSkills: checkSkills,
+    checkSkillsRuntime: checkSkillsRuntime,
     checkMap: checkMap,
     checkLook: checkLook,
     runSmoke: runSmoke,

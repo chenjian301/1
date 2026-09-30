@@ -8,7 +8,7 @@
  *      而不是"从某个网站下下来的神秘文件"，也方便随时改参数重生成。
  *
  * 产物（写进 douyin-minigame\audio\，由 12-platform.js 的 PLAT.sfx / PLAT.bgm 播放）：
- *   hit / crit / kill / hurt / levelup / chest / ui / camp (+ bgm)
+ *   hit / crit / kill / hurt / levelup / chest / ui / camp / cast / mend (+ bgm)
  * 规格：16bit 单声道。音效 22050Hz（几 KB ~ 二十几 KB），BGM 11025Hz 8 秒循环（约 176KB）。
  *   主包预算 4MB，这点体积可以忽略；真嫌大就调 BGM_SECONDS。
  *
@@ -169,6 +169,21 @@ const SOUNDS = {
     const buf = buffer(0.6, rate);
     addTone(buf, rate, 0, 0.55, 392, 392, 0.36, 'sine', 0.02, 0.52);
     addTone(buf, rate, 0.12, 0.45, 523, 523, 0.3, 'sine', 0.02, 0.42);
+    return finish(buf);
+  },
+  /** 技能（A5）：上行的短促扫频 —— "放技能"要一听就和普通出手不一样 */
+  cast: (rate) => {
+    const buf = buffer(0.42, rate);
+    addTone(buf, rate, 0, 0.36, 320, 1180, 0.42, 'saw', 0.003, 0.32);
+    addTone(buf, rate, 0.02, 0.28, 160, 520, 0.22, 'square', 0.004, 0.26);
+    addTone(buf, rate, 0, 0.1, 0, 0, 0.16, 'noise', 0.001, 0.09);
+    return finish(buf);
+  },
+  /** 治疗（A5）：温和的三度上行（比"升级"短，别把 BGM 的戏抢了） */
+  mend: (rate) => {
+    const buf = buffer(0.5, rate);
+    addTone(buf, rate, 0, 0.46, 523, 523, 0.34, 'sine', 0.02, 0.42);
+    addTone(buf, rate, 0.1, 0.36, 659, 659, 0.26, 'sine', 0.02, 0.34);
     return finish(buf);
   }
 };

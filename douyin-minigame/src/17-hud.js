@@ -66,8 +66,65 @@ G.HUD = (function () {
    * `badge` 是右上角的小角标（宝箱数 / 背包装备数 / 有没有公会）；
    * `state` 只服务画法（'on' 时按钮点亮），命中测试与它无关。
    */
+  /** 右下圆形按钮的半径（功能键与技能栏共用同一份宽度计算，改一处就够） */
+  var FUNCTION_BUTTON_RADIUS = 46;
+
+  /** 右下功能键那一列的左边线（技能栏贴在它左边，见 skillButtons） */
+  function functionColumnLeft() {
+    return SCREEN.width() - BAL.input.attackButtonMargin - FUNCTION_BUTTON_RADIUS * 2;
+  }
+
+  /** 技能栏那一行的中心 y：与最下面那个功能键同一行（都在经验条上方） */
+  function skillRowY() {
+    return SCREEN.height() - SCREEN.safeBottom() - BAL.view.hud.buttonLift - FUNCTION_BUTTON_RADIUS;
+  }
+
+  /**
+   * 技能栏（A5，用户要求"四个技能键"）：四个圆键排在右下功能键的**左边**、与最低那个功能键同一行。
+   * 每个键画圆 + 一个字（斩 / 疗 / 刺 / 旋），下面写技能名；冷却时压一层扇形暗罩并改显示剩余秒数；
+   * 没到解锁等级的画成"锁 + Lv.n"。
+   *
+   * 与功能键的纪律完全一致：**坐标就是命中测试的坐标**（15-input 只认这一份），
+   * 而锁定 / 冷却 / 剩余毫秒由 20-main 的 `skillView()` 提前算好传进来 ——
+   * HUD 不认识 balance 里的技能表，它只认这份视图（界面层不读玩法数据，决策 #4）。
+   *
+   * 注意：最左边那个键有可能压到左下角摇杆区（`input.zoneWidthRatio`）的边缘 —— 这是**故意的**：
+   * 15-input 先判按钮再判摇杆，按到键上就是放技能，摇杆区还有足够大的一块空地（浮动摇杆本来就是按下即出）。
+   */
+  function skillButtons(view) {
+    var config = BAL.view.skillBar;
+    var skills = view && view.skills ? view.skills : null;
+    var slots = skills && skills.slots ? skills.slots : [];
+    if (!slots.length) return [];
+    var radius = config.radius;
+    var step = radius * 2 + config.gap;
+    var rowWidth = slots.length * radius * 2 + (slots.length - 1) * config.gap;
+    // 从右往左贴：最后一个技能紧挨着功能键，第一个技能在最左边（读起来就是 1→4）
+    var firstX = functionColumnLeft() - 18 - rowWidth + radius;
+    var y = skillRowY();
+    var list = [];
+    for (var i = 0; i < slots.length; i += 1) {
+      var slot = slots[i];
+      list.push({
+        id: 'skill' + slot.index,
+        label: slot.key,
+        name: slot.name,
+        badge: 0,
+        state: slot.state,
+        lock: !slot.unlocked,
+        cool: slot.cool,
+        remainSec: slot.remainMs > 0 ? Math.ceil(slot.remainMs / 1000) : 0,
+        unlockLevel: slot.unlockLevel,
+        x: firstX + i * step,
+        y: y,
+        r: radius
+      });
+    }
+    return list;
+  }
+
   function buttons(view) {
-    var radius = 46;
+    var radius = FUNCTION_BUTTON_RADIUS;
     var gap = 18;
     var lift = BAL.view.hud.buttonLift;
     var x = SCREEN.width() - BAL.input.attackButtonMargin - radius;
@@ -98,27 +155,60 @@ G.HUD = (function () {
     return list;
   }
 
-  /** 画按钮（按下时稍微放大 + 变色；自动战斗开着时按钮常亮，一眼看出当前模式） */
+  /**
+   * 画按钮（按下时稍微放大 + 变色；自动战斗开着时按钮常亮，一眼看出当前模式）。
+   * A5 起同一个循环还画技能键：`cool`（剩余比例）+ `remainSec`（读秒）+ `lock`（未解锁）——
+   * 技能键的状态全部来自 skillView()，这里只负责把它画出来。
+   */
   function drawButtons(ctx, view) {
     var list = view && view.buttons ? view.buttons : [];
     var nowMs = view && view.now ? view.now : 0;
     for (var i = 0; i < list.length; i += 1) {
       var button = list[i];
       var pressed = G.INPUT.isPressed(button.id, nowMs);
-      var lit = button.state === 'on' || pressed;
+      var locked = button.lock === true;
+      var cooling = !locked && button.cool > 0;
+      var lit = button.state === 'on' || button.state === 'ready' || pressed;
       ctx.globalAlpha = pressed ? 0.95 : lit ? 0.88 : 0.72;
-      ctx.fillStyle = pressed ? '#ffd479' : lit ? '#2f6b46' : '#1b2438';
+      ctx.fillStyle = pressed ? '#ffd479' : locked ? '#141a26' : lit && !cooling ? '#2f6b46' : '#1b2438';
       ctx.beginPath();
       ctx.arc(button.x, button.y, button.r, 0, Math.PI * 2);
       ctx.fill();
       ctx.globalAlpha = 1;
-      ctx.strokeStyle = pressed ? '#fff3d0' : lit ? '#8ce99a' : '#4d5f86';
+      ctx.strokeStyle = pressed ? '#fff3d0' : locked ? '#38415a' : lit && !cooling ? '#8ce99a' : '#4d5f86';
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.arc(button.x, button.y, button.r, 0, Math.PI * 2);
       ctx.stroke();
 
-      text(ctx, button.label, button.x, button.y, 30, pressed ? '#241a05' : '#dce6ff', 'center');
+      // 冷却：从正上方顺时针压一层暗扇形（"还剩四成"一眼可见），中间改成读秒
+      if (cooling) {
+        ctx.globalAlpha = 0.62;
+        ctx.fillStyle = '#0b1020';
+        ctx.beginPath();
+        ctx.moveTo(button.x, button.y);
+        ctx.arc(button.x, button.y, button.r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * button.cool);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+
+      if (locked) text(ctx, '锁', button.x, button.y, 26, '#5c6b8a', 'center');
+      else if (button.remainSec > 0) text(ctx, String(button.remainSec), button.x, button.y, 26, '#ffffff', 'center');
+      else text(ctx, button.label, button.x, button.y, 30, pressed ? '#241a05' : '#dce6ff', 'center');
+
+      // 技能键在圈下面写名字（锁着的写解锁等级）—— 功能键没有 name，不受影响
+      if (button.name) {
+        text(
+          ctx,
+          locked ? 'Lv.' + button.unlockLevel : button.name,
+          button.x,
+          button.y + button.r + 14,
+          BAL.view.skillBar.nameSize,
+          locked ? '#8d8d8d' : cooling ? '#9fb4d8' : '#e8f1ff',
+          'center'
+        );
+      }
 
       if (button.badge > 0) {
         ctx.fillStyle = '#ff6b6b';
@@ -138,6 +228,7 @@ G.HUD = (function () {
       '目标 ' + (view.target ? view.target.name + ' Lv.' + view.target.level + ' HP ' + Math.round(view.target.hp) : '无'),
       '坐标 ' + Math.round(view.player.x) + ', ' + Math.round(view.player.y) + '  难度带 ' + G.CHUNK.bandOf(view.player.x, view.player.y),
       '怪物击杀 ' + view.save.stats.kills + '（精英 ' + view.save.stats.eliteKills + '）开箱 ' + view.save.stats.opened,
+      '技能 ' + (view.lastSkill || '—') + ' 已放 ' + (view.save.stats.skillCasts || 0) + ' 次  解锁 ' + (view.skills ? view.skills.unlocked + '/' + view.skills.total : '—'),
       '世界种子 ' + BAL.season.worldSeed + '  指纹 ' + (view.fingerprint || '—'),
       '触摸 ' + (G.PLAT.hasTt() ? 'tt' : '桩') + '  存档 ' + (view.saveOk ? '正常' : '未写入')
     ];
@@ -380,6 +471,9 @@ G.HUD = (function () {
 
   return {
     buttons: buttons,
+    skillButtons: skillButtons,
+    functionColumnLeft: functionColumnLeft,
+    skillRowY: skillRowY,
     draw: draw,
     drawTop: drawTop,
     drawExpBar: drawExpBar,

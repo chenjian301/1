@@ -7,8 +7,8 @@
  *   powershell -ExecutionPolicy Bypass -File tools\build-minigame.ps1
  * (or simply run tools\minigame-now.cmd, which does both plus the checks)
  *
- * balance.json sha256, raw file format                  = 9d4eaefe79dee70b5e883218d29a08f5351abe648f4f386c3842eae808ba2ef8
- * balance.json sha256, normalised (BOM stripped, CRLF -> LF) = 1845265e41eed6d9835e289c838cf2059dddfffcb72340f3fe734f92ebe75591
+ * balance.json sha256, raw file format                  = 1b347ccc98af68a03445f34382ed13be086aeb8835adb509134f940f1efc118c
+ * balance.json sha256, normalised (BOM stripped, CRLF -> LF) = db3bfb447dfa09e8866d58839da2cab470cdce32b0bfb8a60aa3766cf6e90dd5
  * tools\check-minigame.ps1 fails if the normalised hash no longer matches balance.json.
  *
  * NOTE: this header is ASCII on purpose -- see tools\gen-minigame-balance.ps1.
@@ -16,7 +16,7 @@
  * the _readme line) is exactly what shared\balance.json contains.
  */
 
-G.BAL_SOURCE_SHA256 = '1845265e41eed6d9835e289c838cf2059dddfffcb72340f3fe734f92ebe75591';
+G.BAL_SOURCE_SHA256 = 'db3bfb447dfa09e8866d58839da2cab470cdce32b0bfb8a60aa3766cf6e90dd5';
 G.BAL ={
   "_readme": "唯一真相：玩法数值与掉落表（决策 #4）。客户端与服务端共读这一份，谁都不许在代码里另写一套数字。改完必须重跑 tools/test-logic.mjs。",
   "version": 1,
@@ -261,6 +261,20 @@ G.BAL ={
     "retargetMs": 500
   },
 
+  "skills": {
+    "_readme": "技能栏（A5）：四个技能键，点一下放（冷却按毫秒）。冷却记在运行时，不进存档；自动战斗开着时从左到右自动放，治疗只在血量低于 autoHealRatio 时放",
+    "globalCooldownMs": 300,
+    "autoHealRatio": 0.6,
+    "castEffectMs": 320,
+    "healEffectRadius": 96,
+    "slots": [
+      { "id": "cleave", "name": "横扫", "key": "斩", "type": "aoe", "unlockLevel": 1, "cooldownMs": 4000, "damageMul": 1.6, "radius": 210 },
+      { "id": "mend", "name": "疗愈", "key": "疗", "type": "heal", "unlockLevel": 4, "cooldownMs": 22000, "healRatio": 0.4 },
+      { "id": "pierce", "name": "穿刺", "key": "刺", "type": "strike", "unlockLevel": 7, "cooldownMs": 7000, "damageMul": 2.6, "range": 420 },
+      { "id": "whirl", "name": "旋风", "key": "旋", "type": "aoe", "unlockLevel": 10, "cooldownMs": 12000, "damageMul": 1.1, "radius": 330 }
+    ]
+  },
+
   "account": {
     "_readme": "账号与昵称（A4）：昵称长度按字符数算；唯一性先查本机注册表，配了云后端再查服务端",
     "nameMin": 2,
@@ -302,6 +316,8 @@ G.BAL ={
     },
     "nameplate": { "barWidth": 104, "barHeight": 10, "offsetY": 30 },
     "hud": { "avatarRadius": 40, "expBarHeight": 20, "buttonLift": 46 },
+    "_skillBar": "技能栏（A5）：四个技能键排在右下功能键左侧、与最低那个功能键同一行；半径/间距都在这里",
+    "skillBar": { "radius": 34, "gap": 12, "nameSize": 17 },
     "damageNumberMs": 700,
     "_feel": "打击感（A4）：斩击特效时长 / 受击顿帧 / 暴击震屏 —— 都是表现层，不进任何随机流",
     "slashMs": 220,

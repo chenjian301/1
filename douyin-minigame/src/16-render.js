@@ -1356,16 +1356,61 @@ G.RENDER = (function () {
   }
 
   /**
+   * 技能特效（A5）之一：一圈向外扩的冲击环 —— 范围技（青色）与治疗（绿色）共用这份画法。
+   * 颜色由调用方给，形状只由播到几成决定，所以同一条特效在 60Hz 与 30Hz 下看着一样。
+   */
+  function drawSkillRing(ctx, point, effect, played, life, color) {
+    var radius = effect.radius * (0.35 + 0.65 * played);
+    ctx.globalAlpha = life * 0.85;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.globalAlpha = life * 0.45;
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, radius * 0.62, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  /** 技能特效之二：从玩家指向目标的一道亮线 + 命中处的一圈光（穿刺） */
+  function drawSkillBolt(ctx, point, effect, played, life, angle) {
+    var length = effect.radius * (0.55 + 0.45 * played);
+    var tipX = point.x + Math.cos(angle) * length;
+    var tipY = point.y + Math.sin(angle) * length;
+    ctx.globalAlpha = life * 0.9;
+    ctx.strokeStyle = '#ffe08a';
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.moveTo(point.x, point.y);
+    ctx.lineTo(tipX, tipY);
+    ctx.stroke();
+
+    ctx.globalAlpha = life * 0.7;
+    ctx.strokeStyle = '#fff3d0';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.arc(tipX, tipY, 20 * (0.6 + played), 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  /**
    * 斩击特效（A4 打击感）：一道随时间扫过去的弧，暴击再加四道向外飞的光刺。
    * 只用 moveTo/arc/lineTo/stroke —— 冒烟的假 canvas 认这些图元，所以"特效画不出来"也能被抓到。
    * 角度由效果自带的 dirX/dirY 现算（atan2 只在这里出现，生成层依旧没有任何三角函数）。
+   * A5 起这里同时负责技能特效（kind = ring / bolt / mend），按 `effect.kind` 分派。
    */
   function drawEffects(ctx, camera, effects, nowMs) {
     var now = typeof nowMs === 'number' ? nowMs : G.WORLD.now();
     var list = effects || [];
     for (var i = 0; i < list.length; i += 1) {
       var effect = list[i];
-      var life = (effect.until - now) / BAL.view.slashMs;
+      // 每种特效自己的时长：斩击 = view.slashMs，技能 = skills.castEffectMs。
+      // 用 startAt/until 反推而不是写死常数 —— 以后再加特效不会画成"瞬间消失"。
+      var span = effect.until - (effect.startAt === undefined ? effect.until - BAL.view.slashMs : effect.startAt);
+      var life = span > 0 ? (effect.until - now) / span : 0;
       if (!(life >= 0)) life = 0;
       if (life > 1) life = 1;
       if (life <= 0) continue;
@@ -1373,6 +1418,25 @@ G.RENDER = (function () {
       var point = toScreen(camera, effect.x, effect.y);
       var played = 1 - life;
       var angle = Math.atan2(effect.dirY, effect.dirX);
+      var kind = effect.kind || 'slash';
+
+      // 技能特效（A5）：只用 arc / moveTo / lineTo 这一组基础图元（假 canvas 只实现了这些）
+      if (kind === 'ring') {
+        drawSkillRing(ctx, point, effect, played, life, '#7fd7ff');
+        ctx.globalAlpha = 1;
+        continue;
+      }
+      if (kind === 'bolt') {
+        drawSkillBolt(ctx, point, effect, played, life, angle);
+        ctx.globalAlpha = 1;
+        continue;
+      }
+      if (kind === 'mend') {
+        drawSkillRing(ctx, point, effect, played, life, '#8ce99a');
+        ctx.globalAlpha = 1;
+        continue;
+      }
+
       var radius = effect.radius * (0.85 + 0.4 * played);
       var from = angle - 1.15 + played * 1.35;
 

@@ -76,7 +76,13 @@ G.GAME = (function () {
     /** 音频是否可用（平台层回报；调试面板与设置面板都看它）—— A4 */
     audioReady: false,
     /** 上一帧在不在营地里（进出营地时提示一次）—— A4 */
-    wasInCamp: false
+    wasInCamp: false,
+    /** 技能冷却（A5）：每个技能栏位一个"能再放的时刻"（世界时间毫秒）—— 不进存档，见 07-skills 的文件头 */
+    skillCooldowns: [],
+    /** 全局冷却（A5）：两次技能之间的最短间隔，防止四个键在同一帧里一起炸出去 */
+    skillGlobalAt: 0,
+    /** 最近放过的技能名（调试面板用）—— A5 */
+    lastSkill: ''
   };
 
   /** 屏幕中央的一条提示（小游戏没有原生 toast，自绘最省事） */
@@ -119,9 +125,13 @@ G.GAME = (function () {
   function applyHitFeedback(events) {
     var hits = events && events.hits ? events.hits : [];
     var hurt = events && events.playerHits ? events.playerHits : [];
+    var skillCast = events && events.skillCast ? events.skillCast : 0;
     var stop = 0;
     var crit = false;
+    var plainHits = 0;
     for (var i = 0; i < hits.length; i += 1) {
+      // 技能命中也吃同一套顿帧 / 震屏，但**不再叠一声普通命中音**：技能自己那声 cast 更清楚（A5）
+      if (hits[i].skill !== true) plainHits += 1;
       if (hits[i].crit) {
         crit = true;
         if (BAL.view.hitStopMs.crit > stop) stop = BAL.view.hitStopMs.crit;
@@ -133,7 +143,7 @@ G.GAME = (function () {
       playSfx('crit');
       setShake(BAL.view.shake.critMs, BAL.view.shake.critPower);
       if (state.save.settings.vibrate !== false) PLAT.vibrate(30);
-    } else if (hits.length > 0) {
+    } else if (plainHits > 0 || (hits.length > 0 && skillCast === 0)) {
       playSfx('hit');
     }
     if (hurt.length > 0) {
@@ -198,7 +208,7 @@ G.GAME = (function () {
     // 世界指纹启动时算一次并常驻调试面板：它是"两份实现没有漂移"的证据
     state.fingerprint = G.SELFTEST.worldFingerprint(BAL.season.worldSeed);
 
-    INPUT.setButtons(HUD.buttons({ save: state.save }));
+    INPUT.setButtons(uiView().buttons);
     PLAT.onTouch({ start: onTouchStart, move: onTouchMove, end: onTouchEnd });
     PLAT.onShow(onLifecycle);
 
@@ -456,6 +466,150 @@ G.GAME = (function () {
     return settings.autoBattle;
   }
 
+  /* ------------------------------------------------ 技能栏（A5 新增） */
+
+  /** 冷却数组按技能个数补齐 / 截断（读档、改表之后长度都可能不一样） */
+  function skillCooldowns() {
+    var list = state.skillCooldowns;
+    var total = G.SKILLS.count();
+    for (var i = list.length; i < total; i += 1) list.push(0);
+    if (list.length > total) list.length = total;
+    return list;
+  }
+
+  /**
+   * 技能栏视图：每个栏位算好"解锁 / 冷却比例 / 剩余秒数"，界面层只认这一份
+   * （决策 #4：界面不读玩法数据）。20-main 是唯一知道"技能表长什么样、冷却还剩多少"的地方，
+   * 17-hud 只负责画圆和扇形 —— 与功能键一模一样的分工。
+   */
+  function skillView() {
+    var nowMs = WORLD.now();
+    var level = state.save ? state.save.level : 1;
+    var cooldowns = skillCooldowns();
+    var slots = [];
+    for (var i = 0; i < G.SKILLS.count(); i += 1) {
+      var slot = G.SKILLS.slotAt(i);
+      var unlocked = G.SKILLS.unlocked(i, level);
+      var remain = unlocked ? G.SKILLS.remainMs(cooldowns, i, nowMs) : 0;
+      slots.push({
+        index: i,
+        id: slot.id,
+        name: slot.name,
+        key: slot.key,
+        type: slot.type,
+        unlockLevel: slot.unlockLevel,
+        unlocked: unlocked,
+        ready: unlocked && remain <= 0,
+        remainMs: remain,
+        cool: remain > 0 && slot.cooldownMs > 0 ? remain / slot.cooldownMs : 0,
+        state: !unlocked ? 'lock' : remain > 0 ? 'cool' : 'ready'
+      });
+    }
+    return {
+      level: level,
+      unlocked: G.SKILLS.unlockedCount(level),
+      total: G.SKILLS.count(),
+      auto: !!(state.save && state.save.settings && state.save.settings.autoBattle === true),
+      slots: slots
+    };
+  }
+
+  /**
+   * 真正执行一次技能释放（手动与自动都走这里，唯一的区别是 quiet —— 自动释放不刷屏提示）。
+   * 顺序刻意写成"先判定 → 再结算 → 再记冷却"：判定不过就绝不进冷却（玩家按空不该被罚）。
+   * 返回值给调用方与自检用：{ ok, reason, slot, id, name, type, targets, kills, healed, crit }。
+   */
+  function performCast(index, quiet) {
+    if (state.screen !== 'playing' || !state.player || !state.stats) return { ok: false, reason: 'screen' };
+    if (state.player.dead) {
+      if (!quiet) flash('倒下了，复活后再放技能', 1400);
+      return { ok: false, reason: 'dead' };
+    }
+    var nowMs = WORLD.now();
+    var check = G.SKILLS.canCast(skillCooldowns(), state.skillGlobalAt, index, nowMs, state.save.level);
+    var slot = check.slot;
+    if (!check.ok) {
+      if (!quiet) {
+        if (check.reason === 'locked') {
+          flash(
+            slot ? slot.name + ' 要 Lv.' + slot.unlockLevel + ' 才解锁（现在 Lv.' + state.save.level + '）' : '没有这个技能',
+            1800
+          );
+        } else if (check.reason === 'global') {
+          flash('手速太快：技能之间有 ' + BAL.skills.globalCooldownMs + 'ms 公共冷却', 1200);
+        } else {
+          flash(slot ? slot.name + ' 冷却中：还要 ' + Math.ceil(check.remainMs / 1000) + ' 秒' : '技能不可用', 1400);
+        }
+      }
+      return { ok: false, reason: check.reason, slot: index };
+    }
+
+    // 技能自己造一份 events：命中走同一套打击感，击杀走同一套奖励归属（决策 #1）
+    var events = { kills: [], playerHits: [], playerDown: false, target: null, hits: [] };
+    var result = WORLD.castSkill(state.player, state.stats, index, events);
+    if (!result) return { ok: false, reason: 'unknown', slot: index };
+
+    var stamped = G.SKILLS.markCast(skillCooldowns(), state.skillGlobalAt, index, nowMs);
+    state.skillCooldowns = stamped.cooldowns;
+    state.skillGlobalAt = stamped.globalAt;
+    state.lastSkill = slot.name;
+    state.save.stats.skillCasts = (state.save.stats.skillCasts || 0) + 1;
+
+    playSfx(slot.type === 'heal' ? 'mend' : 'cast');
+    applyHitFeedback(events);
+    for (var i = 0; i < events.kills.length; i += 1) applyKill(events.kills[i]);
+
+    if (!quiet) {
+      if (slot.type === 'heal') flash(slot.name + '：+' + result.healed + ' 生命', 1400);
+      else if (result.targets === 0) flash(slot.name + '：附近没有目标', 1200);
+      else flash(slot.name + '：命中 ' + result.targets + ' 只（击杀 ' + result.kills + '）', 1400);
+    }
+    return {
+      ok: true,
+      reason: 'ok',
+      slot: index,
+      id: slot.id,
+      name: slot.name,
+      type: slot.type,
+      targets: result.targets,
+      kills: result.kills,
+      healed: result.healed,
+      crit: result.crit,
+      /** 逐只的伤害明细（自检用它验证"怪掉的血 = 账上的伤害"） */
+      hits: result.hits
+    };
+  }
+
+  /** 点技能键（手动释放）：未解锁 / 冷却中 / 没目标都会给一句提示 */
+  function castSkillSlot(index) {
+    return performCast(index, false);
+  }
+
+  /**
+   * 自动释放技能（A5）：自动战斗开着的逻辑帧调一次。
+   * 挑哪个由 07-skills 的 `autoChoice` 决定（纯函数，可以单独断言）：从左到右第一个能用的，
+   * 伤害技要有怪在打击范围内，治疗只在血量低于 `skills.autoHealRatio` 时放。
+   * 这就是 A4 决策 #10c 里说的"真要做技能得单开一个工作包"的那个工作包。
+   */
+  function autoCastStep() {
+    if (!state.save || !state.save.settings || state.save.settings.autoBattle !== true) return null;
+    var player = state.player;
+    var stats = state.stats;
+    if (!player || !stats || player.dead) return null;
+    var chosen = G.SKILLS.autoChoice({
+      cooldowns: skillCooldowns(),
+      globalAt: state.skillGlobalAt,
+      nowMs: WORLD.now(),
+      level: state.save.level,
+      hpRatio: stats.hpMax > 0 ? player.hp / stats.hpMax : 1,
+      x: player.x,
+      y: player.y,
+      monsters: WORLD.allMonsters()
+    });
+    if (chosen < 0) return null;
+    return performCast(chosen, true);
+  }
+
   /* ---------------------------------------------------------------- 逻辑步 */
 
   /**
@@ -497,6 +651,8 @@ G.GAME = (function () {
         PLAYER.move(player, 0, 0, dtMs / 1000, stats);
       }
     }
+    // 自动战斗（A5）：在"自动出手 + 自动走位"之外再补上**自动放技能**
+    if (!player.dead && state.save.settings.autoBattle) autoCastStep();
     PLAYER.decayKnockback(player);
 
     var events = WORLD.update(dtMs, player, stats, state.camera, SCREEN.width(), SCREEN.height());
@@ -882,6 +1038,11 @@ G.GAME = (function () {
 
   /** 右下功能键 → 打开 / 收起面板；「自动」是开关（用户要求"自动战斗设置为按钮，点击开启"） */
   function onHudButton(id) {
+    // 技能键（A5）：技能有自己的声音（cast / mend），不再叠一声 UI 的"咔"
+    if (id.indexOf('skill') === 0) {
+      castSkillSlot(Number(id.slice(5)));
+      return;
+    }
     playSfx('ui');
     if (id === 'auto') {
       toggleAutoBattle();
@@ -958,6 +1119,8 @@ G.GAME = (function () {
 
   /** 组装一份"界面视图"：HUD / 面板 / 调试面板都只读它（避免各处各取一套数据） */
   function uiView() {
+    // 技能栏视图先算一次：功能键与技能键合并成同一份按钮表交给输入层（画法与命中共用一份坐标）
+    var skills = skillView();
     return {
       save: state.save,
       player: state.player,
@@ -970,7 +1133,11 @@ G.GAME = (function () {
        * 只有 HUD 的功能键在这里（面板的关闭键由 18-panels 自己命中）：
        * 卡片只占 1/3 屏，功能键必须一直可点，所以它不随面板开合而变。
        */
-      buttons: HUD.buttons({ save: state.save, inCamp: inCamp() }),
+      buttons: HUD.buttons({ save: state.save, inCamp: inCamp() }).concat(HUD.skillButtons({ skills: skills })),
+      /** A5：技能栏视图（每个栏位的解锁 / 冷却比例 / 剩余毫秒）—— 17-hud 只认它，不读 balance */
+      skills: skills,
+      /** A5：最近放过的技能名（调试面板） */
+      lastSkill: state.lastSkill,
       debug: state.debug,
       flash: state.flash,
       now: state.now,
@@ -1188,6 +1355,10 @@ G.GAME = (function () {
     handleLoginAction: handleLoginAction,
     autoStep: autoStep,
     toggleAutoBattle: toggleAutoBattle,
+    castSkillSlot: castSkillSlot,
+    autoCastStep: autoCastStep,
+    skillView: skillView,
+    skillCooldowns: skillCooldowns,
     toggleSetting: toggleSetting,
     syncAudio: syncAudio,
     playSfx: playSfx,

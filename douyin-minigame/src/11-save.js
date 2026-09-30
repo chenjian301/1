@@ -67,7 +67,7 @@ G.SAVE = (function () {
       /** 设置项（自动战斗 / 音效 / 震动）—— A4 起随存档走，换设备也记得 */
       settings: defaultSettings(),
       /** 统计（调试面板与将来的埋点用） */
-      stats: { kills: 0, eliteKills: 0, opened: 0, playMs: 0, distance: 0 }
+      stats: { kills: 0, eliteKills: 0, opened: 0, playMs: 0, distance: 0, skillCasts: 0 }
     };
   }
 
@@ -118,7 +118,8 @@ G.SAVE = (function () {
         eliteKills: numberOr(raw.stats.eliteKills, 0, 0, Infinity),
         opened: numberOr(raw.stats.opened, 0, 0, Infinity),
         playMs: numberOr(raw.stats.playMs, 0, 0, Infinity),
-        distance: numberOr(raw.stats.distance, 0, 0, Infinity)
+        distance: numberOr(raw.stats.distance, 0, 0, Infinity),
+        skillCasts: numberOr(raw.stats.skillCasts, 0, 0, Infinity)
       };
     }
     return save;
