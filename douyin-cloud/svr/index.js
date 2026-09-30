@@ -14,6 +14,7 @@
  *   POST /api/profile    **真·登录**：tt.login 的 code → code2session → openid，并签发会话令牌
  *   POST /api/save       上传存档（令牌优先；没令牌时走"未验证"的过渡通道）
  *   GET  /api/save       拉取存档（?token= 或 ?openid=）
+ *   POST /api/name       **昵称唯一性**：占一个昵称（重名 409）—— 跨设备去重靠它
  *
  * 登录链路（2026-09-30 接入，阶段 B 第一件事）：
  *   客户端 tt.login → code → POST /api/profile { code } → 服务端调抖音 code2session
@@ -67,6 +68,14 @@ const MAX_RESPONSE_BYTES = 900 * 1024;
 
 /** 内存存档（演示用）。正式版换 SQLite / Redis，表结构见 docs\design\02-architecture.md §7 */
 const saves = new Map();
+
+/**
+ * 昵称注册表（同样是内存版）：nameKey → { account, name, claimedAt, verified }。
+ * 为什么服务端也要挡一遍：客户端的本机注册表只管得住一台设备，
+ * "昵称不能重复"要成立就得有中心节点 —— 这就是 /api/name 存在的唯一理由。
+ * 只增不减：**存档可以被重置，昵称占用不该跟着被释放**，否则改名刷号就能绕过去重。
+ */
+const names = new Map();
 
 /** 存档命名空间：验签账号 / 匿名账号 / 未验证的过渡通道。三者互不覆盖（安全红线） */
 const NS_VERIFIED = 'douyin:';
@@ -332,6 +341,38 @@ function saveSummary(record) {
   };
 }
 
+/**
+ * 昵称规则：与客户端 `douyin-minigame\src\11-save.js` 的 G.ACCOUNT **同一套**
+ * （2~12 个字符，只允许中文 / 字母 / 数字 / 下划线，保留名不给用）。
+ * 两边都写一遍不是重复劳动：客户端那份管手感（离线也能立刻给提示），
+ * 这份管**权威**（改了客户端也骗不到一个重名）。
+ */
+const NAME_MIN = 2;
+const NAME_MAX = 12;
+const NAME_LEGAL = /^[\u4e00-\u9fa5A-Za-z0-9_]+$/;
+const RESERVED_NAMES = ['gm', 'admin', 'administrator', 'root', 'system', 'official', '官方', '客服', '管理员', '系统', '无名者', '测试', 'test'];
+
+/** 唯一性键：去掉空白与非法字符、截到上限、转小写（Alice == alice） */
+function nameKeyOf(value) {
+  if (typeof value !== 'string') return '';
+  const text = value.replace(/\s+/g, '').replace(/[^\u4e00-\u9fa5A-Za-z0-9_]/g, '');
+  const chars = text.split('');
+  return (chars.length > NAME_MAX ? chars.slice(0, NAME_MAX).join('') : text).toLowerCase();
+}
+
+/** 校验昵称 → { ok, name, key } 或 { ok:false, reason }（先看非法字符再看长度，避免脏串被截成合法名） */
+function validateName(value) {
+  const text = typeof value === 'string' ? value.replace(/\s+/g, '') : '';
+  if (!text) return { ok: false, reason: 'empty' };
+  if (!NAME_LEGAL.test(text)) return { ok: false, reason: 'illegal' };
+  const length = text.split('').length;
+  if (length < NAME_MIN) return { ok: false, reason: 'too_short' };
+  if (length > NAME_MAX) return { ok: false, reason: 'too_long' };
+  const key = nameKeyOf(text);
+  if (RESERVED_NAMES.indexOf(key) >= 0) return { ok: false, reason: 'reserved' };
+  return { ok: true, name: text, key: key };
+}
+
 /** 极简路由：只认 /api/*，其余一律 404（避免误开外网接口） */
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
@@ -369,6 +410,8 @@ const server = http.createServer(async (req, res) => {
         season: SEASON,
         time: Date.now(),
         saves: saves.size,
+        /** 已登记的昵称数（唯一性注册表；只增不减） */
+        names: names.size,
         /** 登录是否已配好（只回主机名，不回 appid/secret —— 这个接口谁都能调） */
         login: {
           configured: LOGIN_CONFIGURED,
@@ -445,6 +488,64 @@ const server = http.createServer(async (req, res) => {
         ttlMs: SESSION_TTL_MS,
         hasSave: !!existing,
         save: saveSummary(existing)
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && path === '/api/name') {
+      const body = await readBody(req);
+      const checked = validateName(body.name);
+      if (!checked.ok) {
+        sendJson(res, 400, {
+          ok: false,
+          error: 'invalid_name',
+          reason: checked.reason,
+          nameMin: NAME_MIN,
+          nameMax: NAME_MAX,
+          note: '昵称 2~12 个字符，只能用中文 / 字母 / 数字 / 下划线'
+        });
+        return;
+      }
+
+      /*
+       * 谁在占这个名字：
+       *   有令牌  → 账号**只从令牌里取**（验签过的，可信）；
+       *   没令牌  → 用请求里的 account 标识当占用人（不可信，但足以挡住"两台设备抢同一个名字"）。
+       *     为什么没令牌也收：阶段 B 的令牌链路还没和客户端接通，而"昵称不能重复"现在就要能用；
+       *     等 REQUIRE_TOKEN=1 之后，把下面这段收窄成"无令牌直接 401"即可（届时客户端已带 token）。
+       */
+      const identity = resolveIdentity(req, url, body);
+      const claimedBy = identity.ok
+        ? identity.account
+        : 'anon-name:' + (typeof body.account === 'string' && body.account ? body.account.slice(0, 64) : 'unknown');
+      const existing = names.get(checked.key);
+      if (existing && existing.account !== claimedBy) {
+        sendJson(res, 409, {
+          ok: false,
+          error: 'name_taken',
+          name: checked.name,
+          takenAt: existing.claimedAt,
+          note: '昵称已被占用，换一个'
+        });
+        return;
+      }
+
+      names.set(checked.key, {
+        account: claimedBy,
+        name: checked.name,
+        claimedAt: existing ? existing.claimedAt : Date.now(),
+        verified: identity.ok ? identity.verified === true : false
+      });
+      console.log('[name] ' + (existing ? '重复登记' : '新登记') + ' key=' + checked.key + ' by=' + claimedBy);
+      sendJson(res, 200, {
+        ok: true,
+        name: checked.name,
+        key: checked.key,
+        account: claimedBy,
+        verified: identity.ok ? identity.verified === true : false,
+        /** claimed=false 表示"这个名字本来就是你的"，客户端据此提示更准确 */
+        claimed: !existing,
+        total: names.size
       });
       return;
     }
@@ -535,6 +636,7 @@ server.listen(PORT, () => {
   console.log('  profile : POST /api/profile  { code }   -> openid + token');
   console.log('  save    : POST /api/save     { token | openid, save }');
   console.log('  load    : GET  /api/save?token=...   (或 ?openid=...)');
+  console.log('  name    : POST /api/name     { name, account? }   -> 重名回 409（已登记 ' + names.size + ' 个）');
   console.log(
     '  login   : ' +
       (LOGIN_CONFIGURED

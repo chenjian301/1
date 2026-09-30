@@ -8,7 +8,8 @@
  *   所以部署前必须跑一次**真进程 + 真 HTTP 请求**，这个文件就是那一关。
  *
  * 它还顺手把**登录链路**整条跑通（不连抖音云、不花一分钱）：起一个假的 code2session 服务，
- * 让服务端真的去调它，于是"换 openid / 签令牌 / 令牌鉴权 / 越权写 / 伪造与过期令牌"全都能验。
+ * 让服务端真的去调它，于是"换 openid / 签令牌 / 令牌鉴权 / 越权写 / 伪造与过期令牌"全都能验；
+ * 昵称唯一性（/api/name：首次登记 / 重名 409 / 同设备幂等 / 非法输入 / 带令牌时占用人来自令牌）也一样。
  *
  * 三段进程（都在 127.0.0.1 上，端口 = SMOKE_PORT(=8099) / +2 / +3；假抖音端在 +1）：
  *   A. 正常实例：给了 AppID/密钥，REQUIRE_TOKEN 关（阶段 B 的默认状态）
@@ -478,6 +479,70 @@ async function main() {
     JSON.stringify(drift.json)
   );
 
+  /* --- 昵称唯一性（/api/name）：用户要求"昵称不能重复"的服务端一半 --- */
+  const claim1 = await request(base, 'POST', '/api/name', { name: '孤影001', account: 'dev-a' });
+  check(
+    'POST /api/name 首次登记 200 + claimed=true',
+    claim1.status === 200 && !!claim1.json && claim1.json.ok === true && claim1.json.claimed === true && claim1.json.key === '孤影001',
+    JSON.stringify(claim1.json)
+  );
+
+  const claimDup = await request(base, 'POST', '/api/name', { name: '孤影001', account: 'dev-b' });
+  check(
+    '另一台设备抢同一个昵称回 409 name_taken（跨设备去重）',
+    claimDup.status === 409 && !!claimDup.json && claimDup.json.error === 'name_taken',
+    'status=' + claimDup.status
+  );
+
+  const claimSame = await request(base, 'POST', '/api/name', { name: ' 孤影001 ', account: 'dev-a' });
+  check(
+    '同一台设备重复登记是幂等的（claimed=false，不报错）',
+    claimSame.status === 200 && !!claimSame.json && claimSame.json.claimed === false,
+    JSON.stringify(claimSame.json)
+  );
+
+  const claimCase = await request(base, 'POST', '/api/name', { name: 'ALICE01', account: 'dev-a' });
+  const claimCaseDup = await request(base, 'POST', '/api/name', { name: 'alice01', account: 'dev-b' });
+  check(
+    '大小写不同算同一个昵称（ALICE01 == alice01）',
+    claimCase.status === 200 && claimCaseDup.status === 409,
+    claimCase.status + ' / ' + claimCaseDup.status
+  );
+
+  const claimShort = await request(base, 'POST', '/api/name', { name: '甲', account: 'dev-a' });
+  const claimIllegal = await request(base, 'POST', '/api/name', { name: '名字!!', account: 'dev-a' });
+  const claimReserved = await request(base, 'POST', '/api/name', { name: '管理员', account: 'dev-a' });
+  const claimLong = await request(base, 'POST', '/api/name', { name: '一二三四五六七八九十十一十二十三', account: 'dev-a' });
+  check(
+    '非法昵称按原因回 400（太短 / 有符号 / 保留名 / 太长）—— 与客户端同一套规则',
+    claimShort.status === 400 &&
+      claimShort.json.reason === 'too_short' &&
+      claimIllegal.status === 400 &&
+      claimIllegal.json.reason === 'illegal' &&
+      claimReserved.status === 400 &&
+      claimReserved.json.reason === 'reserved' &&
+      claimLong.status === 400 &&
+      claimLong.json.reason === 'too_long',
+    [claimShort.json.reason, claimIllegal.json.reason, claimReserved.json.reason, claimLong.json.reason].join(',')
+  );
+
+  const claimWithToken = await request(base, 'POST', '/api/name', { name: '带令牌的昵称', token: token, account: 'spoofed-account' });
+  check(
+    '带令牌登记时占用人来自令牌（verified=true），body 里的 account 被忽略',
+    claimWithToken.status === 200 &&
+      !!claimWithToken.json &&
+      claimWithToken.json.verified === true &&
+      String(claimWithToken.json.account).indexOf('douyin:') === 0,
+    JSON.stringify(claimWithToken.json)
+  );
+
+  const healthWithNames = await request(base, 'GET', '/api/health');
+  check(
+    '健康检查回报已登记昵称数（names > 0）',
+    healthWithNames.status === 200 && !!healthWithNames.json && healthWithNames.json.names > 0,
+    'names=' + (healthWithNames.json && healthWithNames.json.names)
+  );
+
   const noSave = await request(base, 'GET', '/api/save?openid=nobody-here');
   check('GET /api/save 没有存档时 404 no_save', noSave.status === 404 && !!noSave.json && noSave.json.error === 'no_save', 'status=' + noSave.status);
 
@@ -537,6 +602,18 @@ async function main() {
         crossInstance.json.verified === true &&
         crossInstance.json.account === 'douyin:' + FAKE_OPENID,
       JSON.stringify(crossInstance.json)
+    );
+
+    /*
+     * 已知的口子（写在这里，不许它悄悄溜过去）：/api/name 目前**不**受 REQUIRE_TOKEN 约束 ——
+     * 阶段 B 的客户端还没带令牌，昵称去重却要现在就能用，所以无令牌登记是允许的（verified:false）。
+     * 等客户端把令牌接上，这里就该跟着 /api/save 一起收紧成 401，这条断言也要改。
+     */
+    const strictName = await request(strict.base, 'POST', '/api/name', { name: '严格实例昵称', account: 'dev-strict' });
+    check(
+      'REQUIRE_TOKEN=1 下 /api/name 仍接受无令牌登记（已知口子，阶段 B 收紧）',
+      strictName.status === 200 && !!strictName.json && strictName.json.verified === false,
+      JSON.stringify(strictName.json)
     );
   }
 
