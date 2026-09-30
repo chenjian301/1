@@ -981,6 +981,7 @@ G.LOGIN = (function () {
     randomName: randomName,
     setMessage: setMessage,
     setBusy: setBusy,
+    isBusy: isBusy,
     setHasAccount: setHasAccount,
     isArmed: isArmed,
     rect: rect,

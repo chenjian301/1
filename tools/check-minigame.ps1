@@ -181,6 +181,46 @@ $clashes = @()
 foreach ($name in $namespaceMap.Keys) {
   if ($namespaceMap[$name] -match ',') { $clashes += ($name + ' -> ' + $namespaceMap[$name]) }
 }
+if ($clashes.Count -eq 0) { Ok ("no two parts assign the same G.NAME (" + $namespaceMap.Count + " modules)") }
+else { Bad ("two parts assign the same namespace: " + ($clashes -join '; ')) }
+
+Write-Output "== module API surface =="
+# Every 'G.MODULE.name' call site must resolve to a name that module really exports. This is the one
+# bug class neither the logic assertions nor the other scans can see: the function is written and
+# called at runtime, but was left out of the 'return { ... }' export list.
+# 2026-09-30: G.LOGIN.isBusy -- tapping the login button threw "is not a function" on a real device
+# while all 385 assertions still passed (the self-test called beginPlaying directly, never the button).
+# Only IIFE modules are collected: the export object is the block indented by exactly two spaces and
+# followed by '})();'. Plain object literals (CONFIG) and the generated BAL are skipped by name.
+$apiExports = @{}
+foreach ($part in $parts) {
+  $code = StripComments (ReadText $part.FullName)
+  $mods = [Text.RegularExpressions.Regex]::Matches($code, "(?sm)^G\.([A-Z_][A-Z0-9_]*)\s*=\s*\(function.*?^  return \{(.*?)^  \};\s*\n\}\)\(\);")
+  foreach ($match in $mods) {
+    $module = $match.Groups[1].Value
+    $keys = [Text.RegularExpressions.Regex]::Matches($match.Groups[2].Value, '(?m)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:')
+    foreach ($key in $keys) { $apiExports[($module + '.' + $key.Groups[1].Value)] = $part.Name }
+  }
+}
+$apiMissing = @()
+foreach ($part in $parts) {
+  $code = StripComments (ReadText $part.FullName)
+  $uses = [Text.RegularExpressions.Regex]::Matches($code, 'G\.([A-Z_][A-Z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)')
+  foreach ($match in $uses) {
+    $module = $match.Groups[1].Value
+    if ($module -eq 'CONFIG' -or $module -eq 'BAL') { continue }
+    $key = $module + '.' + $match.Groups[2].Value
+    if (-not $apiExports.ContainsKey($key)) { $apiMissing += ($part.Name + ' -> ' + $key) }
+  }
+}
+$apiMissing = @($apiMissing | Sort-Object -Unique)
+if ($apiExports.Count -eq 0) {
+  Bad "no module export lists were found -- did the module style change?"
+} elseif ($apiMissing.Count -eq 0) {
+  Ok ("every G.MODULE.name call site resolves to an export (" + $apiExports.Count + " names in " + $namespaceMap.Count + " modules)")
+} else {
+  Bad ("call sites that resolve to nothing (missing export?): " + ($apiMissing -join '; '))
+}
 Write-Output "== tooling =="
 $scriptProblems = @()
 # PowerShell 5.1 reads a BOM-less .ps1 as ANSI, so one non-ASCII byte in one is mojibake at best

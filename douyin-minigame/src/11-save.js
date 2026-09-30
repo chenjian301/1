@@ -4,7 +4,7 @@
  * 阶段 A 只做**本地存档**（01-game-design §11：开发期自测不发网络请求）：
  *   - 首次进入：在距原点 300~800 的环内随机出生（决策 #5），之后登录回到**上次离线位置**；
  *   - 存档内容：角色名/等级/经验、金币、宝箱背包与保底计数、已穿装备、背包、公会、设置项、统计数据；
- *   - 读写全部走 `G.PLAT.storage`（`tt.setStorageSync` 的一层薄封装），
+ *   - 读写全部走 `G.PLAT.storageGet / storageSet / storageRemove`（`tt.setStorageSync` 的一层薄封装），
  *     所以本文件**不出现 tt 字样**，照样能在 node 里断言（红线见 00-config.js）。
  *
  * 另外本文件还挂了一个模块：`G.ACCOUNT`（注册 / 登录 / 昵称唯一性，A4 新增）。

@@ -1520,6 +1520,86 @@ G.SELFTEST = (function () {
     eq('过期技能特效不画任何东西（省落笔）', expiredCtx.calls.count, 0);
   }
 
+  /**
+   * 界面入口（A5 补的回归网）：**玩家真正会点的每一个入口**都点一遍。
+   *
+   * 为什么必须单开一组：2026-09-30 真机验收时，"点登录"当场抛 `G.LOGIN.isBusy is not a function` ——
+   * 函数写了、也用了，但**漏在 return 的导出清单里**。逻辑断言看不见这种错（自检直接调
+   * `beginPlaying`，从来不点登录键），静态检查也看不见（名字在文件里到处都是）。
+   * 所以这里改验"**入口存在且能跑通**"：① G.LOGIN 的接口面；② 真走一遍登录 → 创建角色；
+   * ③ 把 HUD 上的每一个键（功能键 + 技能键）都按一遍。
+   */
+  function checkEntryPoints() {
+    section('界面入口：登录链路与每个按键（防"函数没导出"这类只在真机上暴露的错）');
+    var GAME = G.GAME;
+    var login = G.LOGIN;
+    if (!GAME || !login) {
+      ok('G.GAME / G.LOGIN 可用', false, '拿不到模块');
+      return;
+    }
+
+    // ① 接口面：20-main 的登录 / 创建角色链路上会调的每一个名字
+    var api = [
+      'open', 'stageId', 'draftName', 'setDraftName', 'randomName', 'setMessage',
+      'setBusy', 'isBusy', 'setHasAccount', 'isArmed', 'rect', 'buttons', 'press', 'release', 'draw'
+    ];
+    var i;
+    var missing = [];
+    for (i = 0; i < api.length; i += 1) {
+      if (typeof login[api[i]] !== 'function') missing.push(api[i]);
+    }
+    ok('G.LOGIN 的接口全都导出了（漏一个就等于玩家点不动）', missing.length === 0, missing.join(','));
+
+    // ② 真走一遍：模拟器里点的就是「登录 / 开始游戏」→「创建角色并进入游戏」
+    G.SAVE.clear();
+    GAME.boot();
+    var threw = '';
+    try {
+      GAME.loginAction();
+    } catch (error) {
+      threw = String(error && error.message ? error.message : error);
+    }
+    eq('点「登录 / 开始游戏」不抛异常', threw, '');
+    eq('没有角色名时停在创建角色界面', GAME.state.screen, 'createRole');
+    ok('创建角色界面上已经有一个建议昵称（模拟器没有键盘也能玩）', login.draftName().length > 0, login.draftName());
+
+    login.setDraftName('');
+    try {
+      GAME.createRoleAction();
+    } catch (error) {
+      threw = String(error && error.message ? error.message : error);
+    }
+    eq('空名字点「创建角色」不抛异常（只提示）', threw, '');
+    ok('空名字被拒（还没进游戏）', GAME.state.screen === 'createRole');
+
+    login.setDraftName('入口测试者');
+    try {
+      GAME.createRoleAction();
+    } catch (error) {
+      threw = String(error && error.message ? error.message : error);
+    }
+    eq('填了名字再点「创建角色」不抛异常', threw, '');
+    eq('创建成功 → 进入游戏', GAME.state.screen, 'playing');
+    eq('角色名写进存档', GAME.state.save.name, '入口测试者');
+    ok('账号也登记了（本机注册表里能找到）', G.ACCOUNT.takenLocally('入口测试者'));
+
+    // ③ 每个按键都按一遍（功能键 5~6 个 + 技能键 4 个）
+    var view = GAME.uiView();
+    var ids = [];
+    for (i = 0; i < view.buttons.length; i += 1) ids.push(view.buttons[i].id);
+    ok('按钮表里有功能键与技能键', ids.length >= 9 && ids.indexOf('skill0') >= 0, ids.join(','));
+    threw = '';
+    for (i = 0; i < ids.length; i += 1) {
+      try {
+        GAME.onHudButton(ids[i]);
+      } catch (error) {
+        threw = ids[i] + ': ' + String(error && error.message ? error.message : error);
+      }
+    }
+    eq('每个键都能按（不抛异常）', threw, '');
+    G.PANELS.close();
+  }
+
   /* ---------------------------------------- 13. 冒烟：假 canvas 跑真帧 */
 
   /**
@@ -1689,7 +1769,8 @@ G.SELFTEST = (function () {
       checkAudio,
       checkCamp,
       checkSkills,
-      checkSkillsRuntime
+      checkSkillsRuntime,
+      checkEntryPoints
     ];
     for (var i = 0; i < groups.length; i += 1) {
       try {
@@ -1746,6 +1827,7 @@ G.SELFTEST = (function () {
     checkCamp: checkCamp,
     checkSkills: checkSkills,
     checkSkillsRuntime: checkSkillsRuntime,
+    checkEntryPoints: checkEntryPoints,
     checkMap: checkMap,
     checkLook: checkLook,
     runSmoke: runSmoke,
